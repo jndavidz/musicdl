@@ -955,6 +955,70 @@ DeezerMusicClient comes with no extra CLI tool requirements such as ffmpeg or N_
   music_client.download(song_infos=song_infos)
   ```
 
+#### FMAMusicClient
+
+[Free Music Archive (FMA)](https://freemusicarchive.org/) is a curated online library offering free, legal access to independent music that users can play, download, and share.
+
+FMAMusicClient provides access to the songs available on the platform mentioned above.
+
+FMAMusicClient works out of the box without relying on external CLI dependencies like ffmpeg or N_m3u8DL-RE, installing musicdl is sufficient.
+
+(1) Command-Line Usage
+
+- Basic usage for song search and download, without login cookies:
+  
+  `musicdl -m FMAMusicClient`
+
+- Simple usage for searching and downloading songs, with login cookies:
+
+  `musicdl -m FMAMusicClient -i "{'FMAMusicClient': {'default_search_cookies': 'YOUR_COOKIES'}}"`
+
+- Simple usage for playlist parsing and downloading, with login cookies:
+
+  `musicdl -p "https://freemusicarchive.org/member/meghan-admin/meet-policy-mix/" -m FMAMusicClient -i "{'FMAMusicClient': {'default_parse_cookies': 'YOUR_COOKIES'}}"`
+
+(2) Invoke It in Python
+
+- Basic usage for song search and download, without login cookies:
+
+  ```python
+  from musicdl import musicdl
+
+  music_client = musicdl.MusicClient(music_sources=['FMAMusicClient'])
+  music_client.startcmdui()
+  ```
+
+- Simple usage for searching and downloading songs, with login cookies:
+
+  ```python
+  from musicdl import musicdl
+  
+  your_vip_cookies_with_str_or_dict_format = ''
+  init_music_clients_cfg = {
+    'FMAMusicClient': {
+        'default_search_cookies': your_vip_cookies_with_str_or_dict_format,
+    }
+  }
+  music_client = musicdl.MusicClient(music_sources=['FMAMusicClient'], init_music_clients_cfg=init_music_clients_cfg)
+  music_client.startcmdui()
+  ```
+
+- Simple usage for playlist parsing and downloading, with login cookies:
+
+  ```python
+  from musicdl import musicdl
+  
+  your_vip_cookies_with_str_or_dict_format = ''
+  init_music_clients_cfg = {
+    'FMAMusicClient': {
+        'default_parse_cookies': your_vip_cookies_with_str_or_dict_format,
+    }
+  }
+  music_client = musicdl.MusicClient(music_sources=['FMAMusicClient'], init_music_clients_cfg=init_music_clients_cfg)
+  song_infos = music_client.parseplaylist("https://freemusicarchive.org/member/meghan-admin/meet-policy-mix/")
+  music_client.download(song_infos=song_infos)
+  ```
+
 #### JamendoMusicClient
 
 [Jamendo](https://www.jamendo.com/) is a music platform that offers free music streaming and downloads, with a focus on independent artists and royalty-free music.
@@ -1111,6 +1175,84 @@ With JooxMusicClient, there is no extra dependency on CLI tools such as ffmpeg o
   }
   music_client = musicdl.MusicClient(music_sources=['JooxMusicClient'], init_music_clients_cfg=init_music_clients_cfg)
   song_infos = music_client.parseplaylist("https://www.joox.com/hk/playlist/5HTvfy7AAW9QJHPqM+T0+w==")
+  music_client.download(song_infos=song_infos)
+  ```
+
+#### JioSaavnMusicClient
+
+[JioSaavn](https://www.jiosaavn.com/) is an Indian music streaming platform that offers songs, playlists, podcasts, and regional music across multiple Indian languages.
+
+JioSaavnMusicClient allows access to music from the previously discussed platform.
+
+JioSaavnMusicClient works out of the box without requiring external command-line tools such as FFmpeg or N_m3u8DL-RE; installing musicdl is sufficient to start using it.
+
+(1) Command-Line Usage
+
+- Basic usage for song search and download, without login cookies:
+
+  `musicdl -m JioSaavnMusicClient`
+
+- Simple usage for searching and downloading songs, with login cookies:
+
+  `musicdl -m JioSaavnMusicClient -i "{'JioSaavnMusicClient': {'default_search_cookies': 'YOUR_COOKIES'}}"`
+
+- Basic usage for playlist parsing and downloading, without login cookies:
+
+  `musicdl -p "https://www.jiosaavn.com/featured/o-saathiya/PROeDetW3ZWMQv7FkH9rjg__" -m JioSaavnMusicClient`
+
+- Simple usage for playlist parsing and downloading, with login cookies:
+
+  `musicdl -p "https://www.jiosaavn.com/featured/o-saathiya/PROeDetW3ZWMQv7FkH9rjg__" -m JioSaavnMusicClient -i "{'JioSaavnMusicClient': {'default_parse_cookies': 'YOUR_COOKIES'}}"`
+
+(2) Invoke It in Python
+
+- Basic usage for song search and download, without login cookies:
+
+  ```python
+  from musicdl import musicdl
+
+  music_client = musicdl.MusicClient(music_sources=['JioSaavnMusicClient'])
+  music_client.startcmdui()
+  ```
+
+- Simple usage for searching and downloading songs, with login cookies:
+
+  ```python
+  from musicdl import musicdl
+  
+  your_vip_cookies_with_str_or_dict_format = ''
+  init_music_clients_cfg = {
+    'JioSaavnMusicClient': {
+        'default_search_cookies': your_vip_cookies_with_str_or_dict_format,
+    }
+  }
+  music_client = musicdl.MusicClient(music_sources=['JioSaavnMusicClient'], init_music_clients_cfg=init_music_clients_cfg)
+  music_client.startcmdui()
+  ```
+
+- Basic usage for playlist parsing and downloading, without login cookies:
+
+  ```python
+  from musicdl import musicdl
+
+  music_client = musicdl.MusicClient(music_sources=['JioSaavnMusicClient'])
+  song_infos = music_client.parseplaylist("https://www.jiosaavn.com/featured/o-saathiya/PROeDetW3ZWMQv7FkH9rjg__")
+  music_client.download(song_infos=song_infos)
+  ```
+
+- Simple usage for playlist parsing and downloading, with login cookies:
+
+  ```python
+  from musicdl import musicdl
+  
+  your_vip_cookies_with_str_or_dict_format = ''
+  init_music_clients_cfg = {
+    'JioSaavnMusicClient': {
+        'default_parse_cookies': your_vip_cookies_with_str_or_dict_format,
+    }
+  }
+  music_client = musicdl.MusicClient(music_sources=['JioSaavnMusicClient'], init_music_clients_cfg=init_music_clients_cfg)
+  song_infos = music_client.parseplaylist("https://www.jiosaavn.com/featured/o-saathiya/PROeDetW3ZWMQv7FkH9rjg__")
   music_client.download(song_infos=song_infos)
   ```
 
@@ -1405,6 +1547,32 @@ YouTubeMusicClient comes with an extra dependency on [Node.js](https://nodejs.or
   ```
 
 ## Audio / Radio
+
+#### ITunesMusicClient
+
+[iTunes Podcasts](https://www.apple.com/itunes/) is a digital platform where users can discover, subscribe to, and listen to audio shows across a wide range of topics.
+
+ITunesMusicClient is the go-to tool for downloading audio from the above platform.
+
+With ITunesMusicClient, all you need is pip install musicdl; there are no extra CLI dependencies or complicated configuration steps.
+
+(1) Command-Line Usage
+
+- Search and Download Podcasts from This Platform
+
+  `musicdl -m ITunesMusicClient -i "{'ITunesMusicClient': {'search_size_per_source': 2, 'allowed_search_types': ['podcast']}}"`
+
+(2) Invoke It in Python
+
+- Search and Download Podcasts from This Platform
+
+  ```python
+  from musicdl import musicdl
+
+  init_music_clients_cfg = {'ITunesMusicClient': {'search_size_per_source': 2, 'allowed_search_types': ['podcast']}}
+  music_client = musicdl.MusicClient(music_sources=['ITunesMusicClient'], init_music_clients_cfg=init_music_clients_cfg)
+  music_client.startcmdui()
+  ```
 
 #### LizhiMusicClient
 

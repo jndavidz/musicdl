@@ -341,8 +341,10 @@ End users usually do not create this class directly. Instead, they use subclasse
 - `musicdl.modules.sources.BilibiliMusicClient`
 - `musicdl.modules.sources.DeezerMusicClient`
 - `musicdl.modules.sources.FiveSingMusicClient`
+- `musicdl.modules.sources.FMAMusicClient`
 - `musicdl.modules.sources.JamendoMusicClient`
 - `musicdl.modules.sources.JooxMusicClient`
+- `musicdl.modules.sources.JioSaavnMusicClient`
 - `musicdl.modules.sources.KugouMusicClient`
 - `musicdl.modules.sources.KuwoMusicClient`
 - `musicdl.modules.sources.MiguMusicClient`
@@ -375,6 +377,7 @@ End users usually do not create this class directly. Instead, they use subclasse
 - `musicdl.modules.common.MP3JuiceMusicClient`
 - `musicdl.modules.common.MyFreeMP3MusicClient`
 - `musicdl.modules.common.TuneHubMusicClient`
+- `musicdl.modules.audiobooks.ITunesMusicClient`
 - `musicdl.modules.audiobooks.LizhiMusicClient`
 - `musicdl.modules.audiobooks.LRTSMusicClient`
 - `musicdl.modules.audiobooks.QingtingMusicClient`

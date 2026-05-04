@@ -79,7 +79,7 @@ class QQMusicClient(BaseMusicClient):
     '''_parsewithxcvtsapi'''
     def _parsewithxcvtsapi(self, search_result: dict, request_overrides: dict = None):
         # init
-        REQUEST_KEYS, decrypt_func = ['Nzg5OTMzNDRiOWJmMTEwNTY1NTU5OTAwOWNkYmEzZDI=',], lambda t: base64.b64decode(str(t).encode('utf-8')).decode('utf-8')
+        REQUEST_KEYS, decrypt_func = ['Nzg5OTMzNDRiOWJmMTEwNTY1NTU5OTAwOWNkYmEzZDI=', 'Y2U3NzhlYjBkMTg1OGVkZmI0YjIwNzFhMTE1ZjFlZGY='], lambda t: base64.b64decode(str(t).encode('utf-8')).decode('utf-8')
         MUSIC_QUALITIES = ["臻品母带", "臻品全景声", "臻品2.0", "SQ无损", "HQ高品质", "中品质", "普通", "低品质", "试听"]
         request_overrides, song_id = request_overrides or {}, search_result.get('mid') or search_result.get('songmid')
         # parse
@@ -194,7 +194,7 @@ class QQMusicClient(BaseMusicClient):
     '''_parsewiththirdpartapis'''
     def _parsewiththirdpartapis(self, search_result: dict, request_overrides: dict = None):
         if self.default_cookies or request_overrides.get('cookies'): return SongInfo(source=self.source)
-        for parser_func in [self._parsewithxcvtsapi, self._parsewithvkeysapi, self._parsewithtangapi, self._parsewithluoyueapi, self._parsewithnkiapi, self._parsewithhuibqapi, self._parsewithxianyuwapi]:
+        for parser_func in [self._parsewithvkeysapi, self._parsewithtangapi, self._parsewithluoyueapi, self._parsewithnkiapi, self._parsewithhuibqapi, self._parsewithxianyuwapi, self._parsewithxcvtsapi]:
             song_info_flac = SongInfo(source=self.source, raw_data={'search': search_result, 'download': {}, 'lyric': {}})
             with suppress(Exception): song_info_flac = parser_func(search_result, request_overrides)
             if song_info_flac.with_valid_download_url and song_info_flac.ext in AudioLinkTester.VALID_AUDIO_EXTS: break

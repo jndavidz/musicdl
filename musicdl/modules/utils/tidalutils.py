@@ -989,7 +989,9 @@ class TIDALMusicClientUtils:
     @staticmethod
     def getstreamurlsquidapi(song_id, quality: str, request_overrides: dict = None) -> Tuple[StreamUrl, Any]:
         headers, request_overrides = {"user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}, request_overrides or {}
-        data = requests.get(f'https://triton.squid.wtf/track/?id={song_id}&quality={quality}', headers=headers, timeout=10, **request_overrides).json()['data']
+        for host in ['triton.squid.wtf', 'tidal.squid.wtf']:
+            with suppress(Exception): data = requests.get(f'https://{host}/track/?id={song_id}&quality={quality}', headers=headers, timeout=10, **request_overrides).json()['data']
+            if locals().get('data') and isinstance(locals().get('data'), dict) and ('trackId' in locals().get('data')): break
         if "vnd.tidal.bt" in (resp := aigpy.model.dictToModel(data, StreamRespond())).manifestMimeType:
             manifest, ret = json.loads(base64.b64decode(resp.manifest).decode('utf-8')), StreamUrl()
             ret.trackid, ret.soundQuality, ret.codec, ret.encryptionKey, ret.url, ret.urls = resp.trackid, resp.audioQuality, manifest['codecs'], manifest['keyId'] if 'keyId' in manifest else "", manifest['urls'][0], [manifest['urls'][0]]
@@ -1009,7 +1011,9 @@ class TIDALMusicClientUtils:
     @staticmethod
     def getstreamurlmonochromeapi(song_id, quality: str, request_overrides: dict = None) -> Tuple[StreamUrl, Any]:
         headers, request_overrides = {"user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}, request_overrides or {}
-        data = requests.get(f'https://api.monochrome.tf/track/?id={song_id}&quality={quality}', headers=headers, timeout=10, **request_overrides).json()['data']
+        for host in ['frankfurt-2.monochrome.tf', 'arran.monochrome.tf', 'api.monochrome.tf', 'eu-central.monochrome.tf', 'us-west.monochrome.tf']:
+            with suppress(Exception): data = requests.get(f'https://{host}/track/?id={song_id}&quality={quality}', headers=headers, timeout=10, **request_overrides).json()['data']
+            if locals().get('data') and isinstance(locals().get('data'), dict) and ('trackId' in locals().get('data')): break
         if "vnd.tidal.bt" in (resp := aigpy.model.dictToModel(data, StreamRespond())).manifestMimeType:
             manifest, ret = json.loads(base64.b64decode(resp.manifest).decode('utf-8')), StreamUrl()
             ret.trackid, ret.soundQuality, ret.codec, ret.encryptionKey, ret.url, ret.urls = resp.trackid, resp.audioQuality, manifest['codecs'], manifest['keyId'] if 'keyId' in manifest else "", manifest['urls'][0], [manifest['urls'][0]]
@@ -1029,7 +1033,9 @@ class TIDALMusicClientUtils:
     @staticmethod
     def getstreamurlbinimumapi(song_id, quality: str, request_overrides: dict = None) -> Tuple[StreamUrl, Any]:
         headers, request_overrides = {"user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}, request_overrides or {}
-        data = requests.get(f'https://tidal-api.binimum.org/track/?id={song_id}&quality={quality}', headers=headers, timeout=10, **request_overrides).json()['data']
+        for host in ['tidal-api.binimum.org', 'music.binimum.org']:
+            with suppress(Exception): data = requests.get(f'https://{host}/track/?id={song_id}&quality={quality}', headers=headers, timeout=10, **request_overrides).json()['data']
+            if locals().get('data') and isinstance(locals().get('data'), dict) and ('trackId' in locals().get('data')): break
         if "vnd.tidal.bt" in (resp := aigpy.model.dictToModel(data, StreamRespond())).manifestMimeType:
             manifest, ret = json.loads(base64.b64decode(resp.manifest).decode('utf-8')), StreamUrl()
             ret.trackid, ret.soundQuality, ret.codec, ret.encryptionKey, ret.url, ret.urls = resp.trackid, resp.audioQuality, manifest['codecs'], manifest['keyId'] if 'keyId' in manifest else "", manifest['urls'][0], [manifest['urls'][0]]
@@ -1091,7 +1097,7 @@ class TIDALMusicClientUtils:
     @staticmethod
     def getstreamurlqqdlapi(song_id, quality: str, request_overrides: dict = None) -> Tuple[StreamUrl, Any]:
         headers, request_overrides = {"user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"}, request_overrides or {}
-        for host in ['maus.qqdl.site', 'hund.qqdl.site', 'katze.qqdl.site', 'wolf.qqdl.site', 'vogel.qqdl.site']:
+        for host in ['maus.qqdl.site', 'hund.qqdl.site', 'katze.qqdl.site', 'wolf.qqdl.site', 'vogel.qqdl.site', 'tidal.qqdl.site']:
             with suppress(Exception): data = requests.get(f'https://{host}/track/?id={song_id}&quality={quality}', headers=headers, timeout=10, **request_overrides).json()['data']
             if locals().get('data') and isinstance(locals().get('data'), dict) and ('trackId' in locals().get('data')): break
         if "vnd.tidal.bt" in (resp := aigpy.model.dictToModel(data, StreamRespond())).manifestMimeType:
