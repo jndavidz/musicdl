@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup
 from contextlib import suppress
 from rich.progress import Progress
 from ..sources import BaseMusicClient
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, parse_qs
 from ..utils import legalizestring, usesearchheaderscookies, searchdictbykey, extractdurationsecondsfromlrc, cleanlrc, SongInfo, QuarkParser, AudioLinkTester, SongInfoUtils
 
 
@@ -42,40 +42,38 @@ class FiveSongMusicClient(BaseMusicClient):
     '''_parsesearchresultsfromhtml'''
     def _parsesearchresultsfromhtml(self, html_text: str):
         soup, base_url, search_results = BeautifulSoup(html_text, "lxml"), "https://www.5song.xyz", []
-        for li in soup.select("div.list ul > li"):
-            if not (a := li.select_one("a[href]")) or not a.get("href", "").strip(): continue
-            href = a.get("href", "").strip(); detail_url = urljoin(base_url, href)
-            title_el = a.select_one("div.con div.t h3"); title = title_el.get_text(strip=True) if title_el else None
+        for li_item in soup.select("div.list ul > li"):
+            if not (a := li_item.select_one("a[href]")) or not a.get("href", "").strip(): continue
+            title = title_el.get_text(strip=True) if (title_el := a.select_one("div.con div.t h3")) else None
             formats = [s.get_text(strip=True) for s in a.select("div.con div.t span") if s.get_text(strip=True)]
-            singer_el = a.select_one("div.singerNum div.singer"); date_el = a.select_one("div.singerNum div.date"); num_el = a.select_one("div.singerNum div.num")
-            singer = singer_el.get_text(strip=True) if singer_el else None; date = date_el.get_text(strip=True) if date_el else None
-            num = num_el.get_text(strip=True) if num_el else None; img = a.select_one("div.pic img")
-            cover_url = urljoin(base_url, img.get("src")) if img and img.get("src") else None
-            search_results.append({"title": title, "formats": formats, "singer": singer, "date": date, "num": num, "detail_url": detail_url, "cover_url": cover_url})
+            singer = singer_el.get_text(strip=True) if (singer_el := a.select_one("div.singerNum div.singer")) else None
+            date = date_el.get_text(strip=True) if (date_el := a.select_one("div.singerNum div.date")) else None
+            num = num_el.get_text(strip=True) if (num_el := a.select_one("div.singerNum div.num")) else None
+            cover_url = urljoin(base_url, img.get("src")) if (img := a.select_one("div.pic img")) and img.get("src") else None
+            search_results.append({"title": title, "formats": formats, "singer": singer, "date": date, "num": num, "detail_url": urljoin(base_url, a.get("href", "").strip()), "cover_url": cover_url})
         return search_results
     '''_search'''
     @usesearchheaderscookies
-    def _search(self, keyword: str = '', search_url: str = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None, progress_id: int = 0):
+    def _search(self, keyword: str = '', search_url: str = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None):
         # init
-        request_overrides, base_url = request_overrides or {}, "https://www.5song.xyz"
         guess_format_func = lambda label: (m.group(1) if (m := re.search(r"(DSD|WAV|FLAC|APE|ALAC|AAC|MP3|OGG|M4A)", str(label).upper())) else None)
         sort_by_audio_quality_func = lambda link_list: sorted(link_list, key=lambda x: (FiveSongMusicClient.MUSIC_QUALITY_RANK.get((fmt := guess_format_func(x.get("label", ""))), 999), fmt or ""))
+        with suppress(Exception): page_no, search_result_idx = 1, -1; page_no = int(float(parse_qs(urlparse(url=search_url).query, keep_blank_values=True).get('page')[0]))
+        task_id = progress.add_task(f"{self.source}._search >>> Start to process the 0th search result on page {page_no}", total=None, completed=0)
         # successful
         try:
             # --search results
-            (resp := self.get(search_url, **request_overrides)).raise_for_status()
-            for search_result in self._parsesearchresultsfromhtml(resp.text):
+            (resp := self.get(search_url, **(request_overrides := request_overrides or {}))).raise_for_status()
+            for search_result_idx, search_result in enumerate(self._parsesearchresultsfromhtml(resp.text)):
+                # --update progress
+                progress.update(task_id, description=f'{self.source}._search >>> Start to process the {search_result_idx+1}th search result on page {page_no}', completed=search_result_idx+1, total=search_result_idx+1)
                 # --download results
                 if not isinstance(search_result, dict) or ('detail_url' not in search_result): continue
                 song_info, song_id, quark_links = SongInfo(source=self.source), urlparse(str(search_result['detail_url'])).path.strip('/').split('/')[-1].split('.')[0], []
                 # ----obtain basic information
-                with suppress(Exception): (resp := self.get(search_result['detail_url'], **request_overrides)).raise_for_status()
+                with suppress(Exception): resp = None; (resp := self.get(search_result['detail_url'], **request_overrides)).raise_for_status(); soup = BeautifulSoup(resp.text, "lxml")
                 if not locals().get('resp') or not hasattr(locals().get('resp'), 'text'): continue
-                for li in (soup := BeautifulSoup(resp.text, "lxml")).select("div.download ul li[data-url]"):
-                    if not (quark_url := (li.get("data-url") or "").strip()): continue
-                    label = a.get_text(" ", strip=True) if (a := li.select_one("a[href]")) else None
-                    pc_download_url = urljoin(base_url, pc_download_href) if (pc_download_href := a.get("href", "").strip() if a else None) else None
-                    if "quark" in quark_url: quark_links.append({"label": label, "quark_url": quark_url, "pc_download_url": pc_download_url})
+                quark_links.extend({"label": (a.get_text(" ", strip=True) if (a := li.select_one("a[href]")) else None), "quark_url": quark_url} for li in soup.select("div.download ul li[data-url]") if (quark_url := (li.get("data-url") or "").strip()) and "quark" in quark_url)
                 if not (download_result := dict(quark_links=quark_links))['quark_links']: continue
                 # ----parse from quark links
                 for quark_link in sort_by_audio_quality_func(download_result['quark_links']):
@@ -90,15 +88,15 @@ class FiveSongMusicClient(BaseMusicClient):
                     if song_info.with_valid_download_url and song_info.ext in AudioLinkTester.VALID_AUDIO_EXTS: break
                 # ----supplement some meta information
                 if not song_info.lyric or '歌词获取失败' in song_info.lyric: song_info.lyric = 'NULL'
-                if not song_info.duration or song_info.duration == '-:-:-': song_info.duration = SongInfoUtils.seconds2hms(extractdurationsecondsfromlrc(song_info.lyric))
+                if song_info.duration in {'-:-:-', '00:00:00'}: song_info.duration_s = extractdurationsecondsfromlrc(song_info.lyric); song_info.duration = SongInfoUtils.seconds2hms(song_info.duration_s)
                 # --append to song_infos
                 if song_info.with_valid_download_url: song_infos.append(song_info)
                 # --judgement for search_size
                 if self.strict_limit_search_size_per_page and len(song_infos) >= self.search_size_per_page: break
             # --update progress
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Success)")
+            progress.update(task_id, description=f'{self.source}._search >>> {search_result_idx+1} search results processed on page {page_no}')
         # failure
         except Exception as err:
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Error: {err})")
-            self.logger_handle.error(f"{self.source}._search >>> {search_url} (Error: {err})", disable_print=self.disable_print)
+            progress.update(task_id, description=f'{self.source}._search >>> {keyword} on page {page_no} (Error: {err})')
+            self.logger_handle.error(f'{self.source}._search >>> {keyword} on page {page_no} (Error: {err})', disable_print=self.disable_print)
         return song_infos

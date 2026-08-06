@@ -50,7 +50,7 @@ class BuguyyMusicClient(BaseMusicClient):
         # parse download url
         (resp := self.get(f'https://a.buguyy.top/newapi/geturl2.php?id={song_id}', verify=False, **request_overrides)).raise_for_status()
         for quark_download_url in [u for u in [search_result.get('downurl', ''), search_result.get('ktmdownurl', '')] if u]:
-            m = re.search(r"(?i)(?:WAV|FLAC)#(https?://[^#]+)|MP3#(https?://[^#]+)", quark_download_url)
+            m = re.search(r"(?i)(?:RAR|WAV|FLAC)#(https?://[^#]+)|MP3#(https?://[^#]+)", quark_download_url)
             download_result, download_url = QuarkParser.parsefromurl(m.group(1) or m.group(2), **self.quark_parser_config)
             if not download_url or not str(download_url).startswith('http'): continue
             download_url_status: dict = self.quark_audio_link_tester.test(url=download_url, request_overrides=request_overrides, renew_session=True)
@@ -62,12 +62,11 @@ class BuguyyMusicClient(BaseMusicClient):
             if song_info.with_valid_download_url and song_info.ext in AudioLinkTester.VALID_AUDIO_EXTS: break
         # parse lyric result
         if not song_info.duration or song_info.duration == '-:-:-' or song_info.duration == '00:00:00':
-            try: song_info.duration = '{:02d}:{:02d}:{:02d}'.format(*([0,0,0] + list(map(int, re.findall(r'\d+', safeextractfromdict(lyric_result, ['data', 'duration'], '')))))[-3:])
-            except Exception: song_info.duration = '-:-:-'
-            if song_info.duration == '00:00:00': song_info.duration = '-:-:-'
+            with suppress(Exception): song_info.duration = '{:02d}:{:02d}:{:02d}'.format(*([0,0,0] + list(map(int, re.findall(r'\d+', safeextractfromdict(lyric_result, ['data', 'duration'], '')))))[-3:])
+            song_info.duration = '-:-:-' if not song_info.duration or song_info.duration == '00:00:00' else song_info.duration
         if not song_info.lyric or '歌词获取失败' in song_info.lyric: song_info.lyric = 'NULL'
         song_info.lyric = re.sub(r'<br\s*/?>', '\n', song_info.lyric, flags=re.IGNORECASE); song_info.lyric = cleanlrc(html.unescape(song_info.lyric))
-        if song_info.duration == '-:-:-': song_info.duration = SongInfoUtils.seconds2hms(extractdurationsecondsfromlrc(song_info.lyric))
+        if not song_info.duration or song_info.duration == '-:-:-' or song_info.duration == '00:00:00': song_info.duration_s = extractdurationsecondsfromlrc(song_info.lyric); song_info.duration = SongInfoUtils.seconds2hms(song_info.duration_s)
         # return
         return song_info
     '''_parsesearchresultfromweb'''
@@ -86,24 +85,26 @@ class BuguyyMusicClient(BaseMusicClient):
         if not song_info.with_valid_download_url or song_info.ext not in AudioLinkTester.VALID_AUDIO_EXTS: return song_info
         # parse lyric result
         if not song_info.duration or song_info.duration == '-:-:-' or song_info.duration == '00:00:00':
-            try: song_info.duration = '{:02d}:{:02d}:{:02d}'.format(*([0,0,0] + list(map(int, re.findall(r'\d+', safeextractfromdict(download_result, ['data', 'duration'], '')))))[-3:])
-            except Exception: song_info.duration = '-:-:-'
-            if song_info.duration == '00:00:00': song_info.duration = '-:-:-'
+            with suppress(Exception): song_info.duration = '{:02d}:{:02d}:{:02d}'.format(*([0,0,0] + list(map(int, re.findall(r'\d+', safeextractfromdict(download_result, ['data', 'duration'], '')))))[-3:])
+            song_info.duration = '-:-:-' if not song_info.duration or song_info.duration == '00:00:00' else song_info.duration
         if not song_info.lyric or '歌词获取失败' in song_info.lyric: song_info.lyric = 'NULL'
         song_info.lyric = re.sub(r'<br\s*/?>', '\n', song_info.lyric, flags=re.IGNORECASE); song_info.lyric = cleanlrc(html.unescape(song_info.lyric))
-        if song_info.duration == '-:-:-': song_info.duration = SongInfoUtils.seconds2hms(extractdurationsecondsfromlrc(song_info.lyric))
+        if not song_info.duration or song_info.duration == '-:-:-' or song_info.duration == '00:00:00': song_info.duration_s = extractdurationsecondsfromlrc(song_info.lyric); song_info.duration = SongInfoUtils.seconds2hms(song_info.duration_s)
         # return
         return song_info
     '''_search'''
     @usesearchheaderscookies
-    def _search(self, keyword: str = '', search_url: str = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None, progress_id: int = 0):
+    def _search(self, keyword: str = '', search_url: str = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None):
         # init
-        request_overrides = request_overrides or {}
+        request_overrides, page_no, search_result_idx = request_overrides or {}, 1, -1
+        task_id = progress.add_task(f"{self.source}._search >>> Start to process the 0th search result on page {page_no}", total=None, completed=0)
         # successful
         try:
             # --search results
             (resp := self.get(search_url, verify=False, **request_overrides)).raise_for_status()
-            for search_result in resp2json(resp=resp)['data']['list']:
+            for search_result_idx, search_result in enumerate(resp2json(resp=resp)['data']['list']):
+                # --update progress
+                progress.update(task_id, description=f'{self.source}._search >>> Start to process the {search_result_idx+1}th search result on page {page_no}', completed=search_result_idx+1, total=search_result_idx+1)
                 # --download results
                 if not isinstance(search_result, dict) or ('id' not in search_result): continue
                 # ----parse from quark links
@@ -115,10 +116,10 @@ class BuguyyMusicClient(BaseMusicClient):
                 # --judgement for search_size
                 if self.strict_limit_search_size_per_page and len(song_infos) >= self.search_size_per_page: break
             # --update progress
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Success)")
+            progress.update(task_id, description=f'{self.source}._search >>> {search_result_idx+1} search results processed on page {page_no}')
         # failure
         except Exception as err:
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Error: {err})")
-            self.logger_handle.error(f"{self.source}._search >>> {search_url} (Error: {err})", disable_print=self.disable_print)
+            progress.update(task_id, description=f'{self.source}._search >>> {keyword} on page {page_no} (Error: {err})')
+            self.logger_handle.error(f'{self.source}._search >>> {keyword} on page {page_no} (Error: {err})', disable_print=self.disable_print)
         # return
         return song_infos

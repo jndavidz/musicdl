@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup
 from contextlib import suppress
 from rich.progress import Progress
 from ..sources import BaseMusicClient
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin, urlsplit, urlparse, parse_qs
 from ..utils import legalizestring, usesearchheaderscookies, searchdictbykey, extractdurationsecondsfromlrc, resp2json, cleanlrc, SongInfo, QuarkParser, AudioLinkTester, SongInfoUtils
 
 
@@ -72,17 +72,20 @@ class KKWSMusicClient(BaseMusicClient):
         return {"lyrics": lyrics, "quark_links": quark_links}
     '''_search'''
     @usesearchheaderscookies
-    def _search(self, keyword: str = '', search_url: str = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None, progress_id: int = 0):
+    def _search(self, keyword: str = '', search_url: str = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None):
         # init
-        request_overrides = request_overrides or {}
+        request_overrides, page_no, search_result_idx = request_overrides or {}, int(float(parse_qs(urlparse(url=search_url).query, keep_blank_values=True).get('page')[0])), -1
+        task_id = progress.add_task(f"{self.source}._search >>> Start to process the 0th search result on page {page_no}", total=None, completed=0)
         # successful
         try:
             # --search results
             (resp := self.get(search_url, **request_overrides)).raise_for_status()
-            for search_result in self._parsesearchresultsfromhtml(resp.text):
+            for search_result_idx, search_result in enumerate(self._parsesearchresultsfromhtml(resp.text)):
+                # --update progress
+                progress.update(task_id, description=f'{self.source}._search >>> Start to process the {search_result_idx+1}th search result on page {page_no}', completed=search_result_idx+1, total=search_result_idx+1)
                 # --download results
                 if not isinstance(search_result, dict) or ('detail_url' not in search_result) or (not (song_id := search_result.get('id'))): continue
-                with suppress(Exception): (resp := self.get(search_result['detail_url'], **request_overrides)).raise_for_status()
+                with suppress(Exception): resp = None; (resp := self.get(search_result['detail_url'], **request_overrides)).raise_for_status()
                 if not locals().get('resp') or not hasattr(locals().get('resp'), 'text'): continue
                 download_result, song_info = self._extractlyricsandquark(resp.text, song_id, request_overrides), SongInfo(source=self.source)
                 for quark_info in download_result['quark_links']:
@@ -96,16 +99,16 @@ class KKWSMusicClient(BaseMusicClient):
                     )
                     if song_info.with_valid_download_url and song_info.ext in AudioLinkTester.VALID_AUDIO_EXTS: break
                 if not song_info.lyric or '歌词获取失败' in song_info.lyric: song_info.lyric = 'NULL'
-                if not song_info.duration or song_info.duration == '-:-:-': song_info.duration = SongInfoUtils.seconds2hms(extractdurationsecondsfromlrc(song_info.lyric))
+                if not song_info.duration or song_info.duration in {'-:-:-', '00:00:00'}: song_info.duration_s = extractdurationsecondsfromlrc(song_info.lyric); song_info.duration = SongInfoUtils.seconds2hms(song_info.duration_s)
                 # --append to song_infos
                 if song_info.with_valid_download_url: song_infos.append(song_info)
                 # --judgement for search_size
                 if self.strict_limit_search_size_per_page and len(song_infos) >= self.search_size_per_page: break
             # --update progress
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Success)")
+            progress.update(task_id, description=f'{self.source}._search >>> {search_result_idx+1} search results processed on page {page_no}')
         # failure
         except Exception as err:
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Error: {err})")
-            self.logger_handle.error(f"{self.source}._search >>> {search_url} (Error: {err})", disable_print=self.disable_print)
+            progress.update(task_id, description=f'{self.source}._search >>> {keyword} on page {page_no} (Error: {err})')
+            self.logger_handle.error(f'{self.source}._search >>> {keyword} on page {page_no} (Error: {err})', disable_print=self.disable_print)
         # return
         return song_infos

@@ -143,7 +143,7 @@ class BaseMusicClient():
                 main_process_context.update(main_progress_id, description=f"Search From Sources >>> Completed ({int(main_process_context.tasks[main_progress_id].completed)}/{cur_total + len(search_urls)}) Search URLs")
         submitted_tasks = []; song_infos: dict[str, list[SongInfo]] = {}
         with ThreadPoolExecutor(max_workers=num_threadings) as pool:
-            for search_url_idx, search_url in enumerate(search_urls): song_infos[str(search_url_idx)] = []; submitted_tasks.append(pool.submit(self._search, keyword, search_url, request_overrides, song_infos[str(search_url_idx)], main_process_context, progress_id))
+            for search_url_idx, search_url in enumerate(search_urls): song_infos[str(search_url_idx)] = []; submitted_tasks.append(pool.submit(self._search, keyword, search_url, request_overrides, song_infos[str(search_url_idx)], main_process_context))
             for future in as_completed(submitted_tasks):
                 future.result()
                 with main_progress_lock:

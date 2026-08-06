@@ -12,6 +12,8 @@ from urllib.parse import urlsplit
 
 '''settings'''
 APPLE_MUSIC_HOSTS = {"music.apple.com", "geo.music.apple.com", "embed.music.apple.com", "itunes.apple.com", "geo.itunes.apple.com", "apple.com"}
+AUDIUS_MUSIC_HOSTS = {'audius.co', 'www.audius.co',}
+BODIAN_MUSIC_HOST = {"bodian.kuwo.cn", "h5app.kuwo.cn", "bd-api.kuwo.cn", "ab-bodian.kuwo.cn", "bodiancdn.kuwo.cn", "bodianimgcdn.kuwo.cn"}
 DEEZER_MUSIC_HOSTS = {"deezer.com", "www.deezer.com", "deezer.page.link",}
 FIVESING_MUSIC_HOSTS = {"5sing.kugou.com",}
 JOOX_MUSIC_HOSTS = {"joox.com",}
@@ -27,10 +29,12 @@ STREETVOICE_MUSIC_HOSTS = {"streetvoice.cn"}
 SOUNDCLOUD_MUSIC_HOSTS = {"soundcloud.com"}
 SODA_MUSIC_HOSTS = {"qishui.douyin.com", "music.douyin.com", "www.qishui.com", "www.douyin.com", "z-qishui.douyin.com", "lf-luna-release.qishui.com", "luna-web.douyin.com", "bubble.qishui.com", "qishui.com", "douyin.com"}
 SPOTIFY_MUSIC_HOSTS = {"open.spotify.com", "spotify.link", "play.spotify.com", "spotify.com"}
+SUNO_MUSIC_HOSTS = {"suno.com", "app.suno.ai", "alpha.suno.ai"}
 TIDAL_MUSIC_HOSTS = {"tidal.com", "listen.tidal.com", "embed.tidal.com",}
 YANDEX_MUSIC_HOSTS = {"music.yandex.com", "music.yandex.ru", "music.yandex.kz", "music.yandex.by", "music.yandex.uz"}
 FMA_MUSIC_HOSTS = {"freemusicarchive.org"}
 JIOSAAVN_MUSIC_HOSTS = {"jiosaavn.com", "www.jiosaavn.com", "saavn.com", "www.saavn.com", "jiosaa.vn",}
+MOOV_MUSIC_HOSTS = {"moov.hk", "www.moov.hk", "app.moov.hk", "s.moov.hk", "moov-music.com"}
 
 
 '''obtainhostname'''

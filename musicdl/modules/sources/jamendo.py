@@ -15,7 +15,7 @@ from contextlib import suppress
 from .base import BaseMusicClient
 from pathvalidate import sanitize_filepath
 from ..utils.hosts import JAMENDO_MUSIC_HOSTS
-from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode, urlparse, parse_qs
 from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn, MofNCompleteColumn
 from ..utils import legalizestring, resp2json, usesearchheaderscookies, safeextractfromdict, useparseheaderscookies, obtainhostname, hostmatchessuffix, cleanlrc, SongInfo, AudioLinkTester, LyricSearchClient, IOUtils, SongInfoUtils
 
@@ -87,15 +87,19 @@ class JamendoMusicClient(BaseMusicClient):
         return song_info
     '''_search'''
     @usesearchheaderscookies
-    def _search(self, keyword: str = '', search_url: str = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None, progress_id: int = 0):
+    def _search(self, keyword: str = '', search_url: str = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None):
         # init
         request_overrides, make_xjam_call_func = request_overrides or {}, lambda path='/api/search': f"${hashlib.sha1((path + (rand := str(random.random()))).encode('utf-8')).hexdigest()}*{rand}~"
+        page_no, search_result_idx = int(float(parse_qs(urlparse(url=search_url).query, keep_blank_values=True).get('offset')[0]) / self.search_size_per_page) + 1, -1
+        task_id = progress.add_task(f"{self.source}._search >>> Start to process the 0th search result on page {page_no}", total=None, completed=0)
         # successful
         try:
             # --search results
             (headers := copy.deepcopy(self.default_headers))['x-jam-call'] = make_xjam_call_func(path='/api/search')
             (resp := self.get(search_url, headers=headers, **request_overrides)).raise_for_status()
-            for search_result in resp2json(resp):
+            for search_result_idx, search_result in enumerate(resp2json(resp)):
+                # --update progress
+                progress.update(task_id, description=f'{self.source}._search >>> Start to process the {search_result_idx+1}th search result on page {page_no}', completed=search_result_idx+1, total=search_result_idx+1)
                 # --init song info
                 song_info = SongInfo(source=self.source, raw_data={'search': search_result, 'download': {}, 'lyric': {}})
                 # --parse with official apis
@@ -105,11 +109,11 @@ class JamendoMusicClient(BaseMusicClient):
                 # --judgement for search_size
                 if self.strict_limit_search_size_per_page and len(song_infos) >= self.search_size_per_page: break
             # --update progress
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Success)")
+            progress.update(task_id, description=f'{self.source}._search >>> {search_result_idx+1} search results processed on page {page_no}')
         # failure
         except Exception as err:
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Error: {err})")
-            self.logger_handle.error(f"{self.source}._search >>> {search_url} (Error: {err})", disable_print=self.disable_print)
+            progress.update(task_id, description=f'{self.source}._search >>> {keyword} on page {page_no} (Error: {err})')
+            self.logger_handle.error(f'{self.source}._search >>> {keyword} on page {page_no} (Error: {err})', disable_print=self.disable_print)
         # return
         return song_infos
     '''parseplaylist'''
@@ -132,7 +136,7 @@ class JamendoMusicClient(BaseMusicClient):
                 song_info = SongInfo(source=self.source, raw_data={'search': track_info, 'download': {}, 'lyric': {}})
                 with suppress(Exception): song_info = self._parsewithofficialapiv1(search_result=track_info, song_info_flac=None, lossless_quality_is_sufficient=False, request_overrides=request_overrides)
                 if song_info.with_valid_download_url: song_infos.append(song_info); continue
-                self.logger_handle.warning(f'Fail to parse song id {song_info.identifier} >>> {song_info.album} {song_info.song_name} {song_info.singers} {song_info.download_url}', disable_print=self.disable_print)
+                self.logger_handle.warning(f'Fail to parse track info {track_info}', disable_print=self.disable_print)
             main_process_context.advance(main_progress_id, 1); main_process_context.update(main_progress_id, description=f"{len(tracks_in_playlist)} Songs Found in Playlist {playlist_id} >>> Completed ({idx+1}/{len(tracks_in_playlist)}) SongInfo")
         # post processing
         playlist_name = legalizestring(safeextractfromdict(playlist_result, ['name'], None) or f"playlist-{playlist_id}")

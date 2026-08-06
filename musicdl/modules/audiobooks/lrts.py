@@ -11,8 +11,8 @@ import math
 from itertools import chain
 from contextlib import suppress
 from rich.progress import Progress
-from urllib.parse import urlencode
 from ..sources import BaseMusicClient
+from urllib.parse import urlencode, urlparse, parse_qs
 from ..utils import legalizestring, resp2json, usesearchheaderscookies, safeextractfromdict, SongInfo, SongInfoUtils, AudioLinkTester
 
 
@@ -119,9 +119,9 @@ class LRTSMusicClient(BaseMusicClient):
                 ext=None, file_size_bytes=None, file_size=None, identifier=album_id, duration_s=None, duration='-:-:-', lyric=None, cover_url=search_result.get('cover'), download_url=None, download_url_status={}, episodes=[],
             )
             download_album_pid = progress.add_task(f"{self.source}._parsebyalbum >>> (0/1) pages downloaded in album {album_id}", total=1)
-            with suppress(Exception): (resp := self.get(f'https://m.lrts.me/ajax/getAlbumAudios?ablumnId={album_id}&sortType=0')).raise_for_status()
+            with suppress(Exception): resp = None; (resp := self.get(f'https://m.lrts.me/ajax/getAlbumAudios?ablumnId={album_id}&sortType=0')).raise_for_status()
             if not locals().get('resp') or not hasattr(locals().get('resp'), 'text'): continue
-            download_results.append(resp2json(resp=resp)); del resp; progress.advance(download_album_pid, 1); progress.update(download_album_pid, description=f"{self.source}._parsebyalbum >>> (1/1) pages downloaded in album {album_id}")
+            download_results.append(resp2json(resp=resp)); progress.advance(download_album_pid, 1); progress.update(download_album_pid, description=f"{self.source}._parsebyalbum >>> (1/1) pages downloaded in album {album_id}")
             for track in chain.from_iterable((safeextractfromdict(download_result, ['list'], []) or []) for download_result in download_results):
                 if (not isinstance(track, dict)) or (not track.get('audioId')) or (track.get('audioId') in unique_track_ids): continue
                 unique_track_ids.add(track.get('audioId')); tracks.append(track)
@@ -141,9 +141,11 @@ class LRTSMusicClient(BaseMusicClient):
         return song_infos
     '''_search'''
     @usesearchheaderscookies
-    def _search(self, keyword: str = '', search_url: dict = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None, progress_id: int = 0):
+    def _search(self, keyword: str = '', search_url: dict = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None):
         # init
         request_overrides, search_type, search_url = request_overrides or {}, list(search_url.keys())[0], list(search_url.values())[0]
+        page_no = int(float(parse_qs(urlparse(url=str(search_url)).query, keep_blank_values=True).get('pageNum')[0]))
+        task_id = progress.add_task(f"{self.source}.{search_type}._search >>> Start to process search result on page {page_no}", total=None, completed=0)
         # successful
         try:
             # --search results
@@ -152,10 +154,10 @@ class LRTSMusicClient(BaseMusicClient):
             parsers = {'album': self._parsebyalbum, 'book': self._parsebybook}
             parsers[search_type](resp2json(resp), song_infos=song_infos, request_overrides=request_overrides, progress=progress)
             # --update progress
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Success)")
+            progress.update(task_id, description=f'{self.source}.{search_type}._search >>> All search results processed on page {page_no}')
         # failure
         except Exception as err:
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Error: {err})")
-            self.logger_handle.error(f"{self.source}._search >>> {search_url} (Error: {err})", disable_print=self.disable_print)
+            progress.update(task_id, description=f'{self.source}.{search_type}._search >>> {keyword} on page {page_no} (Error: {err})')
+            self.logger_handle.error(f'{self.source}.{search_type}._search >>> {keyword} on page {page_no} (Error: {err})', disable_print=self.disable_print)
         # return
         return song_infos

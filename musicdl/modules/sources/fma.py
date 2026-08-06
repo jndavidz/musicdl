@@ -16,7 +16,7 @@ from .base import BaseMusicClient
 from ..utils.hosts import FMA_MUSIC_HOSTS
 from pathvalidate import sanitize_filepath
 from bs4 import BeautifulSoup, NavigableString, Tag
-from urllib.parse import urlencode, urlparse, urljoin, urlsplit, urlunsplit
+from urllib.parse import urlencode, urlparse, urljoin, urlsplit, urlunsplit, parse_qs
 from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn, MofNCompleteColumn
 from ..utils import legalizestring, usesearchheaderscookies, safeextractfromdict, useparseheaderscookies, obtainhostname, hostmatchessuffix, cookies2string, SongInfo, AudioLinkTester, LyricSearchClient, IOUtils, SongInfoUtils
 
@@ -80,14 +80,17 @@ class FMAMusicClient(BaseMusicClient):
         return song_info
     '''_search'''
     @usesearchheaderscookies
-    def _search(self, keyword: str = '', search_url: str = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None, progress_id: int = 0):
+    def _search(self, keyword: str = '', search_url: str = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None):
         # init
-        request_overrides = request_overrides or {}
+        request_overrides, page_no, search_result_idx = request_overrides or {}, int(float(parse_qs(urlparse(url=search_url).query, keep_blank_values=True).get('page')[0])), -1
+        task_id = progress.add_task(f"{self.source}._search >>> Start to process the 0th search result on page {page_no}", total=None, completed=0)
         # successful
         try:
             # --search results
             (resp := self.get(search_url, **request_overrides)).raise_for_status()
-            for search_result_item in BeautifulSoup(resp.text, "lxml").select(".play-item[data-track-info]"):
+            for search_result_idx, search_result_item in enumerate(BeautifulSoup(resp.text, "lxml").select(".play-item[data-track-info]")):
+                # --update progress
+                progress.update(task_id, description=f'{self.source}._search >>> Start to process the {search_result_idx+1}th search result on page {page_no}', completed=search_result_idx+1, total=search_result_idx+1)
                 # --init song info
                 with suppress(Exception): search_result = None; search_result = json_repair.loads(search_result_item["data-track-info"])
                 if not search_result or not isinstance(search_result, dict) or not search_result.get('id'): continue
@@ -100,11 +103,11 @@ class FMAMusicClient(BaseMusicClient):
                 # --judgement for search_size
                 if self.strict_limit_search_size_per_page and len(song_infos) >= self.search_size_per_page: break
             # --update progress
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Success)")
+            progress.update(task_id, description=f'{self.source}._search >>> {search_result_idx+1} search results processed on page {page_no}')
         # failure
         except Exception as err:
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Error: {err})")
-            self.logger_handle.error(f"{self.source}._search >>> {search_url} (Error: {err})", disable_print=self.disable_print)
+            progress.update(task_id, description=f'{self.source}._search >>> {keyword} on page {page_no} (Error: {err})')
+            self.logger_handle.error(f'{self.source}._search >>> {keyword} on page {page_no} (Error: {err})', disable_print=self.disable_print)
         # return
         return song_infos
     '''_parseplaylistpage'''
@@ -152,7 +155,7 @@ class FMAMusicClient(BaseMusicClient):
                 song_info = SongInfo(source=self.source, raw_data={'search': track_info, 'download': {}, 'lyric': {}})
                 with suppress(Exception): song_info = self._parsewithofficialapiv1(search_result=track_info, song_info_flac=None, lossless_quality_is_sufficient=False, request_overrides=request_overrides)
                 if song_info.with_valid_download_url: song_infos.append(song_info); continue
-                self.logger_handle.warning(f'Fail to parse song id {song_info.identifier} >>> {song_info.album} {song_info.song_name} {song_info.singers} {song_info.download_url}', disable_print=self.disable_print)
+                self.logger_handle.warning(f'Fail to parse track info {track_info}', disable_print=self.disable_print)
             main_process_context.advance(main_progress_id, 1); main_process_context.update(main_progress_id, description=f"{len(tracks_in_playlist)} Songs Found in Playlist {playlist_id} >>> Completed ({idx+1}/{len(tracks_in_playlist)}) SongInfo")
         # post processing
         playlist_name = legalizestring(safeextractfromdict(playlist_result, ['playlist_name'], None) or f"playlist-{playlist_id}")

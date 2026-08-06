@@ -34,25 +34,27 @@ class ZhuolinMusicClient(BaseMusicClient):
         while self.search_size_per_source > count:
             (page_rule := copy.deepcopy(default_rule))['count'] = page_size
             page_rule['pages'] = int(count // page_size) + 1
-            search_urls.append({'url': base_url, 'data': page_rule})
+            search_urls.append({'url': base_url, 'data': page_rule, 'page_no': int(count // page_size) + 1})
             count += page_size
         # return
         return search_urls
     '''_search'''
     @usesearchheaderscookies
-    def _search(self, keyword: str = '', search_url: dict = None, request_overrides: dict = None, song_infos: list = [], progress: Progress = None, progress_id: int = 0):
+    def _search(self, keyword: str = '', search_url: dict = None, request_overrides: dict = None, song_infos: list = [], progress: Progress = None):
         # init
-        request_overrides = request_overrides or {}; search_url = (search_meta := copy.deepcopy(search_url)).pop('url')
+        request_overrides, search_result_idx = request_overrides or {}, -1; search_url = (search_meta := copy.deepcopy(search_url)).pop('url'); page_no = search_meta.pop('page_no')
+        task_id = progress.add_task(f"{self.source}._search >>> Start to process the 0th search result on page {page_no}", total=None, completed=0)
         # successful
         try:
             # --search results
             (resp := self.post(search_url, verify=False, **search_meta, **request_overrides)).raise_for_status()
-            for search_result in resp2json(resp=resp):
+            for search_result_idx, search_result in enumerate(resp2json(resp=resp)):
+                # --update progress
+                progress.update(task_id, description=f'{self.source}._search >>> Start to process the {search_result_idx+1}th search result on page {page_no}', completed=search_result_idx+1, total=search_result_idx+1)
                 # --download results
                 if not isinstance(search_result, dict) or (not (song_id := search_result.get('id'))): continue
-                download_url, download_result = safeextractfromdict(search_result, ['url'], ""), {}
-                if (not download_url) or (not str(download_url).startswith('http')): continue
-                if 'lanzouy.com' in urlsplit(str(download_url)).hostname: download_result, download_url = LanZouYParser.parsefromurl(download_url)
+                if (not (download_url := safeextractfromdict(search_result, ['url'], ""))) or (not str(download_url).startswith('http')): continue
+                download_result, download_url = LanZouYParser.parsefromurl(download_url) if ('lanzouy.com' in urlsplit(str(download_url)).hostname) else ({}, download_url)
                 download_url_status: dict = self.audio_link_tester.test(url=download_url, request_overrides=request_overrides, renew_session=True)
                 song_info = SongInfo(
                     raw_data={'search': search_result, 'download': download_result, 'lyric': {}}, source=self.source, song_name=legalizestring(search_result.get('name')), singers=legalizestring(', '.join(search_result.get('artist') or [])), album=legalizestring(safeextractfromdict(search_result, ['album', 'name'], None)), ext=download_url_status['ext'], 
@@ -74,10 +76,10 @@ class ZhuolinMusicClient(BaseMusicClient):
                 # --judgement for search_size
                 if self.strict_limit_search_size_per_page and len(song_infos) >= self.search_size_per_page: break
             # --update progress
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Success)")
+            progress.update(task_id, description=f'{self.source}._search >>> {search_result_idx+1} search results processed on page {page_no}')
         # failure
         except Exception as err:
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Error: {err})")
-            self.logger_handle.error(f"{self.source}._search >>> {search_url} (Error: {err})", disable_print=self.disable_print)
+            progress.update(task_id, description=f'{self.source}._search >>> {keyword} on page {page_no} (Error: {err})')
+            self.logger_handle.error(f'{self.source}._search >>> {keyword} on page {page_no} (Error: {err})', disable_print=self.disable_print)
         # return
         return song_infos

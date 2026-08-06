@@ -347,9 +347,9 @@ class AppleMusicClientAPIUtils:
     def gettoken(self, request_overrides: dict = None) -> str:
         request_overrides = dict(request_overrides or {})
         (resp := self.client.get(APPLE_MUSIC_HOMEPAGE_URL, params={"l": self.language}, allow_redirects=True, **request_overrides)).raise_for_status()
-        if not (index_js_uri_match := re.search(r"/(assets/index-legacy[~-][^/\"]+\.js)", resp.text)): raise Exception("index.js URI not found in Apple Music homepage")
+        if not (index_js_uri_match := re.search(r"/(assets/index[~-][^/\"]+\.js)", resp.text)): raise Exception("index.js URI not found in Apple Music homepage")
         (resp := self.client.get(f"{APPLE_MUSIC_HOMEPAGE_URL}/{index_js_uri_match.group(1)}", params={"l": self.language}, allow_redirects=True, **request_overrides)).raise_for_status()
-        if not (token_match := re.search('(?=eyJh)(.*?)(?=")', resp.text)): raise Exception("Token not found in index.js page")
+        if not (token_match := re.search(r'"(eyJ[A-Za-z0-9\-_]+\.eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+)"', resp.text)): raise Exception("Token not found in index.js page")
         return token_match.group(1)
     '''initializetoken'''
     def initializetoken(self, request_overrides: dict = None) -> None:

@@ -144,9 +144,10 @@ class QingtingMusicClient(BaseMusicClient):
         return song_infos
     '''_search'''
     @usesearchheaderscookies
-    def _search(self, keyword: str = '', search_url: str = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None, progress_id: int = 0):
+    def _search(self, keyword: str = '', search_url: str = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None):
         # init
-        request_overrides = request_overrides or {}
+        request_overrides, page_no = request_overrides or {}, int(float(parse_qs(urlparse(url=str(search_url)).query, keep_blank_values=True).get('page')[0]))
+        task_id = progress.add_task(f"{self.source}.{search_type}._search >>> Start to process search result on page {page_no}", total=None, completed=0)
         # successful
         try:
             # --search results
@@ -156,10 +157,10 @@ class QingtingMusicClient(BaseMusicClient):
             parsers = {'channel_ondemand': self._parsebyalbum, 'program_ondemand': self._parsebytrack}
             parsers[search_type](resp2json(resp), song_infos=song_infos, request_overrides=request_overrides, progress=progress)
             # --update progress
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Success)")
+            progress.update(task_id, description=f'{self.source}.{search_type}._search >>> All search results processed on page {page_no}')
         # failure
         except Exception as err:
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Error: {err})")
-            self.logger_handle.error(f"{self.source}._search >>> {search_url} (Error: {err})", disable_print=self.disable_print)
+            progress.update(task_id, description=f'{self.source}.{search_type}._search >>> {keyword} on page {page_no} (Error: {err})')
+            self.logger_handle.error(f'{self.source}.{search_type}._search >>> {keyword} on page {page_no} (Error: {err})', disable_print=self.disable_print)
         # return
         return song_infos

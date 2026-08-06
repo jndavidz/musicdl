@@ -41,7 +41,7 @@ class LizhiMusicClient(BaseMusicClient):
             while self.search_size_per_source > count:
                 (page_rule := copy.deepcopy(default_rule))['page'] = str(int(count // page_size) + 1)
                 if count > 0: page_rule['receiptData'] = resp2json(self.get(search_urls[-1]['url'], **request_overrides)).get('receiptData', '')
-                search_urls.append({'url': base_url + urlencode(page_rule), 'type': search_type})
+                search_urls.append({'url': base_url + urlencode(page_rule), 'type': search_type, 'page_no': str(int(count // page_size) + 1)})
                 count += page_size
         # return
         return search_urls
@@ -114,10 +114,10 @@ class LizhiMusicClient(BaseMusicClient):
             )
             download_album_pid = progress.add_task(f"{self.source}._parsebyalbum >>> (0/0) pages downloaded in album {album_id}", total=None)
             while True:
-                with suppress(Exception): (album_resp := self.get(f'https://m.lizhi.fm/vodapi/user/{album_id}?pageNo={page_no}&pageSize={page_size}', **request_overrides)).raise_for_status()
+                with suppress(Exception): album_resp = None; (album_resp := self.get(f'https://m.lizhi.fm/vodapi/user/{album_id}?pageNo={page_no}&pageSize={page_size}', **request_overrides)).raise_for_status()
                 if not locals().get('album_resp') or not hasattr(locals().get('album_resp'), 'text'): break
                 if not (download_result := resp2json(resp=album_resp)).get('data'): break
-                del album_resp; download_results.append(download_result); progress.update(download_album_pid, total=(page_no := page_no + 1), completed=page_no)
+                download_results.append(download_result); progress.update(download_album_pid, total=(page_no := page_no + 1), completed=page_no)
                 progress.update(download_album_pid, description=f"{self.source}._parsebyalbum >>> ({page_no}/{page_no}) pages downloaded in album {album_id}")
             total_episodes = sum([len(safeextractfromdict(download_result, ['data'], []) or []) for download_result in download_results])
             download_album_pid = progress.add_task(f"{self.source}._parsebyalbum >>> (0/{total_episodes}) episodes completed in album {album_id}", total=total_episodes)
@@ -152,9 +152,10 @@ class LizhiMusicClient(BaseMusicClient):
         return song_infos            
     '''_search'''
     @usesearchheaderscookies
-    def _search(self, keyword: str = '', search_url: dict = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None, progress_id: int = 0):
+    def _search(self, keyword: str = '', search_url: dict = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None):
         # init
-        request_overrides, search_type, search_url = request_overrides or {}, search_url['type'], search_url['url']
+        request_overrides, search_type, page_no, search_url = request_overrides or {}, search_url['type'], search_url['page_no'], search_url['url']
+        task_id = progress.add_task(f"{self.source}.{search_type}._search >>> Start to process search result on page {page_no}", total=None, completed=0)
         # successful
         try:
             # --search results
@@ -163,10 +164,10 @@ class LizhiMusicClient(BaseMusicClient):
             parsers = {'album': self._parsebyalbum, 'track': self._parsebytrack}
             parsers[search_type](resp2json(resp)['data'], song_infos=song_infos, request_overrides=request_overrides, progress=progress)
             # --update progress
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Success)")
+            progress.update(task_id, description=f'{self.source}.{search_type}._search >>> All search results processed on page {page_no}')
         # failure
         except Exception as err:
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Error: {err})")
-            self.logger_handle.error(f"{self.source}._search >>> {search_url} (Error: {err})", disable_print=self.disable_print)
+            progress.update(task_id, description=f'{self.source}.{search_type}._search >>> {keyword} on page {page_no} (Error: {err})')
+            self.logger_handle.error(f'{self.source}.{search_type}._search >>> {keyword} on page {page_no} (Error: {err})', disable_print=self.disable_print)
         # return
         return song_infos

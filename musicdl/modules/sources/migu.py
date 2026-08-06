@@ -9,7 +9,9 @@ WeChat Official Account (微信公众号):
 import os
 import re
 import copy
+import json
 import requests
+from typing import Any, Dict
 from contextlib import suppress
 from .base import BaseMusicClient
 from rich.progress import Progress
@@ -23,21 +25,20 @@ from ..utils import resp2json, legalizestring, safeextractfromdict, usesearchhea
 '''MiguMusicClient'''
 class MiguMusicClient(BaseMusicClient):
     source = 'MiguMusicClient'
+    MAGIC = b"\xab\xcd\x01"
+    MIGU_KEY = b"Jk8qzuePiJ1qE3mDYhLQ3T73DtDoAhLP"
     MUSIC_QUALITIES = {'LQ': 'mp3', 'PQ': 'mp3', 'HQ': 'mp3', 'SQ': 'flac', 'ZQ': 'flac', 'Z3D': 'flac', 'ZQ24': 'flac', 'ZQ32': 'flac'}
     def __init__(self, **kwargs):
         super(MiguMusicClient, self).__init__(**kwargs)
         self.default_search_headers = {
-            "accept": "application/json, text/plain, */*", "accept-encoding": "gzip, deflate, br, zstd", "accept-language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7", "activityid": "v4_zt_2022_music", "appid": "ce", "channel": "014X031", "connection": "keep-alive", "deviceid": "E60C6B2F-7F11-4362-9FCE-6F1CC86E0F18", "host": "c.musicapp.migu.cn", "hwid": "", "imei": "", "h5page": "", "imsi": "", "location-info": "", "mgm-user-agent": "", "oaid": "", "uid": "", "location-data": "", "logid": "h5page[1808]", "mgm-network-operators": "02", "mgm-network-standard": "03", "mgm-network-type": "03", 
-            "referer": "https://y.migu.cn/app/v4/zt/2022/music/index.html", "sec-ch-ua": "\"Google Chrome\";v=\"143\", \"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\"", "sec-ch-ua-mobile": "?0", "sec-ch-ua-platform": "\"Windows\"", "sec-fetch-dest": "empty", "origin": "https://y.migu.cn", "sec-fetch-mode": "cors", "sec-fetch-site": "same-site", "subchannel": "014X031", "test": "00", "ua": "Android_migu", "version": "6.8.8", "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36", "recommendstatus": "1", 
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36", "Accept": "application/json, text/plain, */*", 
+            "Origin": "https://h5.nf.migu.cn", "Referer": "https://h5.nf.migu.cn/", "ua": "Android_migu", "version": "6.8.8", "channel": "014021I", "subchannel": "014021I",
         }
         self.default_parse_headers = {
-            "accept": "application/json, text/plain, */*", "accept-encoding": "gzip, deflate, br, zstd", "accept-language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7", "activityid": "v4_zt_2022_music", "appid": "ce", "channel": "014X031", "connection": "keep-alive", "deviceid": "E60C6B2F-7F11-4362-9FCE-6F1CC86E0F18", "host": "c.musicapp.migu.cn", "hwid": "", "imei": "", "h5page": "", "imsi": "", "location-info": "", "mgm-user-agent": "", "oaid": "", "uid": "", "location-data": "", "logid": "h5page[1808]", "mgm-network-operators": "02", "mgm-network-standard": "03", "mgm-network-type": "03", 
-            "referer": "https://y.migu.cn/app/v4/zt/2022/music/index.html", "sec-ch-ua": "\"Google Chrome\";v=\"143\", \"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\"", "sec-ch-ua-mobile": "?0", "sec-ch-ua-platform": "\"Windows\"", "sec-fetch-dest": "empty", "origin": "https://y.migu.cn", "sec-fetch-mode": "cors", "sec-fetch-site": "same-site", "subchannel": "014X031", "test": "00", "ua": "Android_migu", "version": "6.8.8", "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36", "recommendstatus": "1", 
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36", "Accept": "application/json, text/plain, */*", 
+            "Origin": "https://h5.nf.migu.cn", "Referer": "https://h5.nf.migu.cn/", "ua": "Android_migu", "version": "6.8.8", "channel": "014021I", "subchannel": "014021I",
         }
-        self.default_download_headers = {
-            "accept": "*/*", "accept-encoding": "identity;q=1, *;q=0", "accept-language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7", "connection": "keep-alive", "host": "freetyst.nf.migu.cn", "range": "bytes=0-", "sec-fetch-mode": "no-cors", "sec-fetch-dest": "audio", "sec-ch-ua": "\"Google Chrome\";v=\"143\", \"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\"", 
-            "sec-ch-ua-mobile": "?0", "sec-ch-ua-platform": "\"Windows\"", "sec-fetch-site": "same-site", "referer": "https://y.migu.cn/app/v4/zt/2022/music/index.html", "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
-        }
+        self.default_download_headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"}
         self.default_headers = self.default_search_headers
         self._initsession()
     '''_constructsearchurls'''
@@ -54,20 +55,30 @@ class MiguMusicClient(BaseMusicClient):
             count += page_size
         # return
         return search_urls
+    '''_decryptresp'''
+    def _decryptresp(self, resp: requests.Response) -> Dict[str, Any]:
+        raw, key = resp.content, MiguMusicClient.MIGU_KEY
+        if resp.headers.get("signature") == "1" or raw.startswith(MiguMusicClient.MAGIC):
+            seed = raw[3]; plain = bytes((byte + seed - key[i % len(key)]) & 0xFF for i, byte in enumerate(raw[4:]))
+            return json.loads(plain.decode("utf-8"))
+        else:
+            return json.loads(raw.decode("utf-8"))
     '''_parsewithofficialapiv1'''
     def _parsewithofficialapiv1(self, search_result: dict, song_info_flac: SongInfo = None, lossless_quality_is_sufficient: bool = True, lossless_quality_definitions: set | list | tuple = {'flac'}, request_overrides: dict = None) -> "SongInfo":
         # init
         song_info, request_overrides, song_info_flac = SongInfo(source=self.source), request_overrides or {}, song_info_flac or SongInfo(source=self.source)
-        if (not isinstance(search_result, dict)) or (not (content_id := search_result.get('contentId'))) or (not (copyright_id := search_result.get('contentId'))): return song_info
+        if (not isinstance(search_result, dict)) or (not (content_id := search_result.get('contentId'))) or (not (copyright_id := search_result.get('copyrightId'))): return song_info
         safe_obtain_filesize_func = lambda meta: (lambda s: (lambda: float(s))() if s.replace('.', '', 1).isdigit() else 0)(str(meta.get('size') or meta.get('iosSize') or meta.get('androidSize') or meta.get('isize') or meta.get('asize') or '0').removesuffix('MB').strip()) if isinstance(meta, dict) else 0
         # parse download url based on arguments
         if lossless_quality_is_sufficient and song_info_flac.with_valid_download_url and (song_info_flac.ext in lossless_quality_definitions): song_info = song_info_flac
         else:
+            headers =  {"Content-Type": "application/json;charset=UTF-8", "birth": "h5page", "signature": "1"}
             for music_quality in sorted((search_result.get('rateFormats', []) or []) + (search_result.get('newRateFormats', []) or []) + (search_result.get('audioFormats', []) or []), key=lambda x: int(safe_obtain_filesize_func(x)), reverse=True):
-                if (not isinstance(music_quality, dict)) or (not (format_type := music_quality.get('formatType'))) or (not (resource_type := music_quality.get('resourceType'))) or (format_type in {'Z3D'}): continue
-                with suppress(Exception): (resp := self.get(f"https://c.musicapp.migu.cn/MIGUM3.0/strategy/listen-url/v2.4?resourceType={resource_type}&netType=01&scene=&toneFlag={format_type}&contentId={content_id}&copyrightId={copyright_id}&lowerQualityContentId={content_id}", **request_overrides)).raise_for_status()
+                if (not isinstance(music_quality, dict)) or (not (format_type := music_quality.get('formatType'))) or (not (resource_type := music_quality.get('resourceType'))) or (format_type in {'Z3D'}): continue # Z3D is encrypted audio format
+                params = [("contentId", content_id), ("copyrightId", copyright_id), ("resourceType", resource_type), ("netType", "01"), ("toneFlag", format_type), ("scene", ""), ("lowerQualityContentId", content_id)]
+                with suppress(Exception): (resp := self.get(f"https://c.musicapp.migu.cn/strategy/listen-url/h5/v2.4", params=params, headers=headers, **request_overrides)).raise_for_status()
                 if not locals().get('resp') or not hasattr(locals().get('resp'), 'text'): continue
-                download_url = safeextractfromdict((download_result := resp2json(resp=resp)), ['data', 'url'], '') or f"https://app.pd.nf.migu.cn/MIGUM3.0/v1.0/content/sub/listenSong.do?channel=mx&copyrightId={copyright_id}&contentId={content_id}&toneFlag={format_type}&resourceType={resource_type}&userId=15548614588710179085069&netType=00"
+                download_url = safeextractfromdict((download_result := self._decryptresp(resp=resp)), ['data', 'url'], '') or f"https://app.pd.nf.migu.cn/MIGUM3.0/v1.0/content/sub/listenSong.do?channel=mx&copyrightId={copyright_id}&contentId={content_id}&toneFlag={format_type}&resourceType={resource_type}&userId=15548614588710179085069&netType=00"
                 if not (download_url := re.sub(r'(?<=/)MP3_128_16_Stero(?=/)', 'MP3_320_16_Stero', download_url)) or not str(download_url).startswith('http'): continue
                 duration_in_secs = int(float(safeextractfromdict(download_result, ['data', 'song', 'duration'], 0) or 0))
                 download_url_status: dict = self.audio_link_tester.test(url=download_url, request_overrides=request_overrides, renew_session=True); del resp
@@ -86,14 +97,17 @@ class MiguMusicClient(BaseMusicClient):
         return song_info
     '''_search'''
     @usesearchheaderscookies
-    def _search(self, keyword: str = '', search_url: str = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None, progress_id: int = 0):
+    def _search(self, keyword: str = '', search_url: str = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None):
         # init
-        request_overrides = request_overrides or {}
+        request_overrides, page_no, search_result_idx = request_overrides or {}, int(float(parse_qs(urlparse(url=search_url).query, keep_blank_values=True).get('pageNo')[0])), -1
+        task_id = progress.add_task(f"{self.source}._search >>> Start to process the 0th search result on page {page_no}", total=None, completed=0)
         # successful
         try:
             # --search results
             (resp := self.get(search_url, **request_overrides)).raise_for_status()
-            for search_result in resp2json(resp)['songResultData']['result']:
+            for search_result_idx, search_result in enumerate(resp2json(resp)['songResultData']['result']):
+                # --update progress
+                progress.update(task_id, description=f'{self.source}._search >>> Start to process the {search_result_idx+1}th search result on page {page_no}', completed=search_result_idx+1, total=search_result_idx+1)
                 # --init song info
                 song_info = SongInfo(source=self.source, raw_data={'search': search_result, 'download': {}, 'lyric': {}})
                 # --parse with official apis
@@ -103,11 +117,11 @@ class MiguMusicClient(BaseMusicClient):
                 # --judgement for search_size
                 if self.strict_limit_search_size_per_page and len(song_infos) >= self.search_size_per_page: break
             # --update progress
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Success)")
+            progress.update(task_id, description=f'{self.source}._search >>> {search_result_idx+1} search results processed on page {page_no}')
         # failure
         except Exception as err:
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Error: {err})")
-            self.logger_handle.error(f"{self.source}._search >>> {search_url} (Error: {err})", disable_print=self.disable_print)
+            progress.update(task_id, description=f'{self.source}._search >>> {keyword} on page {page_no} (Error: {err})')
+            self.logger_handle.error(f'{self.source}._search >>> {keyword} on page {page_no} (Error: {err})', disable_print=self.disable_print)
         # return
         return song_infos
     '''parseplaylist'''
@@ -136,7 +150,7 @@ class MiguMusicClient(BaseMusicClient):
                 song_info = SongInfo(source=self.source, raw_data={'search': track_info, 'download': {}, 'lyric': {}})
                 with suppress(Exception): song_info = self._parsewithofficialapiv1(search_result=track_info, song_info_flac=None, lossless_quality_is_sufficient=False, request_overrides=request_overrides)
                 if song_info.with_valid_download_url: song_infos.append(song_info); continue
-                self.logger_handle.warning(f'Fail to parse song id {song_info.identifier} >>> {song_info.album} {song_info.song_name} {song_info.singers} {song_info.download_url}', disable_print=self.disable_print)
+                self.logger_handle.warning(f'Fail to parse track info {track_info}', disable_print=self.disable_print)
             main_process_context.advance(main_progress_id, 1); main_process_context.update(main_progress_id, description=f"{len(tracks_in_playlist)} Songs Found in Playlist {playlist_id} >>> Completed ({idx+1}/{len(tracks_in_playlist)}) SongInfo")
         # post processing
         playlist_name = legalizestring(safeextractfromdict(playlist_result_first, ['meta_info', 'data', 'title'], None) or f"playlist-{playlist_id}")

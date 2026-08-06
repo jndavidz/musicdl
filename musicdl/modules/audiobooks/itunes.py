@@ -44,9 +44,11 @@ class ITunesMusicClient(BaseMusicClient):
         return search_urls
     '''_parsebypodcast'''
     def _parsebypodcast(self, search_results, song_infos: list = [], request_overrides: dict = None, progress: Progress = None):
+        # init
         to_seconds_func = lambda x: (lambda s: 0 if not s else (lambda p: p[-3]*3600+p[-2]*60+p[-1] if len(p)>=3 else p[0]*60+p[1] if len(p)==2 else p[0] if len(p)==1 else 0)([int(v) for v in re.findall(r'\d+', s.replace('：', ':'))]) if (':' in s or '：' in s) else (lambda h,m,sec,num: (lambda tot: tot if tot>0 else num)(h*3600+m*60+sec))(int(mo.group(1)) if (mo:=re.search(r'(\d+)\s*(?:小时|时|h|hr)', s)) else 0, int(mo.group(1)) if (mo:=re.search(r'(\d+)\s*(?:分钟|分|m|min)', s)) else 0, (int(mo.group(1)) if (mo:=re.search(r'(\d+)\s*(?:秒|s|sec)', s)) else (int(mo.group(1)) if (mo:=re.search(r'(?:分钟|分|m|min)\s*(\d+)\b', s)) else 0)), int(mo.group(0)) if (mo:=re.search(r'\d+', s)) else 0))(str(x).strip().lower())
         element_to_dict_func = lambda element: reduce(lambda item_dict, child: (item_dict.__setitem__("enclosure" if child.tag == "enclosure" else child.tag, child.attrib if child.tag == "enclosure" else child.text) or item_dict), element, {})
         namespaces = {'itunes': 'http://www.itunes.com/dtds/podcast-1.0.dtd', 'dc': 'http://purl.org/dc/elements/1.1/', 'content': 'http://purl.org/rss/1.0/modules/content/'}
+        # parse one by one
         for search_result in search_results['results']:
             if (not isinstance(search_result, dict)) or (not (album_id := search_result.get('collectionId'))): continue
             download_results, tracks_in_this_album, request_overrides = [], [], dict(request_overrides or {})
@@ -80,12 +82,14 @@ class ITunesMusicClient(BaseMusicClient):
             with suppress(Exception): song_info.file_size_bytes = sum([float(eps.file_size_bytes) for eps in song_info.episodes]); song_info.file_size = SongInfoUtils.byte2mb(song_info.file_size_bytes)
             if song_info.with_valid_download_url: song_info.album = f"{len(song_info.episodes)} Episodes"; song_infos.append(song_info)
             if self.strict_limit_search_size_per_page and len(song_infos) >= self.search_size_per_page: break
+        # return
         return song_infos
     '''_search'''
     @usesearchheaderscookies
-    def _search(self, keyword: str = '', search_url: dict = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None, progress_id: int = 0):
+    def _search(self, keyword: str = '', search_url: dict = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None):
         # init
-        request_overrides, search_type, search_url = request_overrides or {}, list(search_url.keys())[0], list(search_url.values())[0]
+        request_overrides, search_type, search_url, page_no = request_overrides or {}, list(search_url.keys())[0], list(search_url.values())[0], 1
+        task_id = progress.add_task(f"{self.source}.{search_type}._search >>> Start to process search result on page {page_no}", total=None, completed=0)
         # successful
         try:
             # --search results
@@ -94,10 +98,10 @@ class ITunesMusicClient(BaseMusicClient):
             parsers = {'podcast': self._parsebypodcast}
             parsers[search_type](resp2json(resp), song_infos=song_infos, request_overrides=request_overrides, progress=progress)
             # --update progress
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Success)")
+            progress.update(task_id, description=f'{self.source}.{search_type}._search >>> All search results processed on page {page_no}')
         # failure
         except Exception as err:
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Error: {err})")
-            self.logger_handle.error(f"{self.source}._search >>> {search_url} (Error: {err})", disable_print=self.disable_print)
+            progress.update(task_id, description=f'{self.source}.{search_type}._search >>> {keyword} on page {page_no} (Error: {err})')
+            self.logger_handle.error(f'{self.source}.{search_type}._search >>> {keyword} on page {page_no} (Error: {err})', disable_print=self.disable_print)
         # return
         return song_infos

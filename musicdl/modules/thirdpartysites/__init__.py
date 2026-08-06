@@ -1,12 +1,16 @@
 '''initialize'''
 from .mitu import MituMusicClient
 from .kkws import KKWSMusicClient
-from .jcpoo import JCPOOMusicClient
 from .flmp3 import FLMP3MusicClient
 from .htqyy import HTQYYMusicClient
+from .mgmp3 import MGMP3MusicClient
+from .sgogo import SgogoMusicClient
 from .twot58 import TwoT58MusicClient
 from .fangpi import FangpiMusicClient
 from .buguyy import BuguyyMusicClient
+from .liziyy import LiziYYMusicClient
+from .xiageba import XiagebaMusicClient
+from .itingwa import ITingWaMusicClient
 from .zhuolin import ZhuolinMusicClient
 from .gequbao import GequbaoMusicClient
 from .gequhai import GequhaiMusicClient

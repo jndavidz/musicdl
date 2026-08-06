@@ -338,7 +338,9 @@ Important Behavior:
 End users usually do not create this class directly. Instead, they use subclasses such as,
 
 - `musicdl.modules.sources.AppleMusicClient`
+- `musicdl.modules.sources.AudiusMusicClient`
 - `musicdl.modules.sources.BilibiliMusicClient`
+- `musicdl.modules.sources.BodianMusicClient`
 - `musicdl.modules.sources.DeezerMusicClient`
 - `musicdl.modules.sources.FiveSingMusicClient`
 - `musicdl.modules.sources.FMAMusicClient`
@@ -348,7 +350,9 @@ End users usually do not create this class directly. Instead, they use subclasse
 - `musicdl.modules.sources.KugouMusicClient`
 - `musicdl.modules.sources.KuwoMusicClient`
 - `musicdl.modules.sources.MiguMusicClient`
+- `musicdl.modules.sources.MOOVMusicClient`
 - `musicdl.modules.sources.NeteaseMusicClient`
+- `musicdl.modules.sources.OpenGameArtMusicClient`
 - `musicdl.modules.sources.QianqianMusicClient`
 - `musicdl.modules.sources.QQMusicClient`
 - `musicdl.modules.sources.QobuzMusicClient`
@@ -356,7 +360,9 @@ End users usually do not create this class directly. Instead, they use subclasse
 - `musicdl.modules.sources.StreetVoiceMusicClient`
 - `musicdl.modules.sources.SoundCloudMusicClient`
 - `musicdl.modules.sources.SpotifyMusicClient`
+- `musicdl.modules.sources.SunoMusicClient`
 - `musicdl.modules.sources.TIDALMusicClient`
+- `musicdl.modules.sources.WikimediaCommonsMusicClient`
 - `musicdl.modules.sources.YouTubeMusicClient`
 - `musicdl.modules.thirdpartysites.BuguyyMusicClient`
 - `musicdl.modules.thirdpartysites.FiveSongMusicClient`
@@ -365,11 +371,15 @@ End users usually do not create this class directly. Instead, they use subclasse
 - `musicdl.modules.thirdpartysites.GequbaoMusicClient`
 - `musicdl.modules.thirdpartysites.GequhaiMusicClient`
 - `musicdl.modules.thirdpartysites.HTQYYMusicClient`
-- `musicdl.modules.thirdpartysites.JCPOOMusicClient`
+- `musicdl.modules.thirdpartysites.ITingWaMusicClient`
 - `musicdl.modules.thirdpartysites.KKWSMusicClient`
 - `musicdl.modules.thirdpartysites.LivePOOMusicClient`
+- `musicdl.modules.thirdpartysites.LiziYYMusicClient`
 - `musicdl.modules.thirdpartysites.MituMusicClient`
+- `musicdl.modules.thirdpartysites.MGMP3MusicClient`
+- `musicdl.modules.thirdpartysites.SgogoMusicClient`
 - `musicdl.modules.thirdpartysites.TwoT58MusicClient`
+- `musicdl.modules.thirdpartysites.XiagebaMusicClient`
 - `musicdl.modules.thirdpartysites.YinyuedaoMusicClient`
 - `musicdl.modules.thirdpartysites.ZhuolinMusicClient`
 - `musicdl.modules.common.GDStudioMusicClient`
@@ -377,6 +387,7 @@ End users usually do not create this class directly. Instead, they use subclasse
 - `musicdl.modules.common.MP3JuiceMusicClient`
 - `musicdl.modules.common.MyFreeMP3MusicClient`
 - `musicdl.modules.common.TuneHubMusicClient`
+- `musicdl.modules.common.XiaoBaiMusicClient`
 - `musicdl.modules.audiobooks.ITunesMusicClient`
 - `musicdl.modules.audiobooks.LizhiMusicClient`
 - `musicdl.modules.audiobooks.LRTSMusicClient`

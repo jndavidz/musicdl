@@ -16,7 +16,7 @@ from contextlib import suppress
 from .base import BaseMusicClient
 from pathvalidate import sanitize_filepath
 from ..utils.hosts import TIDAL_MUSIC_HOSTS
-from urllib.parse import urlencode, urlparse
+from urllib.parse import urlencode, urlparse, parse_qs
 from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn, MofNCompleteColumn
 from ..utils.tidalutils import TIDALMusicClientUtils, SearchResult, SessionStorage, Track, TidalTvSession, StreamUrl, Artist
 from ..utils import legalizestring, resp2json, usesearchheaderscookies, usedownloadheaderscookies, safeextractfromdict, useparseheaderscookies, hostmatchessuffix, obtainhostname, cleanlrc, SongInfo, SongInfoUtils, IOUtils, AudioLinkTester
@@ -95,10 +95,10 @@ class TIDALMusicClient(BaseMusicClient):
         if lossless_quality_is_sufficient and song_info_flac.with_valid_download_url and (song_info_flac.ext in lossless_quality_definitions): song_info = song_info_flac
         else:
             for music_quality in TIDALMusicClientUtils.MUSIC_QUALITIES:
-                with suppress(Exception): stream_resp = None; download_url, stream_resp = TIDALMusicClientUtils.getstreamurl(song_id, quality=music_quality[1], apply_thirdpart_apis=(not self.tidal_tv_session.isvipaccount(request_overrides=request_overrides)), request_overrides=request_overrides)
-                if not locals().get('download_url') or not locals().get('stream_resp'): continue
+                with suppress(Exception): download_url, stream_resp = None, None; download_url, stream_resp = TIDALMusicClientUtils.getstreamurl(song_id, quality=music_quality[1], apply_thirdpart_apis=(not self.tidal_tv_session.isvipaccount(request_overrides=request_overrides)), request_overrides=request_overrides)
+                if not download_url or not stream_resp or not hasattr(download_url, 'url'): continue 
                 download_url_status: dict = self.audio_link_tester.test(url=download_url.url, request_overrides=request_overrides, renew_session=True)
-                if download_url_status['ext'] in {'NULL'}: download_url_status['ext'] = TIDALMusicClientUtils.getexpectedextension(download_url).removeprefix('.')
+                if (download_url_status['ext'] in {'NULL'}) or (TIDALMusicClientUtils.getexpectedextension(download_url).removeprefix('.') in {'flac'}): download_url_status['ext'] = TIDALMusicClientUtils.getexpectedextension(download_url).removeprefix('.')
                 song_info = SongInfo(
                     raw_data={'search': search_result, 'download': stream_resp, 'lyric': {}, 'quality': music_quality}, source=self.source, song_name=legalizestring(search_result.title), singers=legalizestring(', '.join([str(singer.name) for singer in (search_result.artists or []) if isinstance(singer, Artist)])), album=legalizestring(search_result.album.title), 
                     ext=download_url_status['ext'], file_size_bytes='HLS', file_size='HLS', identifier=search_result.id, duration_s=search_result.duration, duration=SongInfoUtils.seconds2hms(search_result.duration), lyric=None, cover_url=TIDALMusicClientUtils.getcoverurl(search_result.album.cover), download_url=download_url, download_url_status=download_url_status,
@@ -114,14 +114,17 @@ class TIDALMusicClient(BaseMusicClient):
         return song_info
     '''_search'''
     @usesearchheaderscookies
-    def _search(self, keyword: str = '', search_url: str = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None, progress_id: int = 0):
+    def _search(self, keyword: str = '', search_url: str = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None):
         # init
-        request_overrides = request_overrides or {}
+        request_overrides, page_no, search_result_idx = request_overrides or {}, int(float(parse_qs(urlparse(url=search_url).query, keep_blank_values=True).get('offset')[0]) / self.search_size_per_page) + 1, -1
+        task_id = progress.add_task(f"{self.source}._search >>> Start to process the 0th search result on page {page_no}", total=None, completed=0)
         # successful
         try:
             # --search results
             (resp := self.get(search_url, **request_overrides)).raise_for_status()
-            for search_result in aigpy.model.dictToModel(resp2json(resp=resp), SearchResult()).tracks.items:
+            for search_result_idx, search_result in enumerate(aigpy.model.dictToModel(resp2json(resp=resp), SearchResult()).tracks.items):
+                # --update progress
+                progress.update(task_id, description=f'{self.source}._search >>> Start to process the {search_result_idx+1}th search result on page {page_no}', completed=search_result_idx+1, total=search_result_idx+1)
                 # --init song info
                 song_info = SongInfo(source=self.source, raw_data={'search': search_result, 'download': {}, 'lyric': {}})
                 # --parse with official apis
@@ -131,11 +134,11 @@ class TIDALMusicClient(BaseMusicClient):
                 # --judgement for search_size
                 if self.strict_limit_search_size_per_page and len(song_infos) >= self.search_size_per_page: break
             # --update progress
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Success)")
+            progress.update(task_id, description=f'{self.source}._search >>> {search_result_idx+1} search results processed on page {page_no}')
         # failure
         except Exception as err:
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Error: {err})")
-            self.logger_handle.error(f"{self.source}._search >>> {search_url} (Error: {err})", disable_print=self.disable_print)
+            progress.update(task_id, description=f'{self.source}._search >>> {keyword} on page {page_no} (Error: {err})')
+            self.logger_handle.error(f'{self.source}._search >>> {keyword} on page {page_no} (Error: {err})', disable_print=self.disable_print)
         # return
         return song_infos
     '''parseplaylist'''
@@ -165,7 +168,7 @@ class TIDALMusicClient(BaseMusicClient):
                 song_info = SongInfo(source=self.source, raw_data={'search': track_info, 'download': {}, 'lyric': {}})
                 with suppress(Exception): song_info = self._parsewithofficialapiv1(search_result=track_info, song_info_flac=None, lossless_quality_is_sufficient=False, request_overrides=request_overrides)
                 if song_info.with_valid_download_url: song_infos.append(song_info); continue
-                self.logger_handle.warning(f'Fail to parse song id {song_info.identifier} >>> {song_info.album} {song_info.song_name} {song_info.singers} {song_info.download_url}', disable_print=self.disable_print)
+                self.logger_handle.warning(f'Fail to parse track info {track_info}', disable_print=self.disable_print)
             main_process_context.advance(main_progress_id, 1); main_process_context.update(main_progress_id, description=f"{len(tracks_in_playlist)} Songs Found in Playlist {playlist_id} >>> Completed ({idx+1}/{len(tracks_in_playlist)}) SongInfo")
         # post processing
         playlist_name = legalizestring(safeextractfromdict(playlist_result_first, ['meta_info', 'title'], None) or f"playlist-{playlist_id}")

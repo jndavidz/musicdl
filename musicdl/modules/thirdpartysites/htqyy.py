@@ -64,21 +64,23 @@ class HTQYYMusicClient(BaseMusicClient):
         return {"format": unescape_func(file_format), "PageData": {k: unescape_func(v) for k, v in pagedata.items()}, "ip": unescape_func(ip), "fileHost": unescape_func(file_host), "mp3_path": unescape_func(mp3_path), "mp3_url": unescape_func(mp3_url), "bdText": unescape_func(bd_text), "bdText2": unescape_func(bd_text2), "imgUrl": unescape_func(img_url)}
     '''_search'''
     @usesearchheaderscookies
-    def _search(self, keyword: str = '', search_url: str = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None, progress_id: int = 0):
+    def _search(self, keyword: str = '', search_url: str = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None):
         # init
-        request_overrides = request_overrides or {}
+        request_overrides, page_no, search_result_idx = request_overrides or {}, 1, -1
+        task_id = progress.add_task(f"{self.source}._search >>> Start to process the 0th search result on page {page_no}", total=None, completed=0)
         # successful
         try:
             # --search results
             (resp := self.get(search_url, **request_overrides)).raise_for_status()
-            for search_result in self._parsesearchresultsfromhtml(resp.text):
+            for search_result_idx, search_result in enumerate(self._parsesearchresultsfromhtml(resp.text)):
+                # --update progress
+                progress.update(task_id, description=f'{self.source}._search >>> Start to process the {search_result_idx+1}th search result on page {page_no}', completed=search_result_idx+1, total=search_result_idx+1)
                 # --download results
                 if not isinstance(search_result, dict) or ('play_url' not in search_result): continue
                 song_info, song_id = SongInfo(source=self.source), search_result.get('id') or search_result.get('sid')
-                with suppress(Exception): (resp := self.get(search_result['play_url'], **request_overrides)).raise_for_status()
+                with suppress(Exception): resp = None; (resp := self.get(search_result['play_url'], **request_overrides)).raise_for_status()
                 if not locals().get('resp') or not hasattr(locals().get('resp'), 'text'): continue
-                download_url: str = (download_result := self._extractplayscriptinfo(resp.text)).get('mp3_url')
-                if not download_url or not str(download_url).startswith('http'): continue
+                if not (download_url := (download_result := self._extractplayscriptinfo(resp.text)).get('mp3_url')) or not str(download_url).startswith('http'): continue
                 download_url_status: dict = self.audio_link_tester.test(url=download_url, request_overrides=request_overrides, renew_session=True)
                 song_info = SongInfo(
                     raw_data={'search': search_result, 'download': download_result, 'lyric': {}}, source=self.source, song_name=legalizestring(search_result.get('title')), singers=legalizestring(search_result.get('artist')), album=legalizestring(search_result.get('album')), ext=download_url_status['ext'], file_size_bytes=download_url_status['file_size_bytes'], 
@@ -90,10 +92,10 @@ class HTQYYMusicClient(BaseMusicClient):
                 # --judgement for search_size
                 if self.strict_limit_search_size_per_page and len(song_infos) >= self.search_size_per_page: break
             # --update progress
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Success)")
+            progress.update(task_id, description=f'{self.source}._search >>> {search_result_idx+1} search results processed on page {page_no}')
         # failure
         except Exception as err:
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Error: {err})")
-            self.logger_handle.error(f"{self.source}._search >>> {search_url} (Error: {err})", disable_print=self.disable_print)
+            progress.update(task_id, description=f'{self.source}._search >>> {keyword} on page {page_no} (Error: {err})')
+            self.logger_handle.error(f'{self.source}._search >>> {keyword} on page {page_no} (Error: {err})', disable_print=self.disable_print)
         # return
         return song_infos

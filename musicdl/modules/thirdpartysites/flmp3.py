@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 from contextlib import suppress
 from rich.progress import Progress
 from ..sources import BaseMusicClient
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, parse_qs
 from ..utils import legalizestring, usesearchheaderscookies, searchdictbykey, SongInfo, QuarkParser, AudioLinkTester, SongInfoUtils
 
 
@@ -43,9 +43,8 @@ class FLMP3MusicClient(BaseMusicClient):
         search_results, base_url, soup = [], "https://flmp3.pro", BeautifulSoup(html_text, "html.parser")
         for li in soup.select("div.list ul.flex.flex-wrap > li"):
             if not (a := li.select_one("a")): continue
-            song_href = a.get("href", ""); song_url = urljoin(base_url, song_href) if song_href else None; title_el = li.select_one("div.con div.t h3")
-            artist_el = li.select_one("div.con div.t p"); date_el = li.select_one("div.con div.date"); img_el = li.select_one("div.pic img")
-            search_results.append({"song_url": song_url, "title": title_el.get_text(strip=True) if title_el else None, "artist": artist_el.get_text(strip=True) if artist_el else None, "date": date_el.get_text(strip=True) if date_el else None, "img_url": img_el.get("src") if img_el else None, "img_alt": img_el.get("alt") if img_el else None})
+            song_url = urljoin(base_url, song_href) if (song_href := a.get("href", "")) else None
+            search_results.append({"song_url": song_url, "title": title_el.get_text(strip=True) if (title_el := li.select_one("div.con div.t h3")) else None, "artist": artist_el.get_text(strip=True) if (artist_el := li.select_one("div.con div.t p")) else None, "date": date_el.get_text(strip=True) if (date_el := li.select_one("div.con div.date")) else None, "img_url": img_el.get("src") if (img_el := li.select_one("div.pic img")) else None, "img_alt": img_el.get("alt") if img_el else None})
         return search_results
     '''_parsesongdetailfordownloadpages'''
     def _parsesongdetailfordownloadpages(self, html_text: str):
@@ -59,24 +58,26 @@ class FLMP3MusicClient(BaseMusicClient):
         return {'links_sorted': links_sorted, 'song_id': song_id}
     '''_search'''
     @usesearchheaderscookies
-    def _search(self, keyword: str = '', search_url: str = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None, progress_id: int = 0):
+    def _search(self, keyword: str = '', search_url: str = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None):
         # init
-        request_overrides = request_overrides or {}
+        with suppress(Exception): page_no, search_result_idx = 1, -1; page_no = int(float(parse_qs(urlparse(url=search_url).query, keep_blank_values=True).get('page')[0]))
+        task_id = progress.add_task(f"{self.source}._search >>> Start to process the 0th search result on page {page_no}", total=None, completed=0)
         # successful
         try:
             # --search results
-            (resp := self.get(search_url, **request_overrides)).raise_for_status()
-            for search_result in self._parsesearchresultsfromhtml(resp.text):
+            (resp := self.get(search_url, **(request_overrides := request_overrides or {}))).raise_for_status()
+            for search_result_idx, search_result in enumerate(self._parsesearchresultsfromhtml(resp.text)):
+                # --update progress
+                progress.update(task_id, description=f'{self.source}._search >>> Start to process the {search_result_idx+1}th search result on page {page_no}', completed=search_result_idx+1, total=search_result_idx+1)
                 # --download results
                 if not isinstance(search_result, dict) or ('song_url' not in search_result): continue
                 song_info = SongInfo(source=self.source, raw_data={'search': search_result, 'download': {}, 'lyric': {}})
-                with suppress(Exception): (resp := self.get(search_result['song_url'], **request_overrides)).raise_for_status()
+                with suppress(Exception): resp = None; (resp := self.get(search_result['song_url'], **request_overrides)).raise_for_status()
                 if not locals().get('resp') or not hasattr(locals().get('resp'), 'text'): continue
                 for download_page_details in (download_result := self._parsesongdetailfordownloadpages(resp.text))['links_sorted']:
-                    with suppress(Exception): (dresp := self.get(download_page_details['url'], **request_overrides)).raise_for_status()
+                    with suppress(Exception): dresp = None; (dresp := self.get(download_page_details['url'], **request_overrides)).raise_for_status()
                     if not locals().get('dresp') or not hasattr(locals().get('dresp'), 'text'): continue
-                    soup = BeautifulSoup(dresp.text, "lxml"); quark_download_url = soup.select_one("a.linkbtn[href]").get('href')
-                    if not quark_download_url or not str(quark_download_url).startswith('http'): continue
+                    if not (quark_download_url := BeautifulSoup(dresp.text, "lxml").select_one("a.linkbtn[href]").get('href')) or not str(quark_download_url).startswith('http'): continue
                     download_result['quark_parse_result'], download_url = QuarkParser.parsefromurl(quark_download_url, **self.quark_parser_config)
                     if not download_url or not str(download_url).startswith('http'): continue
                     download_url_status: dict = self.quark_audio_link_tester.test(url=download_url, request_overrides=request_overrides, renew_session=True)
@@ -91,10 +92,10 @@ class FLMP3MusicClient(BaseMusicClient):
                 # --judgement for search_size
                 if self.strict_limit_search_size_per_page and len(song_infos) >= self.search_size_per_page: break
             # --update progress
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Success)")
+            progress.update(task_id, description=f'{self.source}._search >>> {search_result_idx+1} search results processed on page {page_no}')
         # failure
         except Exception as err:
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Error: {err})")
-            self.logger_handle.error(f"{self.source}._search >>> {search_url} (Error: {err})", disable_print=self.disable_print)
+            progress.update(task_id, description=f'{self.source}._search >>> {keyword} on page {page_no} (Error: {err})')
+            self.logger_handle.error(f'{self.source}._search >>> {keyword} on page {page_no} (Error: {err})', disable_print=self.disable_print)
         # return
         return song_infos

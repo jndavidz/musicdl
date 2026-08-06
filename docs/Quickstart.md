@@ -409,7 +409,8 @@ From musicdl v2.9.0 onward, support for playlist parsing and downloading is bein
 AppleMusicClient,      DeezerMusicClient,       FiveSingMusicClient,    JamendoMusicClient,      JooxMusicClient,
 KuwoMusicClient,       KugouMusicClient,        MiguMusicClient,        NeteaseMusicClient,      QQMusicClient,
 QianqianMusicClient,   QobuzMusicClient,        SoundCloudMusicClient,  StreetVoiceMusicClient,  SodaMusicClient,
-SpotifyMusicClient,    TIDALMusicClient,        FMAMusicClient,         JioSaavnMusicClient,
+SpotifyMusicClient,    TIDALMusicClient,        FMAMusicClient,         JioSaavnMusicClient,     BodianMusicClient,
+SunoMusicClient,       MOOVMusicClient,
 ```
 
 You can download a supported playlist directly from the terminal:
@@ -420,8 +421,10 @@ You can download a supported playlist directly from the terminal:
 musicdl -p "https://music.apple.com/cn/playlist/%E5%8D%81%E5%A4%A7%E4%B8%93%E8%BE%91/pl.u-mJy81mECzBL49zM" -m AppleMusicClient -i "{'AppleMusicClient': {'default_parse_cookies': your_vip_cookies_with_str_or_dict_format}}"
 # >>> use wrapper
 musicdl -p "https://music.apple.com/cn/playlist/%E5%8D%81%E5%A4%A7%E4%B8%93%E8%BE%91/pl.u-mJy81mECzBL49zM" -m AppleMusicClient -i "{'AppleMusicClient': {'use_wrapper': True, 'wrapper_account_url': 'http://127.0.0.1:30020/', 'wrapper_decrypt_ip': '127.0.0.1:10020'}}"
+# Parse and Download Bodian Music Playlist
+musicdl -p "https://h5app.kuwo.cn/m/bodian/collection.html?uid=1798690&playlistId=1669719&source=5&ownerId=1798690"
 # Parse and Download Deezer Music Playlist
-musicdl -p "https://www.deezer.com/us/playlist/4697225044" -m DeezerMusicClient -i "{'DeezerMusicClient': {'default_parse_cookies': your_vip_cookies_with_str_or_dict_format}}"
+musicdl -p "https://www.deezer.com/us/playlist/4697225044" -m DeezerMusicClient
 # Parse and Download 5SING Music Playlist
 musicdl -p "https://5sing.kugou.com/yeluoluo/dj/631b3fa72418b11003089b8d.html" -m FiveSingMusicClient
 # Parse and Download FMA Music Playlist
@@ -438,6 +441,8 @@ musicdl -p "https://www.kuwo.cn/playlist_detail/2358858706" -m KuwoMusicClient
 musicdl -p "https://www.kugou.com/yy/special/single/3280341.html" -m KugouMusicClient
 # Parse and Download Migu Music Playlist
 musicdl -p "https://music.migu.cn/v5/#/playlist?playlistId=228114498&playlistType=ordinary" -m MiguMusicClient
+# Parse and Download MOOV Music Playlist
+musicdl -p "https://moov.hk/?utm_source=ios&utm_medium=copylink&utm_campaign=sharing_UPL-6742190#/playlist/PP1000000965" -m MOOVMusicClient -i "{'MOOVMusicClient': {'default_parse_cookies': your_vip_cookies_with_str_or_dict_format}}"
 # Parse and Download NetEase Music Playlist
 musicdl -p "https://music.163.com/#/playlist?id=3039971654" -m NeteaseMusicClient
 # Parse and Download QQ Music Playlist
@@ -454,6 +459,8 @@ musicdl -p "https://soundcloud.com/pandadub/sets/the-lost-ship" -m SoundCloudMus
 musicdl -p "https://qishui.douyin.com/s/iHFSgNKw/" -m SodaMusicClient
 # Parse and Download Spotify Music Playlist
 musicdl -p "https://open.spotify.com/playlist/37i9dQZF1E8NWHOpySOxQd" -m SpotifyMusicClient
+# Parse and Download Suno Music Playlist
+musicdl -p "https://suno.com/playlist/71f56f55-93a8-4c93-830d-6762853cc862" -m SunoMusicClient
 # Parse and Download TIDAL Music Playlist
 musicdl -p "https://tidal.com/playlist/a94e7dce-da66-413d-81a5-990328afa3c9" -m TIDALMusicClient -i "{'TIDALMusicClient': {'default_parse_cookies': your_vip_cookies_with_str_or_dict_format}}"
 ```

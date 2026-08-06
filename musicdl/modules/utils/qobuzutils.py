@@ -8,15 +8,108 @@ WeChat Official Account (微信公众号):
 '''
 import re
 import time
-import hashlib
 import base64
+import hashlib
 import binascii
 import requests
+from contextlib import suppress
 from urllib.parse import urljoin
+from typing import Any, Dict, Optional, Tuple
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+
+'''ArcodClient'''
+class ArcodClient:
+    def __init__(self, base_url: str = "https://arcod.xyz", timeout: int = 30) -> None:
+        self.timeout = timeout
+        self.base_url = base_url.rstrip("/")
+        self.supabase_url: Optional[str] = None
+        self.access_token: Optional[str] = None
+        self.supabase_anon_key: Optional[str] = None
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36", "Accept": "application/json, text/plain, */*", "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7", "Referer": self.base_url + "/"})
+    '''joinpathtourl'''
+    def joinpathtourl(self, path: str) -> str:
+        return urljoin(self.base_url + "/", path.lstrip("/"))
+    '''extractscripturls'''
+    def extractscripturls(self, html_text: str) -> list[str]:
+        urls: list[str] = []
+        for src in re.findall(r'<script[^>]+src=["\']([^"\']+)["\']', html_text):
+            if ".js" not in src: continue
+            urls.append(urljoin(self.base_url + "/", src))
+        return list(dict.fromkeys(urls))
+    '''discoversupabaseconfig'''
+    def discoversupabaseconfig(self, request_overrides: dict = None) -> Tuple[str, str]:
+        html_text = self.session.get(self.base_url + "/", timeout=self.timeout, **(request_overrides := request_overrides or {})).text
+        script_urls, supabase_url_re, anon_key_re = self.extractscripturls(html_text), re.compile(r"https://[a-z0-9]+\.supabase\.co"), re.compile(r"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
+        found_url: Optional[str] = None; found_key: Optional[str] = None
+        for script_url in script_urls:
+            with suppress(Exception): text = ''; text = self.session.get(script_url, timeout=self.timeout, **request_overrides).text
+            found_url = m_url.group(0) if found_url is None and (m_url := supabase_url_re.search(text)) else found_url
+            found_key = m_key.group(0) if found_key is None and (m_key := anon_key_re.search(text)) else found_key
+            if found_url and found_key: break
+        self.supabase_url, self.supabase_anon_key = found_url, found_key
+        return found_url, found_key
+    '''checkmigrated'''
+    def checkmigrated(self, email: str, request_overrides: dict = None) -> Dict[str, Any]:
+        (resp := self.session.post(self.joinpathtourl("/api/auth/check-migrated"), json={"email": email}, headers={"Content-Type": "application/json", "Origin": self.base_url}, timeout=self.timeout, **(request_overrides or {}))).raise_for_status()
+        return resp.json()
+    '''login'''
+    def login(self, email: str, password: str, request_overrides: dict = None) -> str:
+        if self.access_token: return self.access_token
+        if not self.supabase_url or not self.supabase_anon_key: self.discoversupabaseconfig(request_overrides=request_overrides)
+        assert self.supabase_url is not None and self.supabase_anon_key is not None
+        self.checkmigrated(email, request_overrides=request_overrides); url = self.supabase_url.rstrip("/") + "/auth/v1/token?grant_type=password"
+        headers = {"apikey": self.supabase_anon_key, "Content-Type": "application/json;charset=UTF-8", "Origin": self.base_url, "Referer": self.base_url + "/", "x-client-info": "supabase-js-web/2.99.3", "x-supabase-api-version": "2024-01-01"}
+        (resp := self.session.post(url, headers=headers, json={"email": email, "password": password, "gotrue_meta_security": {}}, timeout=self.timeout, **(request_overrides or {}))).raise_for_status()
+        self.access_token = (resp.json() or {}).get("access_token")
+        return self.access_token
+    '''constructapiheaders'''
+    def constructapiheaders(self, *, country: Optional[str] = None, download_token: Optional[str] = None, access_token: Optional[str] = None) -> Dict[str, str]:
+        headers: Dict[str, str] = {}; token = access_token or self.access_token
+        if country: headers["Token-Country"] = country
+        if token: headers["Authorization"] = token
+        if download_token: headers["X-Download-Token"] = download_token
+        return headers
+    '''gettrack'''
+    def gettrack(self, track_id: str, *, country: Optional[str] = None, request_overrides: dict = None) -> Dict[str, Any]:
+        (resp := self.session.get(self.joinpathtourl("/api/get-track"), params={"track_id": track_id}, headers=self.constructapiheaders(country=country), timeout=self.timeout, **(request_overrides or {}))).raise_for_status()
+        return resp.json()["data"]
+    '''buildtrackdownloadpayload'''
+    def buildtrackdownloadpayload(self, track: Dict[str, Any], *, quality: int = 27, output_format: str = "FLAC", bitrate: int = 320, embed_lyrics: bool = True, lyrics_mode: str = "embed", download_booklet: bool = False, attach_cover: bool = False, country: Optional[str] = None) -> Dict[str, Any]:
+        album_image = (album := track.get("album") or {}).get("image") or {}
+        album_artist, performer = album.get("artist") or {}, track.get("performer") or {}
+        album_id, track_id = str(album.get("id") or album.get("upc") or ""), str(track.get("id") or track.get("qobuz_id") or "")
+        artist_name, artist_id = album_artist.get("name") or performer.get("name") or "Unknown Artist", str(album_artist.get("id") or performer.get("id") or "")
+        album_title, cover_url = album.get("title") or "Unknown Album", album_image.get("large") or album_image.get("small") or ""
+        release_date = album.get("release_date_original") or track.get("release_date_original")
+        payload: Dict[str, Any] = {"albumId": album_id, "trackId": track_id, "albumTitle": album_title, "artistName": artist_name, "artistId": artist_id, "coverUrl": cover_url, "releaseDate": release_date, "tracksCount": 1, "quality": quality, "format": output_format, "bitrate": bitrate, "embedLyrics": embed_lyrics, "lyricsMode": lyrics_mode, "downloadBooklet": download_booklet, "attachCover": attach_cover, "zipName": "{artists} - {name}", "trackName": "{track} - {name}"}
+        if country: payload["country"] = country
+        return payload
+    '''createdownload'''
+    def createdownload(self, payload: Dict[str, Any], *, country: Optional[str] = None, request_overrides: dict = None) -> Tuple[str, Optional[str]]:
+        (resp := self.session.post(self.joinpathtourl("/api/v2/downloads"), json=payload, headers={"Content-Type": "application/json", "Origin": self.base_url, **self.constructapiheaders(country=country)}, timeout=self.timeout, **(request_overrides or {}))).raise_for_status()
+        return resp.json()['id'], resp.json()['accessToken']
+    '''getdownloadstatus'''
+    def getdownloadstatus(self, download_id: str, *, download_token: Optional[str] = None, request_overrides: dict = None) -> Dict[str, Any]:
+        (resp := self.session.get(self.joinpathtourl(f"/api/v2/downloads/{download_id}"), headers=self.constructapiheaders(download_token=download_token), timeout=self.timeout, **(request_overrides or {}))).raise_for_status()
+        return resp.json()
+    '''polluntilcompleted'''
+    def polluntilcompleted(self, download_id: str, *, download_token: Optional[str] = None, interval: float = 2.0, max_polls: int = 300, request_overrides: dict = None) -> Dict[str, Any]:
+        last: Dict[str, Any] = {}
+        for _ in range(max_polls):
+            last = self.getdownloadstatus(download_id, download_token=download_token, request_overrides=request_overrides)
+            if (status := last.get("status")) == "completed": return last
+            if status in {"failed", "cancelled"}: raise RuntimeError(f"Download job ended with {status}: {last.get('error')}")
+            time.sleep(interval)
+        raise RuntimeError(f"Timed out waiting for completion; last status: {last}")
+    '''getfreshdownloadurl'''
+    def getfreshdownloadurl(self, download_id: str, *, download_token: Optional[str] = None, request_overrides: dict = None) -> Dict[str, Any]:
+        (resp := self.session.post(self.joinpathtourl(f"/api/v2/downloads/{download_id}/url"), json={}, headers={"Content-Type": "application/json", "Origin": self.base_url, **self.constructapiheaders(download_token=download_token)}, timeout=self.timeout, **(request_overrides or {}))).raise_for_status()
+        return resp.json()
 
 
 '''QobuzMusicClientUtils'''

@@ -36,6 +36,11 @@ curl_cffi = optionalimport('curl_cffi')
 if TYPE_CHECKING: import curl_cffi as curl_cffi
 
 
+'''safefunctioncall'''
+def safefunctioncall(fn):
+    with suppress(Exception): return fn()
+
+
 '''legalizestring'''
 def legalizestring(string: str, fit_gbk: bool = True, max_len: int = 255, fit_utf8: bool = True, replace_null_string: str = 'NULL'):
     # naive process
@@ -56,7 +61,7 @@ def legalizestring(string: str, fit_gbk: bool = True, max_len: int = 255, fit_ut
     # sanitize_filename
     string = sanitize_filename(string, max_len=max_len)
     # fix encoding
-    if fit_gbk: string = string.encode("gbk", errors="ignore").decode("gbk", errors="ignore")
+    if fit_gbk: string = string.encode("gb18030", errors="ignore").decode("gb18030", errors="ignore")
     if fit_utf8: string = string.encode("utf-8", errors="ignore").decode("utf-8", errors="ignore")
     # return
     return (replace_null_string if not (string := re.sub(r"\s+", " ", string).strip()) else string)
@@ -184,7 +189,7 @@ class AudioLinkTester:
         "spu", "spx", "ssf", "stm", "snd", "tak", "thd", "tta", "spc", "sd2f", "umx", "usf", "miniusf", "voc", "vgm", "vgz", "wav", "wave", "w64", "it", "far", 
         "wax", "wma", "wve", "wv", "wvx", "xi", "8svx", "16svx", "2sf", "3ga", "669", "aa3", "amf", "at3", "at9", "dmf", "weba",
         # special and encrypted
-        "m4s", "mflac", "mgg", "qmcflac", "qmc0", "qmc3", "qmcogg", "bkcmp3", "bkcflac", "tkm", "kgm", "vpr", "kwm", "ncm", "mg3d"
+        "m4s", "mflac", "mgg", "qmcflac", "qmc0", "qmc3", "qmcogg", "bkcmp3", "bkcflac", "tkm", "kgm", "vpr", "kwm", "ncm", "mg3d", "rar",
     }
     AUDIO_MIME_PREFIX = "audio/"
     AUDIO_MIME_EXTRA = {"application/octet-stream", "application/flac", "application/ogg", "application/vnd.apple.mpegurl", "application/x-flac", "application/x-mpegurl", "video/mp4"}

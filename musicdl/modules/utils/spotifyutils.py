@@ -10,13 +10,23 @@ import re
 import copy
 import time
 import hmac
+import json
+import struct
 import base64
 import hashlib
+import secrets
 import requests
 import json_repair
 from contextlib import suppress
+from dataclasses import dataclass
 from typing import Dict, List, Tuple
+from urllib.parse import urljoin, urlparse
 from .misc import resp2json, safeextractfromdict
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePrivateKey
 
 
 '''SpotifyMusicClientUtils'''
@@ -166,3 +176,230 @@ class SpotifyMusicClientSearchUtils():
         request_overrides, rule = request_overrides or {}, rule or {}
         (payload := {"variables": {"searchTerm": query, "offset": offset, "limit": limit, "numberOfTopResults": 5, "includeAudiobooks": True, "includeArtistHasConcertsField": False, "includePreReleases": True, "includeAuthors": False}, "operationName": "searchDesktop", "extensions": {"persistedQuery": {"version": 1, "sha256Hash": "fcad5a3e0d5af727fb76966f06971c19cfa2275e6ff7671196753e008611873c"}}}).update(rule)
         return SpotifyMusicClientSearchUtils.query(session, payload, request_overrides=request_overrides)
+
+
+'''Envelope'''
+@dataclass
+class Envelope:
+    version: int
+    flags: int
+    expires_at: int
+    request_id: bytes
+    salt: bytes
+    public_key: bytes
+    iv: bytes
+    ciphertext: bytes
+    '''pack'''
+    def pack(self) -> bytes:
+        if len(self.request_id) != 16: raise ValueError("request_id must be 16 bytes")
+        if len(self.salt) != 16: raise ValueError("salt must be 16 bytes")
+        if len(self.public_key) != 65: raise ValueError("public_key must be 65 bytes")
+        if len(self.iv) != 12: raise ValueError("iv must be 12 bytes")
+        return b"".join([bytes([self.version]), bytes([self.flags]), SpotubeSecureClient.u32be(self.expires_at), self.request_id, self.salt, self.public_key, self.iv, SpotubeSecureClient.u32be(len(self.ciphertext)), self.ciphertext])
+    '''unpack'''
+    @classmethod
+    def unpack(cls, data: bytes) -> "Envelope":
+        if len(data) < 119: raise ValueError(f"Encrypted envelope is too short: {len(data)}")
+        version, flags, expires_at, request_id = data[0], data[1], struct.unpack(">I", data[2:6])[0], data[6:22]
+        salt, public_key, iv, cipher_len = data[22:38], data[38:103], data[103:115], struct.unpack(">I", data[115:119])[0]
+        if len((ciphertext := data[119:])) != cipher_len: raise ValueError(f"Encrypted envelope length mismatch: expected {cipher_len}, got {len(ciphertext)}")
+        return cls(version=version, flags=flags, expires_at=expires_at, request_id=request_id, salt=salt, public_key=public_key, iv=iv, ciphertext=ciphertext)
+
+
+'''SpotubeSecureClient'''
+class SpotubeSecureClient:
+    def __init__(self, base_url: str = "https://spotubedl.com"):
+        self.server_public_key = None
+        self.base_url = base_url.rstrip("/")
+        self.session = requests.Session()
+        self.default_headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36", "Origin": self.base_url, "Referer": self.base_url + "/", "Accept-Language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7"}
+    '''urljoin'''
+    @staticmethod
+    def urljoin(base_url: str, path: str) -> str:
+        return urljoin(base_url + "/", path.lstrip("/"))
+    '''pathfromurl'''
+    @staticmethod
+    def pathfromurl(url: str) -> str:
+        return urlparse(url).path or "/"
+    '''pathfromapi'''
+    @staticmethod
+    def pathfromapi(api_path: str) -> str:
+        return urlparse(api_path).path or api_path or "/"
+    '''randbytes'''
+    @staticmethod
+    def randbytes(n: int) -> bytes:
+        return secrets.token_bytes(n)
+    '''randompath'''
+    @staticmethod
+    def randompath() -> str:
+        return f"/{SpotubeSecureClient.randbytes(6).hex()}/{SpotubeSecureClient.randbytes(8).hex()}/{SpotubeSecureClient.randbytes(6).hex()}"
+    '''randomheadername'''
+    @staticmethod
+    def randomheadername(existing: set = None) -> str:
+        existing = existing or set()
+        while True:
+            if (name := "x-" + SpotubeSecureClient.randbytes(8).hex()).lower() not in existing: return name
+    '''b64encode'''
+    @staticmethod
+    def b64encode(data: bytes) -> str:
+        return base64.b64encode(data).decode("ascii")
+    '''b64decodetext'''
+    @staticmethod
+    def b64decodetext(text: str) -> bytes:
+        return base64.b64decode(text.strip())
+    '''u32be'''
+    @staticmethod
+    def u32be(n: int) -> bytes:
+        return struct.pack(">I", n)
+    '''jsoncompact'''
+    @staticmethod
+    def jsoncompact(obj) -> bytes:
+        return json.dumps(obj, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    '''spdlenvinfo'''
+    @staticmethod
+    def spdlenvinfo(path: str, request_id: bytes) -> bytes:
+        return b"spdl-env:1:" + path.encode("utf-8") + b"\x00" + request_id
+    '''spdlreqinfo'''
+    @staticmethod
+    def spdlreqinfo(path: str, request_id: bytes) -> bytes:
+        return b"spdl-req:1:" + path.encode("utf-8") + b"\x00" + request_id
+    '''spdlaad'''
+    @staticmethod
+    def spdlaad(path: str, request_id: bytes, version: int, expires_at: int) -> bytes:
+        return (b"spdl-aad:" + bytes([version]) + b"\x00\x00\x00\x00" + SpotubeSecureClient.u32be(expires_at) + path.encode("utf-8") + b"\x00" + request_id)
+    '''spdlreqaad'''
+    @staticmethod
+    def spdlreqaad(path: str, request_id: bytes, version: int, expires_at: int) -> bytes:
+        return (b"spdl-req-aad:" + bytes([version]) + b"\x00\x00\x00\x00" + SpotubeSecureClient.u32be(expires_at) + path.encode("utf-8") + b"\x00" + request_id)
+    '''generatep256privatekey'''
+    @staticmethod
+    def generatep256privatekey():
+        return ec.generate_private_key(ec.SECP256R1())
+    '''exportrawpublickey'''
+    @staticmethod
+    def exportrawpublickey(private_key: EllipticCurvePrivateKey) -> bytes:
+        return private_key.public_key().public_bytes(encoding=serialization.Encoding.X962, format=serialization.PublicFormat.UncompressedPoint)
+    '''loadrawp256publickey'''
+    @staticmethod
+    def loadrawp256publickey(raw: bytes):
+        if len(raw) != 65: raise ValueError(f"P-256 public key length should be 65, got {len(raw)}")
+        return ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), raw)
+    '''ecdhsharedsecret'''
+    @staticmethod
+    def ecdhsharedsecret(private_key: EllipticCurvePrivateKey, peer_public_raw: bytes) -> bytes:
+        peer_public_key = SpotubeSecureClient.loadrawp256publickey(peer_public_raw)
+        return private_key.exchange(ec.ECDH(), peer_public_key)
+    '''hkdfsha256key'''
+    @staticmethod
+    def hkdfsha256key(shared_secret: bytes, salt: bytes, info: bytes) -> bytes:
+        return HKDF(algorithm=hashes.SHA256(), length=32, salt=salt, info=info).derive(shared_secret)
+    '''fetchserverpublickey'''
+    def fetchserverpublickey(self, request_overrides: dict = None) -> bytes:
+        if self.server_public_key is not None: return self.server_public_key
+        url = SpotubeSecureClient.urljoin(self.base_url, SpotubeSecureClient.randompath())
+        resp = self.session.get(url, headers={**self.default_headers, "Accept": "text/plain", "Cache-Control": "no-store", "Pragma": "no-cache"}, timeout=60, **(request_overrides or {}))
+        if not resp.ok: raise RuntimeError(f"Secure request key failed: {resp.status_code}\n{resp.text[:500]}")
+        if len((key := SpotubeSecureClient.b64decodetext(resp.text))) != 65: raise RuntimeError(f"Invalid secure request key length: {len(key)}")
+        self.server_public_key = key
+        return key
+    '''encryptrequestenvelope'''
+    def encryptrequestenvelope(self, post_path: str, plaintext: bytes, request_overrides: dict = None) -> bytes:
+        server_public_key, request_private = self.fetchserverpublickey(request_overrides=request_overrides), SpotubeSecureClient.generatep256privatekey()
+        request_public_raw = SpotubeSecureClient.exportrawpublickey(request_private)
+        shared_secret = SpotubeSecureClient.ecdhsharedsecret(request_private, server_public_key)
+        request_id, salt, iv, expires_at = SpotubeSecureClient.randbytes(16), SpotubeSecureClient.randbytes(16), SpotubeSecureClient.randbytes(12), int(time.time()) + 60
+        aes_key = SpotubeSecureClient.hkdfsha256key(shared_secret=shared_secret, salt=salt, info=SpotubeSecureClient.spdlreqinfo(post_path, request_id))
+        ciphertext = AESGCM(aes_key).encrypt(nonce=iv, data=plaintext, associated_data=SpotubeSecureClient.spdlreqaad(post_path, request_id, 1, expires_at))
+        env = Envelope(version=1, flags=2, expires_at=expires_at, request_id=request_id, salt=salt, public_key=request_public_raw, iv=iv, ciphertext=ciphertext)
+        return env.pack()
+    '''decryptresponseenvelope'''
+    def decryptresponseenvelope(self, response_private_key, response_path: str, encrypted_response: bytes) -> bytes:
+        if (env := Envelope.unpack(encrypted_response)).version != 1: raise RuntimeError(f"Unsupported envelope version: {env.version}")
+        aes_key = SpotubeSecureClient.hkdfsha256key(shared_secret=SpotubeSecureClient.ecdhsharedsecret(response_private_key, env.public_key), salt=env.salt, info=SpotubeSecureClient.spdlenvinfo(response_path, env.request_id))
+        plaintext = AESGCM(aes_key).decrypt(nonce=env.iv, data=env.ciphertext, associated_data=SpotubeSecureClient.spdlaad(response_path, env.request_id, env.version, env.expires_at))
+        return plaintext
+    '''securepost'''
+    def securepost(self, api_path: str, body: dict | None = None, request_overrides: dict = None) -> dict:
+        api_path = SpotubeSecureClient.pathfromapi(api_path)
+        post_url = SpotubeSecureClient.urljoin(self.base_url, (post_path := SpotubeSecureClient.randompath()))
+        response_public_raw = SpotubeSecureClient.exportrawpublickey((response_private := SpotubeSecureClient.generatep256privatekey()))
+        plaintext = SpotubeSecureClient.jsoncompact({"path": api_path, "body": body})
+        encrypted_body, random_header = self.encryptrequestenvelope(post_path, plaintext, request_overrides), SpotubeSecureClient.randomheadername()
+        headers = {**self.default_headers, random_header: SpotubeSecureClient.b64encode(response_public_raw), "Content-Type": "application/octet-stream", "Accept": "application/octet-stream, application/json"}
+        resp = self.session.post(post_url, headers=headers, data=encrypted_body, timeout=90, allow_redirects=True, **(request_overrides or {}))
+        if "application/octet-stream" not in (resp.headers.get("Content-Type") or "").lower():
+            try: parsed = resp.json() if resp.text else None
+            except Exception: parsed = resp.text
+            return {"ok": resp.ok, "status_code": resp.status_code, "content_type": resp.headers.get("Content-Type"), "data": parsed, "raw_text_preview": resp.text[:500]}
+        plaintext_resp = self.decryptresponseenvelope(response_private_key=response_private, response_path=SpotubeSecureClient.pathfromurl(resp.url or post_url), encrypted_response=resp.content)
+        return {"ok": resp.ok, "status_code": resp.status_code, "content_type": resp.headers.get("Content-Type"), "data": json.loads(decoded) if (decoded := plaintext_resp.decode("utf-8")) else None}
+    '''gettrackmetadata'''
+    def gettrackmetadata(self, spotify_track_id: str, request_overrides: dict = None) -> dict:
+        return self.securepost("/api/info/track", {"id": spotify_track_id}, request_overrides)
+    '''getfullmetadata'''
+    def getfullmetadata(self, spotify_track_id: str, request_overrides: dict = None) -> dict:
+        return self.securepost("/api/metadata", {"id": spotify_track_id}, request_overrides)
+    '''search'''
+    def search(self, query: str, request_overrides: dict = None) -> dict:
+        return self.securepost("/api/info/search", {"query": query}, request_overrides)
+    '''getdownloadinfobyvideoid'''
+    def getdownloadinfobyvideoid(self, video_id: str, engine: str = "v1", fmt: str = "mp3", quality: str = "320", request_overrides: dict = None) -> dict:
+        return self.securepost("/api/download", {"id": video_id, "engine": engine, "format": fmt, "quality": quality}, request_overrides)
+    '''extractspotifytrackid'''
+    @staticmethod
+    def extractspotifytrackid(text: str) -> str:
+        if re.fullmatch(r"[a-zA-Z0-9]{22}", (raw := text.strip())): return raw
+        try:
+            if "track" in (path_parts := urlparse(raw).path.split("/")) and (idx := path_parts.index("track")) + 1 < len(path_parts) and re.fullmatch(r"[a-zA-Z0-9]{22}", track_id := path_parts[idx + 1]): return track_id
+        except Exception: pass
+        if (m := re.search(r"[a-zA-Z0-9]{22}", raw)): return m.group(0)
+        raise ValueError("Failed to extract a 22-character Spotify track ID from the input")
+    '''collectstringvalues'''
+    @staticmethod
+    def collectstringvalues(obj):
+        values = [s for v in obj.values() for s in SpotubeSecureClient.collectstringvalues(v)] if isinstance(obj, dict) else [s for item in obj for s in SpotubeSecureClient.collectstringvalues(item)] if isinstance(obj, list) else [obj] if isinstance(obj, str) else []
+        return values
+    '''findvaluesbykeys'''
+    @staticmethod
+    def findvaluesbykeys(obj, key_names):
+        results = []
+        if isinstance(obj, dict):
+            for k, v in obj.items(): (k in key_names and isinstance(v, str) and v.strip() and results.append(v.strip())); results.extend(SpotubeSecureClient.findvaluesbykeys(v, key_names))
+        elif isinstance(obj, list):
+            for item in obj: results.extend(SpotubeSecureClient.findvaluesbykeys(item, key_names))
+        return results
+    '''extractyoutubeidfromtext'''
+    @staticmethod
+    def extractyoutubeidfromtext(text: str):
+        if not isinstance(text, str): return None
+        if re.fullmatch(r"[a-zA-Z0-9_-]{11}", (text := text.strip())): return text
+        patterns = [r"youtube\.com/watch\?v=([a-zA-Z0-9_-]{11})", r"youtube\.com/embed/([a-zA-Z0-9_-]{11})", r"youtu\.be/([a-zA-Z0-9_-]{11})", r"music\.youtube\.com/watch\?v=([a-zA-Z0-9_-]{11})", r"[?&]v=([a-zA-Z0-9_-]{11})"]
+        matches = (re.search(pattern, text) for pattern in patterns)
+        return next((m.group(1) for m in matches if m), None)
+    '''extractyoutubevideocandidates'''
+    def extractyoutubevideocandidates(self, *responses) -> list[str]:
+        likely_keys, candidates, unique = {"videoId", "video_id", "youtubeId", "youtube_id", "ytId", "yt_id", "sourceId", "source_id", "source", "youtube", "youtube_url", "youtubeUrl", "url"}, [], []
+        for resp in responses:
+            data = resp.get("data") if isinstance(resp, dict) else resp
+            for value in SpotubeSecureClient.findvaluesbykeys(data, likely_keys):
+                if (yt_id := SpotubeSecureClient.extractyoutubeidfromtext(value)): candidates.append(yt_id)
+            for value in self.collectstringvalues(data):
+                if (yt_id := SpotubeSecureClient.extractyoutubeidfromtext(value)): candidates.append(yt_id)
+        for item in candidates: unique.append(item) if item not in unique else None
+        return unique
+    '''extractflagurl'''
+    @staticmethod
+    def extractflagurl(download_info: dict):
+        if isinstance((data := download_info.get("data")), dict): return (data.get("url") or data.get("downloadUrl") or data.get("download_url") or data.get("link") or data.get("audioUrl") or data.get("audio_url"))
+        if isinstance(data, str) and (data.startswith("http://") or data.startswith("https://")): return data
+        return None
+    '''getdownloadflagfromspotify'''
+    def getdownloadflagfromspotify(self, spotify_input: str, engine: str = "v1", fmt: str = "mp3", quality: str = "320", request_overrides: dict = None) -> dict:
+        spotify_id, last_error = self.extractspotifytrackid(spotify_input), None
+        track_meta, full_meta = self.gettrackmetadata(spotify_id, request_overrides), self.getfullmetadata(spotify_id, request_overrides)
+        for video_id in self.extractyoutubevideocandidates(track_meta, full_meta):
+            if (flag_url := SpotubeSecureClient.extractflagurl((download_info := self.getdownloadinfobyvideoid(video_id, engine=engine, fmt=fmt, quality=quality, request_overrides=request_overrides)))):
+                return {"spotify_id": spotify_id, "video_id": video_id, "download_info": download_info, "flag": flag_url, "track_meta": track_meta}
+            if isinstance((data := download_info.get("data")), dict) and data.get("error"): last_error = data.get("error"); continue
+            last_error = download_info
+        raise RuntimeError(f"Failed to get a download link for all candidate YouTube IDs. Last error: {last_error}")

@@ -15,8 +15,8 @@ from contextlib import suppress
 from .base import BaseMusicClient
 from rich.progress import Progress
 from pathvalidate import sanitize_filepath
-from urllib.parse import urlencode, urlparse
 from ..utils.hosts import QIANQIAN_MUSIC_HOSTS
+from urllib.parse import urlencode, urlparse, parse_qs
 from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn, MofNCompleteColumn
 from ..utils import resp2json, legalizestring, safeextractfromdict, usesearchheaderscookies, cookies2string, useparseheaderscookies, obtainhostname, hostmatchessuffix, cleanlrc, SongInfo, AudioLinkTester, IOUtils, SongInfoUtils
 
@@ -95,14 +95,17 @@ class QianqianMusicClient(BaseMusicClient):
         return song_info
     '''_search'''
     @usesearchheaderscookies
-    def _search(self, keyword: str = '', search_url: str = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None, progress_id: int = 0):
+    def _search(self, keyword: str = '', search_url: str = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None):
         # init
-        request_overrides = request_overrides or {}
+        request_overrides, page_no, search_result_idx = request_overrides or {}, int(float(parse_qs(urlparse(url=search_url).query, keep_blank_values=True).get('pageNo')[0])), -1
+        task_id = progress.add_task(f"{self.source}._search >>> Start to process the 0th search result on page {page_no}", total=None, completed=0)
         # successful
         try:
             # --search results
             (resp := self.get(search_url, **request_overrides)).raise_for_status()
-            for search_result in resp2json(resp)['data']['typeTrack']:
+            for search_result_idx, search_result in enumerate(resp2json(resp)['data']['typeTrack']):
+                # --update progress
+                progress.update(task_id, description=f'{self.source}._search >>> Start to process the {search_result_idx+1}th search result on page {page_no}', completed=search_result_idx+1, total=search_result_idx+1)
                 # --init song info
                 song_info = SongInfo(source=self.source, raw_data={'search': search_result, 'download': {}, 'lyric': {}})
                 # --parse with official apis
@@ -112,11 +115,11 @@ class QianqianMusicClient(BaseMusicClient):
                 # --judgement for search_size
                 if self.strict_limit_search_size_per_page and len(song_infos) >= self.search_size_per_page: break
             # --update progress
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Success)")
+            progress.update(task_id, description=f'{self.source}._search >>> {search_result_idx+1} search results processed on page {page_no}')
         # failure
         except Exception as err:
-            progress.update(progress_id, description=f"{self.source}._search >>> {search_url} (Error: {err})")
-            self.logger_handle.error(f"{self.source}._search >>> {search_url} (Error: {err})", disable_print=self.disable_print)
+            progress.update(task_id, description=f'{self.source}._search >>> {keyword} on page {page_no} (Error: {err})')
+            self.logger_handle.error(f'{self.source}._search >>> {keyword} on page {page_no} (Error: {err})', disable_print=self.disable_print)
         # return
         return song_infos
     '''parseplaylist'''
@@ -135,7 +138,7 @@ class QianqianMusicClient(BaseMusicClient):
             tracks_in_playlist.extend(safeextractfromdict(playlist_result, ['data', 'trackList'], [])); page += 1; del resp
             if not playlist_result_first: playlist_result_first = copy.deepcopy(playlist_result)
             if (float(safeextractfromdict(playlist_result, ['data', 'trackCount'], 0)) <= len(tracks_in_playlist)): break
-        tracks_in_playlist = list({d["TSID"]: d for d in tracks_in_playlist}.values())
+        tracks_in_playlist: list[dict] = list({d["TSID"]: d for d in tracks_in_playlist}.values())
         # parse track by track in playlist
         with Progress(TextColumn("{task.description}"), BarColumn(bar_width=None), MofNCompleteColumn(), TimeRemainingColumn(), refresh_per_second=10) as main_process_context:
             main_progress_id = main_process_context.add_task(f"{len(tracks_in_playlist)} Songs Found in Playlist {playlist_id} >>> Completed (0/{len(tracks_in_playlist)}) SongInfo", total=len(tracks_in_playlist))
@@ -144,7 +147,8 @@ class QianqianMusicClient(BaseMusicClient):
                 song_info = SongInfo(source=self.source, raw_data={'search': track_info, 'download': {}, 'lyric': {}})
                 with suppress(Exception): song_info = self._parsewithofficialapiv1(search_result=track_info, song_info_flac=None, lossless_quality_is_sufficient=False, request_overrides=request_overrides)
                 if song_info.with_valid_download_url: song_infos.append(song_info); continue
-                self.logger_handle.warning(f'Fail to parse song id {song_info.identifier} >>> {song_info.album} {song_info.song_name} {song_info.singers} {song_info.download_url}', disable_print=self.disable_print)
+                song_info.identifier, song_info.album, song_info.song_name, song_info.singers = track_info.get('TSID'), legalizestring(track_info.get('albumTitle')), legalizestring(track_info.get('title')), legalizestring(', '.join([singer.get('name') for singer in (track_info.get('artist', []) or []) if isinstance(singer, dict) and singer.get('name')]))
+                self.logger_handle.warning(f'Fail to parse track info {track_info}', disable_print=self.disable_print)
             main_process_context.advance(main_progress_id, 1); main_process_context.update(main_progress_id, description=f"{len(tracks_in_playlist)} Songs Found in Playlist {playlist_id} >>> Completed ({idx+1}/{len(tracks_in_playlist)}) SongInfo")
         # post processing
         playlist_name = legalizestring(safeextractfromdict(playlist_result_first, ['data', 'title'], None) or f"playlist-{playlist_id}")
