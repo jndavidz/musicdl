@@ -102,3 +102,7 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+# MusicFree plugin analysis artifacts (local research docs, not shipped)
+/docs/ETC-PLUGINS-ANALYSIS.md
+/docs/YUANLI-V1.2.0-PLUGIN-API.md
