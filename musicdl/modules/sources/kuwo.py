@@ -197,7 +197,8 @@ class KuwoMusicClient(BaseMusicClient):
         rc4_hex_decrypt_text_func = lambda hex_text: rc4_crypt_func(bytes.fromhex(hex_text.strip())).decode("utf-8")
         headers = {"Accept": "*/*", "Origin": "https://api.liuyunidc.cn", "Referer": "https://api.liuyunidc.cn/", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"}
         # parse
-        for music_quality in MUSIC_QUALITIES[3:]: # some qualities require decryption which is not stable
+        # try highest quality first (master/atmos_plus/atmos/flac); master stream is a direct fLaC on kwdec.liuyunidc.cn CDN (no decryption needed), verified 2026-08-07
+        for music_quality in MUSIC_QUALITIES[:]:
             (resp := requests.get("https://kwdec.liuyunidc.cn/kwurl", params={"data": rc4_hex_encrypt_json_func({"id": str(song_id), "q": music_quality})}, headers=headers, timeout=10, **request_overrides)).raise_for_status()
             if not (download_url := safeextractfromdict((download_result := json.loads(rc4_hex_decrypt_text_func(resp.text))), ['url'], '')) or not str(download_url).startswith('http'): break
             duration_in_secs = int(float(search_result.get('DURATION') or search_result.get('duration') or 0))
