@@ -30,7 +30,7 @@ Author: Zhenchao Jin
 HIFI-MODE: Enabled (Filter < 10MB & MP3)
 Music Files Save Path:
     %s (root dir is the current directory if using relative path).'''
-DEFAULT_MUSIC_SOURCES = ['MiguMusicClient', 'NeteaseMusicClient', 'QQMusicClient', 'KuwoMusicClient', 'KugouMusicClient', 'QianqianMusicClient', 'GDStudioMusicClient', 'TuneHubMusicClient']
+DEFAULT_MUSIC_SOURCES = ['MiguMusicClient', 'NeteaseMusicClient', 'QQMusicClient', 'KuwoMusicClient', 'KugouMusicClient', 'QianqianMusicClient', 'TuneHubMusicClient']
 
 '''MusicClient'''
 class MusicClient():
@@ -56,14 +56,14 @@ class MusicClient():
 
         # --- 平台搜索数量自定义区域 ---
         source_limits = {
-            'NeteaseMusicClient': 20,
+            'NeteaseMusicClient': 2,
             'QQMusicClient': 5,
-            'MiguMusicClient': 20,
-            'KuwoMusicClient': 10,
-            'KugouMusicClient': 10,
+            'MiguMusicClient': 5,
+            'KuwoMusicClient': 5,
+            'KugouMusicClient': 5,
             'QianqianMusicClient': 5,
-            'GDStudioMusicClient': 3,
-            'TuneHubMusicClient': 10,
+            'GDStudioMusicClient': 1,
+            'TuneHubMusicClient': 1,
         }
 
         for music_source in self.music_sources:
