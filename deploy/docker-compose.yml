@@ -3,8 +3,7 @@ services:
     build: ./src
     image: musicdl-api:latest
     container_name: musicdl-api
-    ports:
-      - "3003:3003"
+    network_mode: host            # real client IPs for LAN api-key bypass; binds 3003 directly
     restart: unless-stopped
     environment:
       - KWQQ_PORT=3003
@@ -14,6 +13,9 @@ services:
       - MAX_CONCURRENCY=4
       - PARSER_FAIL_THRESHOLD=3
       - PARSER_COOLDOWN_S=300
+      - API_KEY=__SET_ON_NAS__       # keep in sync with the apiKey configured in MusicFree plugins
+      - TRUSTED_NETWORKS=127.0.0.0/8,10.10.10.0/24,192.168.0.0/16
+      - UNTRUSTED_HOSTS=10.10.10.1   # Lucky router relays all external traffic
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3003/healthz', timeout=5)"]
       interval: 60s

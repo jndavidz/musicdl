@@ -46,13 +46,25 @@ app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=False,
 
 
 '''service-level API key guard: Lucky's per-sub-rule Basic Auth only challenges the exact `/` path,
-   so functional paths need their own protection when exposed. Disabled when API_KEY is empty.'''
+   so functional paths need their own protection when exposed. Disabled when API_KEY is empty.
+   Requests from trusted LAN networks bypass the check (direct intranet access needs no key);
+   the Lucky router IP is explicitly untrusted because it relays all external traffic.'''
 if settings.api_key:
     import base64 as _b64
+    import ipaddress as _ip
+
+    def _from_trusted_lan(client_host: str) -> bool:
+        if client_host in settings.untrusted_hosts: return False
+        try:
+            addr = _ip.ip_address(client_host.split('%')[0])
+        except Exception:
+            return False
+        return any(addr in net for net in settings.trusted_networks)
 
     @app.middleware('http')
     async def api_key_guard(request: Request, call_next):
-        if request.url.path != '/healthz':
+        client_host = request.client.host if request.client else ''
+        if request.url.path != '/healthz' and not _from_trusted_lan(client_host):
             provided = request.headers.get('x-api-key', '')
             if not provided:
                 auth = request.headers.get('authorization', '')
