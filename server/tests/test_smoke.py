@@ -2,16 +2,23 @@
 import sys
 import json
 import time
+import base64
 import urllib.request
 import urllib.parse
 
-BASE = sys.argv[1] if len(sys.argv) > 1 else 'http://127.0.0.1:3003'
+args = sys.argv[1:]
+BASE = args[0] if args else 'http://127.0.0.1:3003'
+AUTH = None
+if '--auth' in args:
+    AUTH = base64.b64encode(args[args.index('--auth') + 1].encode()).decode()
 PASSED, FAILED = 0, []
 
 
 def get(path, timeout=30):
     t0 = time.perf_counter()
-    with urllib.request.urlopen(BASE + path, timeout=timeout) as resp:
+    req = urllib.request.Request(BASE + path)
+    if AUTH: req.add_header('Authorization', f'Basic {AUTH}')
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         body = json.loads(resp.read().decode('utf-8'))
     return body, round((time.perf_counter() - t0) * 1000)
 
