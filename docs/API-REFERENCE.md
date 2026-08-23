@@ -1,7 +1,7 @@
 # kw-qq-music-api 接口开发文档
 
 > 版本：1.0 · 更新：2026-08-23 · 源码分支：`api-server`（musicdl 仓库）
-> 服务定位：自托管酷我 + QQ 音乐 API，基于 musicdl hifi 分支解析链（免 Cookie 第三方无损链 + 官方匿名端点）
+> 服务定位：自托管多源音乐 API（酷我/QQ/千千/咪咕），基于 musicdl hifi 分支解析链（免 Cookie 第三方无损链 + 官方匿名端点）
 > 计划与决策：见 `docs/KUWO-QQ-API-SERVER-PLAN.md`；快速上手见 `server/README.md`
 
 ---
@@ -18,7 +18,7 @@ MusicFree 插件 / 自研客户端
    └─ 内网: http://10.10.10.2:3003                     [免 key（来源 IP 白名单）]
           └─ musicdl-api 容器 (Docker, host 网络模式)
                ├─ FastAPI (uvicorn workers=1, 端口 3003)
-               ├─ adapters: kuwo / qq
+               ├─ adapters: kuwo / qq / qianqian / migu
                ├─ TTL 缓存: url 10min / search 5min / meta·lyric 24h
                ├─ ParserHealth: 第三方解析源健康度（连败 3 次冷却 5min）
                └─ musicdl 源客户端（零 Cookie）
@@ -87,7 +87,7 @@ async getMediaSource(musicItem, quality) {
 
 ## 4. 端点参考
 
-`{source}` ∈ `kuwo` | `qq`。全部为 GET。
+`{source}` ∈ `kuwo` | `qq` | `qianqian` | `migu`。全部为 GET。
 
 ### 4.1 GET /{source}/search — 搜索（仅元数据）
 
@@ -116,8 +116,9 @@ async getMediaSource(musicItem, quality) {
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| id | string | ✅ | 歌曲 id（kuwo 数字 rid / qq songmid） |
+| id | string | ✅ | 歌曲 id（kuwo 数字 rid / qq songmid / qianqian TSID / migu contentId） |
 | quality | string | — | auto(默认)/320k/128k/flac/hires；也接受 low/standard/high/super 别名（映射见 §5） |
+| copyright | string | — | **仅 migu**：search 返回的 `extra.copyrightId` 原样回传（咪咕 by-id 必需） |
 
 成功响应：
 
