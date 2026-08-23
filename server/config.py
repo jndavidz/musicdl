@@ -57,7 +57,7 @@ class Settings:
 
 
 settings = Settings()
-SOURCES = ('kuwo', 'qq', 'qianqian', 'migu')
+SOURCES = ('kuwo', 'qq', 'qianqian', 'migu')  # deezer experimental — resolver sites down
 
 QUALITY_ALIASES = {
     'low': '128k', 'standard': '128k', 'high': '320k', 'super': '320k',

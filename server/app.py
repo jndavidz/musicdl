@@ -131,7 +131,8 @@ async def song_url(source: str, id: str = Query(..., min_length=1), quality: str
     if cached:
         cached['cached'] = True; return ok(SongUrlData(**cached).model_dump())
     kwargs = {'copyright_id': copyright} if source == 'migu' else {}
-    result = await asyncio.wait_for(adapter.song_url(id, q, **kwargs), timeout=settings.hard_timeout_s)
+    route_timeout = getattr(adapter, 'timeout_override', 0) or settings.hard_timeout_s
+    result = await asyncio.wait_for(adapter.song_url(id, q, **kwargs), timeout=route_timeout)
     url_cache.set(cache_key, result)
     return ok(SongUrlData(**result).model_dump())
 
