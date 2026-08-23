@@ -38,8 +38,12 @@ class ParserHealth:
             return bool(st and st['cooled_until'] and st['cooled_until'] > time.monotonic())
 
     '''wrap every third-party parser on the client with health checks.
-       stats are keyed by "<source>:<parser>" — method names overlap across platforms.'''
+       stats are keyed by "<source>:<parser>" — method names overlap across platforms.
+       Clients without a third-party chain (official-only sources like migu/qianqian)
+       are returned unwrapped.'''
     def wrap_client(self, client):
+        if not hasattr(type(client), '_parsewiththirdpartapis'):
+            return client
         chain_src = inspect.getsource(type(client)._parsewiththirdpartapis)
         names = []
         for m in re.finditer(r'self\.(_parsewith\w+)', chain_src):

@@ -24,6 +24,9 @@ class SearchItem(BaseModel):
     duration_s: Optional[int] = None
     cover: Optional[str] = None
     source: str
+    # platform-specific fields the client should echo back to /song/url
+    # (e.g. migu needs copyrightId for by-id resolution)
+    extra: dict = {}
 
 
 class SearchData(BaseModel):

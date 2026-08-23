@@ -122,25 +122,29 @@ async def search(source: str, keywords: str = Query(..., min_length=1), page: in
 
 
 @app.get('/{source}/song/url', response_model=Envelope, summary='resolve playback url by song id')
-async def song_url(source: str, id: str = Query(..., min_length=1), quality: str = Query('auto')):
+async def song_url(source: str, id: str = Query(..., min_length=1), quality: str = Query('auto'),
+                   copyright: str = Query('', description='migu only: copyrightId from search item extra')):
     adapter = get_adapter(source)
     q = QUALITY_ALIASES.get(quality.lower(), 'auto')
-    cache_key = f'{source}:{id}:{q}'
+    cache_key = f'{source}:{id}:{q}:{copyright}'
     cached = url_cache.get(cache_key)
     if cached:
         cached['cached'] = True; return ok(SongUrlData(**cached).model_dump())
-    result = await asyncio.wait_for(adapter.song_url(id, q), timeout=settings.hard_timeout_s)
+    kwargs = {'copyright_id': copyright} if source == 'migu' else {}
+    result = await asyncio.wait_for(adapter.song_url(id, q, **kwargs), timeout=settings.hard_timeout_s)
     url_cache.set(cache_key, result)
     return ok(SongUrlData(**result).model_dump())
 
 
 @app.get('/{source}/song/info', response_model=Envelope, summary='song meta info by id')
-async def song_info(source: str, id: str = Query(..., min_length=1)):
+async def song_info(source: str, id: str = Query(..., min_length=1),
+                    copyright: str = Query('', description='migu only: copyrightId from search item extra')):
     adapter = get_adapter(source)
     cache_key = f'{source}:info:{id}'
     cached = meta_cache.get(cache_key)
     if cached: return ok(SongInfoData(**cached).model_dump())
-    result = await asyncio.wait_for(adapter.song_info(id), timeout=settings.hard_timeout_s)
+    kwargs = {'copyright_id': copyright} if source == 'migu' else {}
+    result = await asyncio.wait_for(adapter.song_info(id, **kwargs), timeout=settings.hard_timeout_s)
     meta_cache.set(cache_key, result)
     return ok(SongInfoData(**result).model_dump())
 
