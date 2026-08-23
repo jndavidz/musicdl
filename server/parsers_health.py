@@ -37,16 +37,18 @@ class ParserHealth:
             st = self._stats.get(name)
             return bool(st and st['cooled_until'] and st['cooled_until'] > time.monotonic())
 
-    '''wrap every third-party parser on the client with health checks'''
+    '''wrap every third-party parser on the client with health checks.
+       stats are keyed by "<source>:<parser>" — method names overlap across platforms.'''
     def wrap_client(self, client):
         chain_src = inspect.getsource(type(client)._parsewiththirdpartapis)
         names = []
         for m in re.finditer(r'self\.(_parsewith\w+)', chain_src):
             if m.group(1) not in names: names.append(m.group(1))
+        prefix = f'{client.source}:'
         for name in names:
             if getattr(getattr(client, name), '_health_wrapped', False): continue
             orig = getattr(client, name)
-            def wrapped(search_result, request_overrides=None, _name=name, _orig=orig):
+            def wrapped(search_result, request_overrides=None, _name=prefix + name, _orig=orig):
                 if self.is_cooled_down(_name): return SongInfo(source=client.source)
                 t0 = time.perf_counter()
                 try:

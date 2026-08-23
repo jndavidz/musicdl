@@ -133,7 +133,7 @@ async def healthz():
 async def status():
     return ok({
         'uptime_s': round(time.time() - _started_at),
-        'sources': {key: {'parsers': adapter.health.snapshot()} for key, adapter in adapters.items()},
+        'parsers': health.snapshot(),   # keys are "<source>:<parser_name>"
         'caches': {'url': url_cache.stats(), 'search': search_cache.stats(), 'meta': meta_cache.stats(), 'lyric': lyric_cache.stats()},
         'settings': {'enable_lossless': settings.enable_lossless, 'tester_timeout': settings.tester_timeout,
                      'hard_timeout_s': settings.hard_timeout_s, 'max_concurrency_per_source': settings.max_concurrency_per_source},
