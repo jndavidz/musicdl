@@ -4,6 +4,7 @@ Function:
 Author:
     Derived from musicdl hifi branch, api-server line
 '''
+import ipaddress
 import os
 
 
@@ -13,6 +14,15 @@ def _bool(key: str, default: str = 'false') -> bool:
 
 def _tuple_int(key: str, default: str) -> tuple:
     return tuple(int(x) for x in os.getenv(key, default).split(','))
+
+
+def _networks(key: str, default: str) -> list:
+    out = []
+    for raw in os.getenv(key, default).split(','):
+        raw = raw.strip()
+        if raw:
+            out.append(ipaddress.ip_network(raw))
+    return out
 
 
 class Settings:
@@ -39,6 +49,11 @@ class Settings:
     # service-level api key (empty = disabled). Compatible with the kugou-plugin pattern:
     # send 'Authorization: Basic base64(KEY + ":")' or 'X-API-Key: KEY'. /healthz is always exempt.
     api_key: str = os.getenv('API_KEY', '').strip()
+    # LAN bypass: requests originating from these networks skip the api key check
+    # (direct intranet access to the container port). NOTE: the Lucky router IP must be
+    # listed in untrusted_hosts, otherwise external traffic relayed through it is trusted too.
+    trusted_networks: list = _networks('TRUSTED_NETWORKS', '127.0.0.0/8,10.10.10.0/24,172.16.0.0/12,192.168.0.0/16')
+    untrusted_hosts: list = [h.strip() for h in os.getenv('UNTRUSTED_HOSTS', '10.10.10.1').split(',') if h.strip()]
 
 
 settings = Settings()
