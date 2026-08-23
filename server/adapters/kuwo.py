@@ -38,6 +38,21 @@ class KuwoAdapter(SourceAdapter):
         except Exception: bitrate = 0
         return {'url': m.group(0), 'bitrate': bitrate}
 
+    '''official anonymous direct link via nmobi plain-text API (structured JSON, no silent downgrade).
+       Verified live 2026-08-12: br=320kmp3 -> bitrate 320 exactly; br=2000kflac -> flac 2000.'''
+    def _nmobi_direct(self, song_id: str, br: str):
+        import json as _json
+        url = f"http://nmobi.kuwo.cn/mobi.s?f=web&source=kwplayerhd_ar_4.3.0.8_tianbao_T1A_qirui.apk&user=0&type=convert_url_with_sign&rid={song_id}&br={br}"
+        resp = self.client.get(url, headers={'user-agent': 'okhttp/4.10.0'})
+        payload = resp.json() if resp and hasattr(resp, 'json') else {}
+        data = payload.get('data') or {}
+        cdn = data.get('url')
+        if payload.get('code') != 200 or not cdn or not str(cdn).startswith('http'): return None
+        try: bitrate = int(data.get('bitrate') or 0)
+        except Exception: bitrate = 0
+        return {'url': cdn, 'bitrate': bitrate, 'duration_s': int(data['duration']) if data.get('duration') else None,
+                'format': data.get('format')}
+
     '''third-party parse chain by minimal search_result dict'''
     def _via_thirdparty(self, song_id: str):
         return self.client._parsewiththirdpartapis({'musicrid': f'MUSIC_{song_id}'}, {})
@@ -61,38 +76,47 @@ class KuwoAdapter(SourceAdapter):
                 'duration_s': duration or None, 'cover': raw.get('hts_MVPIC') or raw.get('albumpic') or raw.get('pic'), 'source': 'kuwo'}
 
     '''HEAD-probe a direct link and build the response dict'''
-    async def _finalize_direct(self, song_id: str, q: str, direct: dict, t0: float) -> dict:
+    async def _finalize_direct(self, song_id: str, q: str, direct: dict, t0: float, parser: str) -> dict:
         status = await self.run(self.client.audio_link_tester.test, direct['url'])
         return {
             'id': str(song_id), 'source': self.source_key, 'quality': q,
             'url': status.get('download_url') or direct['url'], 'ext': status.get('ext') or 'mp3',
             'size_bytes': status.get('file_size_bytes'), 'bitrate_kbps': direct['bitrate'] or None,
-            'duration_s': None, 'cover': None, 'verified': bool(status.get('ok')),
-            'headers': {}, 'parser': 'mobi.s.direct', 'elapsed_ms': round((time.perf_counter() - t0) * 1000),
+            'duration_s': direct.get('duration_s'), 'cover': None, 'verified': bool(status.get('ok')),
+            'headers': {}, 'parser': parser, 'elapsed_ms': round((time.perf_counter() - t0) * 1000),
             'cached': False,
         }
 
-    '''quality routing per plan §3.4 (revised by stage-0 spike):
-       - flac/hires: third-party chain only, gated by ENABLE_LOSSLESS
-       - auto/320k/128k: mobi.s direct first; if actual bitrate < requested tier, escalate to the
-         third-party chain; keep whichever candidate has more bandwidth (honest values always).'''
+    '''quality routing per plan §3.4 (revised by stage-0 spike + 2026-08-12 endpoint probe):
+       - flac/hires: nmobi 2000kflac first (ENABLE_LOSSLESS gate), then third-party chain
+       - auto/320k/128k: nmobi plain API first (no silent downgrade), then mobi.s encrypted
+         sibling, then third-party chain; keep whichever candidate has more bandwidth.'''
     async def song_url(self, song_id: str, quality: str) -> dict:
         q = quality if quality in {'auto', '320k', '128k', 'flac', 'hires'} else 'auto'
         t0 = time.perf_counter()
         if q in {'flac', 'hires'}:
             if not self.settings.enable_lossless:
                 raise AdapterError(403, 'lossless tier disabled on this server (ENABLE_LOSSLESS=false)')
+            lossless_br = '20000kflac' if q == 'hires' else '2000kflac'
+            direct = await self.run(self._nmobi_direct, song_id, lossless_br)
+            if direct and direct['bitrate'] >= 900:
+                return await self._finalize_direct(song_id, q, direct, t0, 'nmobi.direct')
             info = await self.run(self._via_thirdparty, song_id)
             if not (info.with_valid_download_url and info.ext in LOSSLESS_EXTS): raise AdapterError(404, 'no lossless source found')
             return self.urldata_from_songinfo(song_id, q, info, round((time.perf_counter() - t0) * 1000))
 
-        fmt = '128kmp3' if q == '128k' else '320kmp3'
         min_kbps = MIN_KBPS.get(q, 256)
-        direct = await self.run(self._official_direct, song_id, fmt)
-        if direct and direct['bitrate'] and direct['bitrate'] >= min_kbps:
-            return await self._finalize_direct(song_id, q, direct, t0)
+        # tier-1a: nmobi structured JSON (exact bitrate, verified live 2026-08-12)
+        direct = await self.run(self._nmobi_direct, song_id, {'128k': '128kmp3'}.get(q, '320kmp3'))
+        if direct and direct['bitrate'] >= min_kbps:
+            return await self._finalize_direct(song_id, q, direct, t0, 'nmobi.direct')
+        # tier-1b: mobi.s encrypted sibling
+        legacy = await self.run(self._official_direct, song_id, '128kmp3' if q == '128k' else '320kmp3')
+        if legacy and legacy['bitrate'] >= min_kbps:
+            return await self._finalize_direct(song_id, q, legacy, t0, 'mobi.s.direct')
+        best_direct = direct or legacy  # degraded candidates kept as last resort
 
-        # direct missing/downgraded -> try the third-party chain for something better
+        # tier-2: third-party chain for something better than the degraded directs
         info = await self.run(self._via_thirdparty, song_id)
         tp_ok = bool(info.with_valid_download_url and info.ext in AudioLinkTester.VALID_AUDIO_EXTS)
         tp_kbps = 0
@@ -102,10 +126,11 @@ class KuwoAdapter(SourceAdapter):
 
         if tp_ok and info.ext in LOSSLESS_EXTS:  # chain outperforms any direct link
             return self.urldata_from_songinfo(song_id, q, info, elapsed)
-        if tp_ok and (direct is None or tp_kbps > (direct['bitrate'] or 0)):
+        if tp_ok and (best_direct is None or tp_kbps > ((best_direct['bitrate'] or 0))):
             return self.urldata_from_songinfo(song_id, q, info, elapsed)
-        if direct:
-            return await self._finalize_direct(song_id, q, direct, t0)
+        if best_direct:
+            parser = 'nmobi.degraded' if best_direct is direct else 'mobi.s.degraded'
+            return await self._finalize_direct(song_id, q, best_direct, t0, parser)
         raise AdapterError(404, 'no playable url resolved')
 
     '''meta info for getMusicInfo'''

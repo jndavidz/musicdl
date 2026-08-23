@@ -252,9 +252,20 @@ MusicFree 插件协议中 `getMediaSource(musicItem, quality)` 的 `quality` 为
 
 ### 阶段 5：运维增强（后续迭代）
 
-- [ ] 5.1 `/status` parser 健康度可视化 + 每日保活探测（定时打已知歌曲，失活 parser 告警日志）
-- [ ] 5.2 playlist 端点完整化（异步任务化逐轨解析）
-- [ ] 5.3 按同一 adapter 协议扩展第三源（咪咕 ⭐⭐⭐ / B站 ⭐⭐⭐ / 汽水 ⭐⭐，见旧计划 §3.3 优先级）
+- [x] 5.a **备用端点池探测与集成**（2026-08-12，基于 `ETC-PLUGINS-ANALYSIS.md` §4.1 总表 + `YUANLI-V1.2.0-PLUGIN-API.md` 实测复核）：
+
+| 候选端点（报告 08-07 标注可用） | 08-12 复测 | 处置 |
+|--------------------------------|-----------|------|
+| nmobi.kuwo.cn 明文版（#10） | ✅ 活跃且**低档不降档**（320kmp3→真320；2000kflac→flac+duration 结构化 JSON） | **升级为酷我直出主通道**（mobi.s 加密版降为备胎） |
+| music.3e0.cn 聚合（#16） | ✅ 活跃 | QQ 链全挂时的最后兜底（3e0.relay，代理流 320k 级） |
+| 元力QQ 175.27.166.236（#19） | ❌ 空响应 | 不集成 |
+| haitangw.cc qq_song_kw/music1/kw（#13/#20） | ❌ 404 | 不集成 |
+| lx-music v4 签名版（#1/#2，REVIEW §5.1 首推） | ❌ 服务端弃用 v4 协议（code 6 强制升 v5） | 不集成 |
+| cyapi.top（#4，musicdl l3 已内置） | 报告实测可用、~150ms 320k | 保持核心链原位 |
+
+- [ ] 5.b parser 健康度面板告警、playlist 端点完整化、第三源扩展（维持原计划）
+
+> 四份前置文档利用记录：MUSICFREE-API-PLAN.md → 架构基线（附录 A 对照）；REVIEW.md → 盲点清单全部落实（resolve_url 最小 dict 方案/绕过 MusicClient/info 端点/健康度冷却）；ETC 分析 §4.1 → 备用端点池来源；YUANLI 分析 → 私有中转端点情报（已失效）。
 
 ---
 

@@ -26,6 +26,17 @@ class QQAdapter(SourceAdapter):
     def _via_thirdparty(self, song_id: str):
         return self.client._parsewiththirdpartapis({'mid': song_id}, {})
 
+    '''last-resort aggregate relay (music.3e0.cn, verified live 2026-08-12).
+       Returns its own proxy stream (not a CDN direct link) — 320k-class only.'''
+    def _via_3e0(self, song_id: str):
+        resp = self.client.get('https://music.3e0.cn', params={'server': 'tencent', 'type': 'url', 'id': song_id},
+                               headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}, timeout=(3, 10))
+        url = (resp.text or '').strip()
+        if not url.startswith('http'): return None
+        status = self.client.audio_link_tester.test(url)
+        if not status.get('ok'): return None
+        return status
+
     '''metadata-only search via musicu.fcg (single POST, no parse chain)'''
     def _search_raw(self, keywords: str, limit: int, page: int) -> list:
         import json as _json
@@ -57,6 +68,15 @@ class QQAdapter(SourceAdapter):
         info = await self.run(self._via_thirdparty, song_id)
         elapsed = round((time.perf_counter() - t0) * 1000)
         if not (info.with_valid_download_url and info.ext in AudioLinkTester.VALID_AUDIO_EXTS):
+            # chain exhausted -> 3e0 aggregate relay (last resort, 320k-class proxy stream)
+            fallback = await self.run(self._via_3e0, song_id)
+            if fallback:
+                return {'id': str(song_id), 'source': self.source_key, 'quality': q,
+                        'url': fallback['download_url'], 'ext': fallback.get('ext') or 'mp3',
+                        'size_bytes': fallback.get('file_size_bytes'), 'bitrate_kbps': None,
+                        'duration_s': None, 'cover': None, 'verified': True,
+                        'headers': {}, 'parser': '3e0.relay', 'elapsed_ms': round((time.perf_counter() - t0) * 1000),
+                        'cached': False}
             raise AdapterError(404, 'no playable url resolved')
         data = self.urldata_from_songinfo(song_id, q, info, elapsed)
         # annotate actual tier honestly
