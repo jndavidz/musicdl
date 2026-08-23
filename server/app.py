@@ -15,13 +15,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from server.config import settings, SOURCES, QUALITY_ALIASES
 from server.cache import TTLCache
 from server.parsers_health import ParserHealth
 from server.schemas import Envelope, SearchData, SearchItem, SongUrlData, SongInfoData, LyricData
 from server.adapters import ADAPTER_CLASSES, AdapterError
+from server import proxy as passthrough
+import functools as _ft
 
 
 '''app state'''
@@ -159,6 +161,49 @@ async def lyric(source: str, id: str = Query(..., min_length=1)):
     text = await asyncio.wait_for(adapter.lyric(id), timeout=settings.hard_timeout_s)
     lyric_cache.set(cache_key, text)
     return ok(LyricData(id=id, source=source, lyric=text, cached=False).model_dump())
+
+
+# ---------------- generic passthrough to sibling containers ----------------
+# covers ALL upstream endpoints (catalog browsing / vip ops / comments / ...)
+# with account cookies injected; body streamed verbatim; API-key guarded globally.
+
+PROXY_TIMEOUT = 40
+
+
+@app.get('/kugou/api/{path:path}', summary='passthrough: any KuGouMusicApi endpoint')
+async def kugou_proxy_get(path: str, request: Request):
+    fn = _ft.partial(passthrough.fetch, source='kugou', method='GET', path=path,
+                     query=dict(request.query_params), timeout=PROXY_TIMEOUT)
+    status, ctype, body = await adapters['kugou'].run(fn)
+    return Response(content=body, status_code=status, media_type=ctype)
+
+
+@app.post('/kugou/api/{path:path}', summary='passthrough POST')
+async def kugou_proxy_post(path: str, request: Request):
+    body = await request.body()
+    fn = _ft.partial(passthrough.fetch, source='kugou', method='POST', path=path,
+                     body=body, content_type=request.headers.get('content-type',
+                     'application/json'), timeout=PROXY_TIMEOUT)
+    status, ctype, out = await adapters['kugou'].run(fn)
+    return Response(content=out, status_code=status, media_type=ctype)
+
+
+@app.get('/netease/api/{path:path}', summary='passthrough: any NeteaseCloudMusicApi endpoint')
+async def netease_proxy_get(path: str, request: Request):
+    fn = _ft.partial(passthrough.fetch, source='netease', method='GET', path=path,
+                     query=dict(request.query_params), timeout=PROXY_TIMEOUT)
+    status, ctype, body = await adapters['netease'].run(fn)
+    return Response(content=body, status_code=status, media_type=ctype)
+
+
+@app.post('/netease/api/{path:path}', summary='passthrough POST')
+async def netease_proxy_post(path: str, request: Request):
+    body = await request.body()
+    fn = _ft.partial(passthrough.fetch, source='netease', method='POST', path=path,
+                     body=body, content_type=request.headers.get('content-type',
+                     'application/json'), timeout=PROXY_TIMEOUT)
+    status, ctype, out = await adapters['netease'].run(fn)
+    return Response(content=out, status_code=status, media_type=ctype)
 
 
 @app.get('/healthz', summary='liveness probe')
