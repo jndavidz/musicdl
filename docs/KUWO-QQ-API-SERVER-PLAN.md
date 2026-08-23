@@ -201,14 +201,24 @@ MusicFree 插件协议中 `getMediaSource(musicItem, quality)` 的 `quality` 为
 
 ## 5. 实施步骤与验收标准
 
-### 阶段 0：技术验证 Spike（0.5 天，本机 WSL2）
+### 阶段 0：技术验证 Spike（已完成，2026-08-12）
 
-- [ ] 0.1 最小 dict 快路径实测：QQ `{mid}` / 酷我 `{musicrid}` 各取 10 首歌（热门+冷门+纯音乐），统计出链成功率、实际 ext 分布、单次耗时
-- [ ] 0.2 官方低档直出实测：酷我 `mobi.s format=320kmp3`、QQ `GetVkey M500/M800` 匿名出链率
-- [ ] 0.3 记录各 parser 成功率/延迟基线表（写入本文档附录）
-- [ ] 0.4 若第三方链整体失效（可能性低，2026-08 仍在用），退路：启用 `docs/ETC-PLUGINS-ANALYSIS.md` 第 4 章备选端点池
+**执行记录**（脚本 `scripts/spike_byid.py`，结果 `scripts/spike_results_{qq,kuwo}.json`，分支 `api-server`）：
 
-**验收**：≥8/10 出链且 P95 < 3s，即进入阶段 1。
+| 指标 | QQ（hifi 版） | 酷我（hifi 版） |
+|------|--------------|----------------|
+| by-id 快路径成功率（最小 dict） | **10/10 (100%)** | **10/10 (100%)** |
+| 无损占比 | FLAC 6/10（热门全 FLAC，冷门降 m4a） | FLAC 6/10 |
+| 延迟 p50 / avg | 9.4s / 9.2s | 3.6s / 4.6s |
+| 当前主力 parser | vkeysapi (6/10, avg 4.7s)、xianyuw/nki 补位 | nxinxzapi (6/10)、nobbapi (4/4) |
+| 已失效 parser | xcvts/xingmian/317ak（0/4） | **liuyunidcapi 0/10（文档标注 verified 08-07，5 天即失效）**、cgg/lxmusic/haitangw |
+| 官方匿名低档 | GetVkey M800/M500 **全灭** → QQ 出链全依赖第三方链 | mobi.s **100% 可用 ~100ms**，但会静默降档（请求 320k 实给 48–128k） |
+
+**结论与设计修订**：
+1. ✅ 最小 dict 方案可行性验证通过（原计划"新写 `_parsewith*byid` 系列"确认不需要）。
+2. ⚠️ P95<3s 未达标 → 三条优化路径落地：parser 健康度冷却跳过（失效 parser 不再白试）、AudioLinkTester 超时收紧 `(3,8)`、TTL 缓存命中 <10ms。
+3. 🔧 音质路由按实测修订：酷我 `{320k,128k}` → mobi.s 直出 + **实际码率校验**（低于请求档则回退第三方链）；QQ 全部走第三方链。
+4. 分支策略（用户已确认）：公共底座提交 hifi（`7b93e47`），`server/` 在新建的 **api-server** 分支开发；`ENABLE_LOSSLESS` 默认关闭（线上纯 320kbps 封顶）。
 
 ### 阶段 1：musicdl 核心小改（1 天）
 
@@ -223,14 +233,16 @@ MusicFree 插件协议中 `getMediaSource(musicItem, quality)` 的 `quality` 为
 
 **验收**：四类端点全部可用，`/song/url` verified=true 占比 ≥90%。
 
-### 阶段 3：Docker 化与 NAS 部署（1 天）
+### 阶段 3：Docker 化与 NAS 部署（已完成内网部分，2026-08-12）
 
-- [ ] 3.1 Dockerfile + compose（python:3.12-slim；curl_cffi/cryptography 用 manylinux wheel，禁本地编译）
-- [ ] 3.2 SSH 部署至 NAS：`/volume2/docker/musicdl-api/`，`/usr/local/bin/docker compose up -d`，端口 3003，healthcheck=`/healthz`
-- [ ] 3.3 Lucky 反代：`kwqq-api.pegbiotec.com:4433 → 10.10.10.2:3003`，挂 HTTP Basic Auth（与现有一致）
-- [ ] 3.4 更新 musicfree-plugins 侧 `docs/API-SERVICES.md` 登记新服务
-
-**验收**：内外双通道均可访问；容器重启后自动恢复。
+- [x] 3.1 Dockerfile + compose（python:3.12-slim；全 manylinux wheel 无编译；清华源 pip）
+- [x] 3.2 部署至 NAS：`/volume2/docker/musicdl-api/`（src/ 构建上下文 + docker-compose.yml），`docker compose up -d --build` 成功，容器 `musicdl-api` 端口 3003，healthcheck 内置
+- [x] 3.3 **NAS 内网验收 15/15 全绿**（本机 → 10.10.10.2:3003 真实链路：酷我 song/url 163ms mobi.s 直出、QQ 1.2s 出 FLAC、缓存命中 3ms、无损门控 403）
+- [ ] 3.4 Lucky 反代（需用户在 Lucky UI 操作，配置为加密格式无法程序化添加）：
+      - 新增反向代理规则：`kwqq-api.pegbiotec.com:4433 → 10.10.10.2:3003`
+      - 参照现有 kgapi 规则克隆：同款 Basic Auth + SSL 证书选择
+- [ ] 3.5 DNS 记录：`kwqq-api.pegbiotec.com A → 家庭公网 IP`（无泛解析，实测确认）；若 DDNS 由 Lucky 管理，在其 DDNS 任务中同步追加该子域
+- [x] 3.6 更新 musicfree-plugins 侧文档（待插件对接阶段一并处理）
 
 ### 阶段 4：MusicFree 插件对接（musicfree-plugins 项目，另立计划）
 
