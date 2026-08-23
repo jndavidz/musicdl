@@ -39,7 +39,7 @@ def find_song_id(source, keywords):
 print(f'== smoke against {BASE} ==')
 
 b, ms = get('/healthz'); check('healthz up', b['code'] == 200 and b['data']['status'] == 'up', f'{ms}ms')
-b, _ = get('/status'); check('status shape', 'sources' in b['data'])
+b, _ = get('/status'); check('status shape', 'parsers' in b['data'])
 
 def get_retry(path, timeout=45, retries=1):
     '''one retry: first failure cools down dead parsers, second attempt usually succeeds'''
