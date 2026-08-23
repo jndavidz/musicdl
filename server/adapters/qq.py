@@ -26,6 +26,28 @@ class QQAdapter(SourceAdapter):
     def _via_thirdparty(self, song_id: str):
         return self.client._parsewiththirdpartapis({'mid': song_id}, {})
 
+    '''yuanli SVIP relay (175.27.166.236/kgqq1, verified live 2026-08-23 via plugin instrumentation).
+       level: exhigh -> 320k mp3, lossless -> FLAC. Note it resolves via kuwo CDN.'''
+    def _via_yuanli(self, song_id: str, quality: str):
+        import time as _time
+        level = 'lossless' if quality in {'flac', 'hires'} else 'exhigh'
+        t0 = _time.perf_counter()
+        try:
+            resp = self.client.get('http://175.27.166.236/kgqq1/qq.php',
+                                   params={'id': song_id, 'type': 'json', 'level': level}, timeout=(3, 10))
+            payload = resp.json() if resp and hasattr(resp, 'json') else {}
+            url = ((payload.get('data') or {}).get('url')) or ''
+            ok = payload.get('code') == 200 and str(url).startswith('http')
+            self.health.record('yuanli.relay.qq', ok, (_time.perf_counter() - t0) * 1000,
+                               None if ok else f"code={payload.get('code')}")
+            if not ok: return None
+            status = self.client.audio_link_tester.test(url)
+            if not status.get('ok'): return None
+            return status
+        except Exception as err:
+            self.health.record('yuanli.relay.qq', False, (_time.perf_counter() - t0) * 1000, err)
+            return None
+
     '''last-resort aggregate relay (music.3e0.cn, verified live 2026-08-12).
        Returns its own proxy stream (not a CDN direct link) — 320k-class only.'''
     def _via_3e0(self, song_id: str):
@@ -68,7 +90,15 @@ class QQAdapter(SourceAdapter):
         info = await self.run(self._via_thirdparty, song_id)
         elapsed = round((time.perf_counter() - t0) * 1000)
         if not (info.with_valid_download_url and info.ext in AudioLinkTester.VALID_AUDIO_EXTS):
-            # chain exhausted -> 3e0 aggregate relay (last resort, 320k-class proxy stream)
+            # chain exhausted -> yuanli SVIP relay, then 3e0 aggregate relay
+            fallback = await self.run(self._via_yuanli, song_id, q)
+            if fallback:
+                return {'id': str(song_id), 'source': self.source_key, 'quality': q,
+                        'url': fallback['download_url'], 'ext': fallback.get('ext') or 'mp3',
+                        'size_bytes': fallback.get('file_size_bytes'), 'bitrate_kbps': None,
+                        'duration_s': None, 'cover': None, 'verified': True,
+                        'headers': {}, 'parser': 'yuanli.relay', 'elapsed_ms': round((time.perf_counter() - t0) * 1000),
+                        'cached': False}
             fallback = await self.run(self._via_3e0, song_id)
             if fallback:
                 return {'id': str(song_id), 'source': self.source_key, 'quality': q,

@@ -57,6 +57,28 @@ class KuwoAdapter(SourceAdapter):
     def _via_thirdparty(self, song_id: str):
         return self.client._parsewiththirdpartapis({'musicrid': f'MUSIC_{song_id}'}, {})
 
+    '''haitangw relay with corrected path /music/kw.php (plugin ships dead /music1/, verified live 2026-08-23).
+       level: exhigh -> 320k mp3, lossless -> FLAC via kuwo CDN.'''
+    def _via_haitangw(self, song_id: str, quality: str):
+        import time as _time
+        level = 'lossless' if quality in {'flac', 'hires'} else 'exhigh'
+        t0 = _time.perf_counter()
+        try:
+            resp = self.client.get('https://music.haitangw.cc/music/kw.php',
+                                   params={'id': song_id, 'level': level}, timeout=(3, 10))
+            payload = resp.json() if resp and hasattr(resp, 'json') else {}
+            url = ((payload.get('data') or {}).get('url')) or ''
+            ok = payload.get('code') == 200 and str(url).startswith('http')
+            self.health.record('haitangw.relay.kw', ok, (_time.perf_counter() - t0) * 1000,
+                               None if ok else f"code={payload.get('code')} msg={payload.get('msg')}")
+            if not ok: return None
+            status = self.client.audio_link_tester.test(url)
+            if not status.get('ok'): return None
+            return status
+        except Exception as err:
+            self.health.record('haitangw.relay.kw', False, (_time.perf_counter() - t0) * 1000, err)
+            return None
+
     '''metadata-only search via searchMusicBykeyWord (single GET, no parse chain)'''
     def _search_raw(self, keywords: str, limit: int, page: int) -> list:
         from urllib.parse import urlencode
@@ -128,6 +150,19 @@ class KuwoAdapter(SourceAdapter):
             return self.urldata_from_songinfo(song_id, q, info, elapsed)
         if tp_ok and (best_direct is None or tp_kbps > ((best_direct['bitrate'] or 0))):
             return self.urldata_from_songinfo(song_id, q, info, elapsed)
+        # tier-2b: haitangw relay (corrected path), then degraded direct as last resort
+        relay = await self.run(self._via_haitangw, song_id, q)
+        if relay:
+            lossless_hit = relay.get('ext') in LOSSLESS_EXTS
+            if lossless_hit or best_direct is None:
+                return {
+                    'id': str(song_id), 'source': self.source_key, 'quality': q,
+                    'url': relay['download_url'], 'ext': relay.get('ext') or 'mp3',
+                    'size_bytes': relay.get('file_size_bytes'), 'bitrate_kbps': 320 if not lossless_hit else None,
+                    'duration_s': None, 'cover': None, 'verified': True,
+                    'headers': {}, 'parser': 'haitangw.relay',
+                    'elapsed_ms': round((time.perf_counter() - t0) * 1000), 'cached': False,
+                }
         if best_direct:
             parser = 'nmobi.degraded' if best_direct is direct else 'mobi.s.degraded'
             return await self._finalize_direct(song_id, q, best_direct, t0, parser)
