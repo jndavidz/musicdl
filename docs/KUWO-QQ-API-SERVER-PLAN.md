@@ -1,7 +1,7 @@
 # musicdl → 酷我+QQ音乐 自托管 API 服务计划（kw-qq-music-api）
 
 > 创建日期：2026-08-12
-> 前置文档：`docs/MUSICFREE-API-PLAN.md`（v3，MusicFree 插件向）、`docs/MUSICFREE-API-PLAN-REVIEW.md`、`docs/ETC-PLUGINS-ANALYSIS.md`、`docs/YUANLI-V1.2.0-PLUGIN-API.md`
+> 前置文档（已归档至 `docs/archive/`）：`docs/archive/MUSICFREE-API-PLAN.md`（v3，MusicFree 插件向）、`docs/archive/MUSICFREE-API-PLAN-REVIEW.md`、`docs/archive/ETC-PLUGINS-ANALYSIS.md`、`docs/archive/YUANLI-V1.2.0-PLUGIN-API.md`
 > 决策记录：端点风格 = 仿 kugou/netease RESTful；部署形态 = 单服务双源单端口；首要消费者 = MusicFree 插件（kuwo.js / qq.js）
 
 ---
@@ -252,7 +252,7 @@ MusicFree 插件协议中 `getMediaSource(musicItem, quality)` 的 `quality` 为
 
 ### 阶段 5：运维增强（后续迭代）
 
-- [x] 5.a **备用端点池探测与集成**（2026-08-12，基于 `ETC-PLUGINS-ANALYSIS.md` §4.1 总表 + `YUANLI-V1.2.0-PLUGIN-API.md` 实测复核）：
+- [x] 5.a **备用端点池探测与集成**（2026-08-12，基于 `docs/archive/ETC-PLUGINS-ANALYSIS.md` §4.1 总表 + `docs/archive/YUANLI-V1.2.0-PLUGIN-API.md` 实测复核）：
 
 | 候选端点（报告 08-07 标注可用） | 08-12 复测 | 处置 |
 |--------------------------------|-----------|------|
@@ -265,7 +265,7 @@ MusicFree 插件协议中 `getMediaSource(musicItem, quality)` 的 `quality` 为
 
 - [ ] 5.b parser 健康度面板告警、playlist 端点完整化、第三源扩展（维持原计划）
 
-> 四份前置文档利用记录：MUSICFREE-API-PLAN.md → 架构基线（附录 A 对照）；REVIEW.md → 盲点清单全部落实（resolve_url 最小 dict 方案/绕过 MusicClient/info 端点/健康度冷却）；ETC 分析 §4.1 → 备用端点池来源；YUANLI 分析 → 私有中转端点情报（已失效）。
+> 四份前置文档利用记录（均归档于 `docs/archive/`）：MUSICFREE-API-PLAN.md → 架构基线（附录 A 对照）；REVIEW.md → 盲点清单全部落实（resolve_url 最小 dict 方案/绕过 MusicClient/info 端点/健康度冷却）；ETC 分析 §4.1 → 备用端点池来源；YUANLI 分析 → 私有中转端点情报（已失效）。
 
 ---
 
@@ -273,7 +273,7 @@ MusicFree 插件协议中 `getMediaSource(musicItem, quality)` 的 `quality` 为
 
 | 风险 | 等级 | 对策 |
 |------|------|------|
-| 第三方公共 parser 失效/限流（最大风险） | 高 | 多 parser 顺序 fallback 已内置；健康度统计快速感知；`ETC-PLUGINS-ANALYSIS.md` 备选端点池随时补充；极端情况给 liuyunidc/vkeys 类私有端点换卡密 |
+| 第三方公共 parser 失效/限流（最大风险） | 高 | 多 parser 顺序 fallback 已内置；健康度统计快速感知；`docs/archive/ETC-PLUGINS-ANALYSIS.md` 备选端点池随时补充；极端情况给 liuyunidc/vkeys 类私有端点换卡密 |
 | CDN 直链短时效 | 中 | 10min TTL + 插件 no-cache 实时取；`download_url` 返回的是重定向后最终 URL，播放器直连 |
 | `nmobi/mobi.s`、`GetVkey` 匿名策略变动 | 中 | 低档路由失败自动回退第三方链，功能不中断 |
 | NAS 内存压力（DS416play 8G，已跑多容器） | 低 | Python 单容器常驻 ≈150–250MB；workers=1；无后台线程常驻任务 |
@@ -386,7 +386,7 @@ Music Assistant(NAS待部署): 统一控制 Squeezelite/DLNA/AirPlay 端；可�
 
 ---
 
-## 附录 A：与 MUSICFREE-API-PLAN.md（v3）的关系
+## 附录 A：与 archive/MUSICFREE-API-PLAN.md（v3）的关系
 
 - **继承**：绕过 MusicClient 直实例化源客户端、免 Cookie 走第三方链、阶段 0 Spike 先行、`cacheControl: no-cache`、音质映射规则。
 - **修订**：① 端点从 `/api/{source}/*` 改为仿 kugou/netease RESTful（`/{source}/search` 等），便于与现有两服务心智统一；② "新建 `_parsewith*byid` 方法"简化为"最小 search_result dict 复用既有链"（§2.2）；③ 服务定位从"MusicFree 专属后端"泛化为"自托管音乐 API 服务"（插件只是首要消费者）；④ 部署端口 5000→3003，纳入现有 300x 服务族。
