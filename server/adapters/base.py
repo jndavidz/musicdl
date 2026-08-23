@@ -27,8 +27,12 @@ class SourceAdapter:
 
     '''run a sync callable in a worker thread under the source semaphore + hard timeout'''
     async def run(self, fn, *args, **kwargs):
+        return await self.run_with_timeout(fn, self.settings.hard_timeout_s, *args, **kwargs)
+
+    '''same as run() with an explicit timeout (slow resolvers like deezer override this)'''
+    async def run_with_timeout(self, fn, timeout, *args, **kwargs):
         async with self.semaphore:
-            return await asyncio.wait_for(asyncio.to_thread(fn, *args, **kwargs), timeout=self.settings.hard_timeout_s)
+            return await asyncio.wait_for(asyncio.to_thread(fn, *args, **kwargs), timeout=timeout)
 
     '''SongInfo -> search item dict'''
     @staticmethod
