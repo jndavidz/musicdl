@@ -1,0 +1,27 @@
+services:
+  musicdl-api:
+    build: ./src
+    image: musicdl-api:latest
+    container_name: musicdl-api
+    ports:
+      - "3003:3003"
+    restart: unless-stopped
+    environment:
+      - KWQQ_PORT=3003
+      - ENABLE_LOSSLESS=false        # plugin scenario caps at 320kbps; flip to true to expose flac/hires
+      - HARD_TIMEOUT_S=35
+      - TESTER_TIMEOUT=3,8
+      - MAX_CONCURRENCY=4
+      - PARSER_FAIL_THRESHOLD=3
+      - PARSER_COOLDOWN_S=300
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3003/healthz', timeout=5)"]
+      interval: 60s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

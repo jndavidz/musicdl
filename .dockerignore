@@ -1,0 +1,24 @@
+# keep build context minimal: only musicdl/, server/, setup.py, README.md, requirements*.txt, MANIFEST.in are needed
+.git
+.github
+.venv
+.uvcache
+.state
+.spike_tmp
+.regress_tmp
+.zcode
+.idea
+.vscode
+__pycache__
+**/__pycache__
+*.pyc
+docs
+examples
+mcp
+scripts
+deploy
+musicdl.egg-info
+*.md
+!README.md
+Dockerfile
+docker-compose.yml
