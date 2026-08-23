@@ -36,6 +36,9 @@ class Settings:
     # search defaults
     search_size_default: int = int(os.getenv('SEARCH_SIZE_DEFAULT', '20'))
     search_size_max: int = int(os.getenv('SEARCH_SIZE_MAX', '50'))
+    # service-level api key (empty = disabled). Compatible with the kugou-plugin pattern:
+    # send 'Authorization: Basic base64(KEY + ":")' or 'X-API-Key: KEY'. /healthz is always exempt.
+    api_key: str = os.getenv('API_KEY', '').strip()
 
 
 settings = Settings()

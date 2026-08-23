@@ -45,6 +45,26 @@ app = FastAPI(title='kw-qq-music-api', version='1.0.0', description='Kuwo + QQ M
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=False, allow_methods=['*'], allow_headers=['*'])
 
 
+'''service-level API key guard: Lucky's per-sub-rule Basic Auth only challenges the exact `/` path,
+   so functional paths need their own protection when exposed. Disabled when API_KEY is empty.'''
+if settings.api_key:
+    import base64 as _b64
+
+    @app.middleware('http')
+    async def api_key_guard(request: Request, call_next):
+        if request.url.path != '/healthz':
+            provided = request.headers.get('x-api-key', '')
+            if not provided:
+                auth = request.headers.get('authorization', '')
+                if auth.startswith('Basic '):
+                    try: provided = _b64.b64decode(auth[6:]).decode('utf-8', errors='ignore').split(':', 1)[0]
+                    except Exception: provided = ''
+            if provided != settings.api_key:
+                return JSONResponse({'code': 401, 'msg': 'unauthorized: missing or invalid API key', 'data': None},
+                                    status_code=401, headers={'WWW-Authenticate': 'Basic realm="Authorization Required"'})
+        return await call_next(request)
+
+
 def ok(data) -> dict:
     return {'code': 200, 'msg': 'success', 'data': data, 'timestamp': int(time.time() * 1000)}
 
