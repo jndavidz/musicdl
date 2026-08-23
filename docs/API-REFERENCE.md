@@ -124,15 +124,32 @@ GET|POST /netease/api/{上游路径}?原始参数...
 
 > 路径规则：kugou-api 的模块文件名下划线即斜杠（`album_songs.js` → `/album/songs`）。完整模块清单见 KuGouMusicApi 仓库 `module/` 目录与 NeteaseCloudMusicApiEnhanced 文档。
 
-### 5.2 VIP 运维精装端点（酷狗概念版畅听 VIP）
+### 5.2 VIP 运维精装端点（酷狗概念版畅听 VIP，已实测）
 
-| Method | Path | 说明 | 对应上游 |
-|--------|------|------|----------|
-| POST | `/kugou/vip/day` | 领取今日畅听 VIP（一天） | youth/day/vip |
-| POST | `/kugou/vip/upgrade` | 升级 VIP 奖励 | youth/day/vip/upgrade |
-| GET | `/kugou/vip/status` | 联合 VIP 权益查询 | youth/union/vip |
+业务流程：**每日先领畅听 VIP(tvip) → 再升级为概念版(svip)**；升级会把当天记录的 vip_type 从 tvip 改写为 svip 并追加 24h。
 
-替代原 `kugou_vip.sh` 定时脚本场景；可被 cron/HA 自动化调用。
+| Method | Path | 成功响应要点 | 幂等错误码 |
+|--------|------|--------------|-----------|
+| POST | `/kugou/vip/day` | `{success:true, data:{ad_vip_num, server_time}}` | 131001 = 今日已领取 |
+| POST | `/kugou/vip/upgrade` | `{success:true, data:{recharge_hours:24}}` | 297002 = 今日已升级 |
+| GET | `/kugou/vip/status` | 见下方结构化输出 | — |
+
+`receive_day` 由服务端自动取 **Asia/Shanghai 当天日期**，调用方无需传参。
+
+GET `/kugou/vip/status` 响应 data 结构：
+
+```json
+{
+  "svip_concept":   { "is_vip": true, "begin": "2026-04-26 15:58:39", "end": "2026-11-10 18:58:39" },
+  "tvip_listening": { "is_vip": true, "begin": "2026-04-26 15:58:39", "end": "2027-03-27 18:58:39" },
+  "claimed_days_this_month": 90,
+  "claim_records": [ { "day": "2026-05-23", "vip_type": "svip" } ],
+  "month": "2026-08",
+  "raw": { "union": {}, "record": {} }
+}
+```
+
+可被 cron / Home Assistant 自动化调用（例：每日 08:00 POST /kugou/vip/day → 等待 → POST /kugou/vip/upgrade），替代原 kugou_vip.sh 脚本。
 
 ---
 
