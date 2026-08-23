@@ -390,3 +390,43 @@ Music Assistant(NAS待部署): 统一控制 Squeezelite/DLNA/AirPlay 端；可�
 
 - **继承**：绕过 MusicClient 直实例化源客户端、免 Cookie 走第三方链、阶段 0 Spike 先行、`cacheControl: no-cache`、音质映射规则。
 - **修订**：① 端点从 `/api/{source}/*` 改为仿 kugou/netease RESTful（`/{source}/search` 等），便于与现有两服务心智统一；② "新建 `_parsewith*byid` 方法"简化为"最小 search_result dict 复用既有链"（§2.2）；③ 服务定位从"MusicFree 专属后端"泛化为"自托管音乐 API 服务"（插件只是首要消费者）；④ 部署端口 5000→3003，纳入现有 300x 服务族。
+
+---
+
+## 附录 B：musicfree-plugins/docs/API-SERVICES.md 登记内容（复制即用）
+
+> 沙箱限制无法直接写 musicfree-plugins 仓库，以下内容请手动追加到该文档（原"## 3. 其他参考插件"顺延为"## 4."）。
+
+```markdown
+## 3. 酷我+QQ音乐 API (musicdl kw-qq-music-api)
+
+> 2026-08-12 上线。基于 musicdl hifi 分支解析链的 Python FastAPI 服务，单容器双源。
+> 计划文档: musicdl 仓库 docs/KUWO-QQ-API-SERVER-PLAN.md
+
+- 内网地址: http://10.10.10.2:3003
+- 外网地址: https://kwqq-api.pegbiotec.com:4433（Lucky 反代 + DNS 待配置后生效）
+- Docker 容器: musicdl-api (镜像 musicdl-api:latest)
+- 源码位置: NAS /volume2/docker/musicdl-api/src（本机 D:\repos\musicdl api-server 分支，已推 GitHub origin/api-server）
+- git 分支: api-server（公共底座在 hifi 分支 7b93e47）
+- docker-compose.yml: /volume2/docker/musicdl-api/docker-compose.yml（build ./src）
+
+### 认证方式
+- 无内置认证，依赖 Lucky 反代层 HTTP Basic 认证（与 kugou/netease 一致）
+- 内网直连无需认证
+
+### 端点（{source} = kuwo | qq）
+- GET /{source}/search?keywords=&page=&limit=   搜索（仅元数据，~200ms）
+- GET /{source}/song/url?id=&quality=auto|320k|128k|flac|hires   播放直链（酷我 nmobi 直出 ~120ms；QQ 第三方链 1-11s）
+- GET /{source}/song/info?id=   单曲元数据
+- GET /{source}/lyric?id=   LRC 歌词
+- GET /healthz /status   探针 / parser 健康度+缓存统计
+
+### 音质策略
+- 插件场景封顶 320kbps：low/standard→128k、high/super→320k（与 netease/kugou 插件映射惯例一致）
+- flac/hires 档默认关闭（ENABLE_LOSSLESS=false，请求返回 code 403）；hifi 下载器复用时置 true 重启容器即可
+- 响应如实返回实际 ext/bitrate_kbps；酷我走官方匿名 nmobi 直出（不降档），QQ 全走第三方解析链（vkeys 等，带健康度冷却跳过失效源）
+
+### 运维
+- 改代码后部署: tar 同步 src/ → docker compose up -d --build
+- 冒烟测试: musicdl 仓库 server/tests/test_smoke.py <base_url>（15 项）
+```
