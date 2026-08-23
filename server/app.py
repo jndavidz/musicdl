@@ -258,7 +258,8 @@ PROXY_TIMEOUT = 40
 @app.get('/kugou/api/{path:path}', summary='passthrough: any KuGouMusicApi endpoint')
 async def kugou_proxy_get(path: str, request: Request):
     fn = _ft.partial(passthrough.fetch, source='kugou', method='GET', path=path,
-                     query=dict(request.query_params), timeout=PROXY_TIMEOUT)
+                     query=dict(request.query_params),
+                     kugou_cookie_fn=adapters['kugou']._get_cookie, timeout=PROXY_TIMEOUT)
     status, ctype, body = await adapters['kugou'].run(fn)
     return Response(content=body, status_code=status, media_type=ctype)
 
@@ -268,7 +269,8 @@ async def kugou_proxy_post(path: str, request: Request):
     body = await request.body()
     fn = _ft.partial(passthrough.fetch, source='kugou', method='POST', path=path,
                      body=body, content_type=request.headers.get('content-type',
-                     'application/json'), timeout=PROXY_TIMEOUT)
+                     'application/json'),
+                     kugou_cookie_fn=adapters['kugou']._get_cookie, timeout=PROXY_TIMEOUT)
     status, ctype, out = await adapters['kugou'].run(fn)
     return Response(content=out, status_code=status, media_type=ctype)
 
@@ -276,7 +278,8 @@ async def kugou_proxy_post(path: str, request: Request):
 @app.get('/netease/api/{path:path}', summary='passthrough: any NeteaseCloudMusicApi endpoint')
 async def netease_proxy_get(path: str, request: Request):
     fn = _ft.partial(passthrough.fetch, source='netease', method='GET', path=path,
-                     query=dict(request.query_params), timeout=PROXY_TIMEOUT)
+                     query=dict(request.query_params),
+                     netease_cookie=settings.netease_cookie, timeout=PROXY_TIMEOUT)
     status, ctype, body = await adapters['netease'].run(fn)
     return Response(content=body, status_code=status, media_type=ctype)
 
@@ -286,7 +289,8 @@ async def netease_proxy_post(path: str, request: Request):
     body = await request.body()
     fn = _ft.partial(passthrough.fetch, source='netease', method='POST', path=path,
                      body=body, content_type=request.headers.get('content-type',
-                     'application/json'), timeout=PROXY_TIMEOUT)
+                     'application/json'),
+                     netease_cookie=settings.netease_cookie, timeout=PROXY_TIMEOUT)
     status, ctype, out = await adapters['netease'].run(fn)
     return Response(content=out, status_code=status, media_type=ctype)
 
