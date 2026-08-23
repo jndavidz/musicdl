@@ -13,15 +13,16 @@ import json_repair
 from bs4 import BeautifulSoup
 from contextlib import suppress
 from rich.progress import Progress
-from ..sources import BaseMusicClient
-from urllib.parse import urljoin, urlparse
+from typing_extensions import Unpack
+from urllib.parse import urljoin, urlparse, quote
+from ..sources import BaseMusicClient, BaseMusicClientKwargs
 from ..utils import legalizestring, usesearchheaderscookies, resp2json, safeextractfromdict, searchdictbykey, extractdurationsecondsfromlrc, cleanlrc, SongInfo, QuarkParser, AudioLinkTester, SongInfoUtils
 
 
 '''GequbaoMusicClient'''
 class GequbaoMusicClient(BaseMusicClient):
     source = 'GequbaoMusicClient'
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Unpack[BaseMusicClientKwargs]):
         kwargs['enable_search_curl_cffi'] = True
         super(GequbaoMusicClient, self).__init__(**kwargs)
         if not self.quark_parser_config.get('cookies'): self.logger_handle.warning(f'{self.source}.__init__ >>> "quark_parser_config" is not configured, so song downloads are restricted and only mp3 files can be downloaded.')
@@ -34,7 +35,7 @@ class GequbaoMusicClient(BaseMusicClient):
         # init
         rule, request_overrides = rule or {}, request_overrides or {}
         # construct search urls
-        search_urls = [f'https://www.gequbao.com/s/{keyword}']
+        search_urls = [f'https://www.gequbao.com/s/{quote(keyword)}']
         self.search_size_per_page = self.search_size_per_source
         # return
         return search_urls
@@ -117,7 +118,7 @@ class GequbaoMusicClient(BaseMusicClient):
                 # --update progress
                 progress.update(task_id, description=f'{self.source}._search >>> Start to process the {search_result_idx+1}th search result on page {page_no}', completed=search_result_idx+1, total=search_result_idx+1)
                 # --download results
-                if not isinstance(search_result, dict) or ('url' not in search_result): continue
+                if not isinstance(search_result, dict) or not search_result.get('url'): continue
                 with suppress(Exception): search_result.update(self._getsongmetainfo(search_result=search_result, request_overrides=request_overrides))
                 # ----parse from quark links
                 with suppress(Exception): song_info = self._parsesearchresultfromquark(search_result, request_overrides) if self.quark_parser_config.get('cookies') else SongInfo(source=self.source)

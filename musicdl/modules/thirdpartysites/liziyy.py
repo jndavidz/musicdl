@@ -11,8 +11,9 @@ import json
 from bs4 import BeautifulSoup
 from contextlib import suppress
 from rich.progress import Progress
-from ..sources import BaseMusicClient
+from typing_extensions import Unpack
 from urllib.parse import urljoin, urlparse, parse_qs, quote
+from ..sources import BaseMusicClient, BaseMusicClientKwargs
 from ..utils import legalizestring, usesearchheaderscookies, searchdictbykey, extractdurationsecondsfromlrc, cleanlrc, SongInfo, QuarkParser, AudioLinkTester, SongInfoUtils
 
 
@@ -20,7 +21,7 @@ from ..utils import legalizestring, usesearchheaderscookies, searchdictbykey, ex
 class LiziYYMusicClient(BaseMusicClient):
     source = 'LiziYYMusicClient'
     MUSIC_QUALITY_RANK = {"DSD": 100, "DSF": 100, "DFF": 100, "WAV": 95, "AIFF": 95, "FLAC": 90, "ALAC": 90, "APE": 88, "WV": 88, "OPUS": 70, "AAC": 65, "M4A": 65, "OGG": 60, "VORBIS": 60, "MP3": 50, "WMA": 45}
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Unpack[BaseMusicClientKwargs]):
         super(LiziYYMusicClient, self).__init__(**kwargs)
         assert self.quark_parser_config.get('cookies'), f'{self.source}.__init__ >>> "quark_parser_config" is not configured, so the songs cannot be downloaded.'
         self.default_search_headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36", "Referer": "https://liziyy.top/"}
@@ -80,7 +81,7 @@ class LiziYYMusicClient(BaseMusicClient):
                 # --update progress
                 progress.update(task_id, description=f'{self.source}._search >>> Start to process the {search_result_idx+1}th search result on page {page_no}', completed=search_result_idx+1, total=search_result_idx+1)
                 # --download results
-                if not isinstance(search_result, dict) or ('url' not in search_result) or (not (song_id := search_result.get('id'))): continue
+                if not isinstance(search_result, dict) or (not search_result.get('url')) or (not (song_id := search_result.get('id'))): continue
                 with suppress(Exception): resp = None; (resp := self.get(search_result['url'], **request_overrides)).raise_for_status()
                 if not locals().get('resp') or not hasattr(locals().get('resp'), 'text'): continue
                 download_result, song_info = self._extractsongdetails(resp.text), SongInfo(source=self.source)

@@ -1118,6 +1118,84 @@ AudiusMusicClient works out of the box and requires no external command-line dep
   music_client.download(song_infos=song_infos)
   ```
 
+#### CCMixterMusicClient
+
+[ccMixter](https://ccmixter.org/) is a Creative Commons music community where artists share, remix, and reuse vocals, samples, and original tracks for collaborative and royalty-friendly music creation.
+
+CCMixterMusicClient lets you access the music hosted on the platform introduced above.
+
+CCMixterMusicClient works out of the box without relying on external command-line tools such as ffmpeg or N_m3u8DL-RE; simply installing musicdl is sufficient.
+
+(1) Command-Line Usage
+
+- Basic usage for song search and download, without login cookies:
+  
+  `musicdl -m CCMixterMusicClient`
+
+- Simple usage for searching and downloading songs, with login cookies:
+
+  `musicdl -m CCMixterMusicClient -i "{'CCMixterMusicClient': {'default_search_cookies': 'YOUR_COOKIES'}}"`
+
+- Basic usage for playlist parsing and downloading, without login cookies:
+
+  `musicdl -p "https://ccmixter.org/playlist/browse/57965" -m CCMixterMusicClient`
+
+- Simple usage for playlist parsing and downloading, with login cookies:
+
+  `musicdl -p "https://ccmixter.org/playlist/browse/57965" -m CCMixterMusicClient -i "{'CCMixterMusicClient': {'default_parse_cookies': 'YOUR_COOKIES'}}"`
+
+(2) Invoke It in Python
+
+- Basic usage for song search and download, without login cookies:
+
+  ```python
+  from musicdl import musicdl
+
+  music_client = musicdl.MusicClient(music_sources=['CCMixterMusicClient'])
+  music_client.startcmdui()
+  ```
+
+- Simple usage for searching and downloading songs, with login cookies:
+
+  ```python
+  from musicdl import musicdl
+  
+  your_vip_cookies_with_str_or_dict_format = ''
+  init_music_clients_cfg = {
+    'CCMixterMusicClient': {
+        'default_search_cookies': your_vip_cookies_with_str_or_dict_format,
+    }
+  }
+  music_client = musicdl.MusicClient(music_sources=['CCMixterMusicClient'], init_music_clients_cfg=init_music_clients_cfg)
+  music_client.startcmdui()
+  ```
+
+- Basic usage for playlist parsing and downloading, without login cookies:
+
+  ```python
+  from musicdl import musicdl
+
+  music_client = musicdl.MusicClient(music_sources=['CCMixterMusicClient'])
+  song_infos = music_client.parseplaylist("https://ccmixter.org/playlist/browse/57965")
+  music_client.download(song_infos=song_infos)
+  ```
+
+- Simple usage for playlist parsing and downloading, with login cookies:
+
+  ```python
+  from musicdl import musicdl
+  
+  your_vip_cookies_with_str_or_dict_format = ''
+  init_music_clients_cfg = {
+    'CCMixterMusicClient': {
+        'default_parse_cookies': your_vip_cookies_with_str_or_dict_format,
+    }
+  }
+  music_client = musicdl.MusicClient(music_sources=['CCMixterMusicClient'], init_music_clients_cfg=init_music_clients_cfg)
+  song_infos = music_client.parseplaylist("https://ccmixter.org/playlist/browse/57965")
+  music_client.download(song_infos=song_infos)
+  ```
+
 #### DeezerMusicClient (Built-in Premium Account)
 
 [Deezer](https://www.deezer.com/us/) is a music streaming platform that lets users listen to over 120 million tracks, podcasts, playlists, and other audio content online.
@@ -1972,13 +2050,17 @@ LizhiMusicClient works out of the box with just pip install musicdl — no extra
 
   `musicdl -m LizhiMusicClient -i "{'LizhiMusicClient': {'search_size_per_source': 2, 'allowed_search_types': ['album']}}"`
 
-- Search for and Download Tracks and Albums from This Platform
+- Search and Download User Works from This Platform
 
-  `musicdl -m LizhiMusicClient -i "{'LizhiMusicClient': {'search_size_per_source': 2, 'allowed_search_types': ['track', 'album']}}"`
+  `musicdl -m LizhiMusicClient -i "{'LizhiMusicClient': {'search_size_per_source': 2, 'allowed_search_types': ['user']}}"`
 
-- Search & Download Tracks and Albums Using Your Own Premium Account Cookies
+- Search for and Download Tracks, Albums and User Works from This Platform
 
-  `musicdl -m LizhiMusicClient -i "{'LizhiMusicClient': {'search_size_per_source': 2, 'allowed_search_types': ['track', 'album'], 'default_search_cookies': 'YOUR_COOKIES'}}"`
+  `musicdl -m LizhiMusicClient -i "{'LizhiMusicClient': {'search_size_per_source': 2, 'allowed_search_types': ['track', 'album', 'user']}}"`
+
+- Search & Download Tracks, Albums and User Works Using Your Own Premium Account Cookies
+
+  `musicdl -m LizhiMusicClient -i "{'LizhiMusicClient': {'search_size_per_source': 2, 'allowed_search_types': ['track', 'album', 'user'], 'default_search_cookies': 'YOUR_COOKIES'}}"`
 
 (2) Invoke It in Python
 
@@ -2002,22 +2084,32 @@ LizhiMusicClient works out of the box with just pip install musicdl — no extra
   music_client.startcmdui()
   ```
 
-- Search for and Download Tracks and Albums from This Platform
+- Search and Download User Works from This Platform
 
   ```python
   from musicdl import musicdl
 
-  init_music_clients_cfg = {'LizhiMusicClient': {'search_size_per_source': 2, 'allowed_search_types': ['track', 'album']}}
+  init_music_clients_cfg = {'LizhiMusicClient': {'search_size_per_source': 2, 'allowed_search_types': ['user']}}
   music_client = musicdl.MusicClient(music_sources=['LizhiMusicClient'], init_music_clients_cfg=init_music_clients_cfg)
   music_client.startcmdui()
   ```
 
-- Search & Download Tracks and Albums Using Your Own Premium Account Cookies
+- Search for and Download Tracks, Albums and User Works from This Platform
 
   ```python
   from musicdl import musicdl
 
-  init_music_clients_cfg = {'LizhiMusicClient': {'search_size_per_source': 2, 'allowed_search_types': ['track', 'album'], 'default_search_cookies': 'YOUR_COOKIES'}}
+  init_music_clients_cfg = {'LizhiMusicClient': {'search_size_per_source': 2, 'allowed_search_types': ['track', 'album', 'user']}}
+  music_client = musicdl.MusicClient(music_sources=['LizhiMusicClient'], init_music_clients_cfg=init_music_clients_cfg)
+  music_client.startcmdui()
+  ```
+
+- Search & Download Tracks, Albums and User Works Using Your Own Premium Account Cookies
+
+  ```python
+  from musicdl import musicdl
+
+  init_music_clients_cfg = {'LizhiMusicClient': {'search_size_per_source': 2, 'allowed_search_types': ['track', 'album', 'user'], 'default_search_cookies': 'YOUR_COOKIES'}}
   music_client = musicdl.MusicClient(music_sources=['LizhiMusicClient'], init_music_clients_cfg=init_music_clients_cfg)
   music_client.startcmdui()
   ```
@@ -2656,36 +2748,6 @@ Using FiveSongMusicClient does not require the installation of any additional co
   music_client.startcmdui()
   ```
 
-#### FLMP3MusicClient
-
-[flmp3.pro](https://www.flmp3.pro/index.html) is a music-sharing website that offers high-quality lossless audio resources, online listening, and downloadable tracks for music lovers.
-
-We use FLMP3MusicClient to download music from the platform above.
-
-Getting started with FLMP3MusicClient is easy: no need to install ffmpeg, N_m3u8DL-RE, or any other CLI tools. Just pip install musicdl and you are good to go.
-
-
-(1) Command-Line Usage
-
-- Configure Quark Drive Cookies to Search for and Download High-Quality Music Files
-
-  `musicdl -m FLMP3MusicClient -i "{'FLMP3MusicClient': {'quark_parser_config': {'cookies': 'Your Quark Drive Login Cookies'}}}"`
-
-(2) Invoke It in Python
-
-- Configure Quark Drive Cookies to Search for and Download High-Quality Music Files
-
-  ```python
-  from musicdl import musicdl
-  
-  your_quark_drive_login_cookies_with_str_or_dict_format = ''
-  init_music_clients_cfg = {
-    'FLMP3MusicClient': {'quark_parser_config': {'cookies': your_quark_drive_login_cookies_with_str_or_dict_format}},
-  }
-  music_client = musicdl.MusicClient(music_sources=['FLMP3MusicClient'], init_music_clients_cfg=init_music_clients_cfg)
-  music_client.startcmdui()
-  ```
-
 #### GequbaoMusicClient
 
 [gequbao.com](https://www.gequbao.com/) is a music website for searching, streaming, and downloading high-quality MP3 songs, with charts, updates, and curated collections.
@@ -3116,6 +3178,48 @@ XiagebaMusicClient does not rely on external command-line utilities such as FFmp
     'XiagebaMusicClient': {'quark_parser_config': {'cookies': your_quark_drive_login_cookies_with_str_or_dict_format}},
   }
   music_client = musicdl.MusicClient(music_sources=['XiagebaMusicClient'], init_music_clients_cfg=init_music_clients_cfg)
+  music_client.startcmdui()
+  ```
+
+#### XMFWAVMusicClient
+
+[xmfwav.com](https://www.xmfwav.com/) is a streamlined music platform known for its extensive song library, fast search, online playback, and high-quality lossless FLAC/APE downloads.
+
+XMFWAVMusicClient provides seamless access to music downloads from the platform above, with no external CLI tooling required.
+
+Unlike workflows that rely on utilities such as ffmpeg or N_m3u8DL-RE, XMFWAVMusicClient works out of the box with a simple pip install musicdl.
+
+(1) Command-Line Usage
+
+- Search for and Download Playable Music Files from Websites
+
+  `musicdl -m XMFWAVMusicClient`
+
+- Configure Quark Drive Cookies to Search for and Download Higher-Quality Music Files
+
+  `musicdl -m XMFWAVMusicClient -i "{'XMFWAVMusicClient': {'quark_parser_config': {'cookies': 'Your Quark Drive Login Cookies'}}}"`
+
+(2) Invoke It in Python
+
+- Search for and Download Playable Music Files from Websites
+
+  ```python
+  from musicdl import musicdl
+
+  music_client = musicdl.MusicClient(music_sources=['XMFWAVMusicClient'])
+  music_client.startcmdui()
+  ```
+
+- Configure Quark Drive Cookies to Search for and Download Higher-Quality Music Files
+
+  ```python
+  from musicdl import musicdl
+  
+  your_quark_drive_login_cookies_with_str_or_dict_format = ''
+  init_music_clients_cfg = {
+    'XMFWAVMusicClient': {'quark_parser_config': {'cookies': your_quark_drive_login_cookies_with_str_or_dict_format}},
+  }
+  music_client = musicdl.MusicClient(music_sources=['XMFWAVMusicClient'], init_music_clients_cfg=init_music_clients_cfg)
   music_client.startcmdui()
   ```
 

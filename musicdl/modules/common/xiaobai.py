@@ -10,7 +10,8 @@ import copy
 from contextlib import suppress
 from urllib.parse import urljoin
 from rich.progress import Progress
-from ..sources import BaseMusicClient
+from typing_extensions import Unpack
+from ..sources import BaseMusicClient, BaseMusicClientKwargs
 from ..utils import legalizestring, resp2json, usesearchheaderscookies, extractdurationsecondsfromlrc, cleanlrc, SongInfo, AudioLinkTester, SongInfoUtils
 
 
@@ -18,8 +19,8 @@ from ..utils import legalizestring, resp2json, usesearchheaderscookies, extractd
 class XiaoBaiMusicClient(BaseMusicClient):
     source = 'XiaoBaiMusicClient'
     ALLOWED_SITES = ['netease', 'qq', 'kugou', 'kuwo']
-    def __init__(self, **kwargs):
-        self.allowed_music_sources = list(set(kwargs.pop('allowed_music_sources', XiaoBaiMusicClient.ALLOWED_SITES)))
+    def __init__(self, allowed_music_sources: list = None, **kwargs: Unpack[BaseMusicClientKwargs]):
+        self.allowed_music_sources = list(set(allowed_music_sources or XiaoBaiMusicClient.ALLOWED_SITES))
         super(XiaoBaiMusicClient, self).__init__(**kwargs)
         self.default_search_headers = {
             "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36", 'origin': 'https://music.90svip.cn', 'x-requested-with': 'XMLHttpRequest',
@@ -57,7 +58,7 @@ class XiaoBaiMusicClient(BaseMusicClient):
                 # --update progress
                 progress.update(task_id, description=f'{self.source}.{root_source}._search >>> Start to process the {search_result_idx+1}th search result on page {page_no}', completed=search_result_idx+1, total=search_result_idx+1)
                 # --download results
-                if not isinstance(search_result, dict) or ('songid' not in search_result) or ('url' not in search_result): continue
+                if not isinstance(search_result, dict) or (not search_result.get('songid')) or (not search_result.get('url')): continue
                 song_info, download_url = SongInfo(source=self.source, root_source=root_source), urljoin(base_url, search_result['url'])
                 with suppress(Exception): download_url = self.session.head(download_url, allow_redirects=True, **request_overrides).url
                 cover_url, song_id = urljoin(base_url, search_result.get('cover', "") or ""), search_result['songid']

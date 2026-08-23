@@ -12,8 +12,9 @@ from html import unescape
 from bs4 import BeautifulSoup
 from contextlib import suppress
 from rich.progress import Progress
-from ..sources import BaseMusicClient
-from urllib.parse import urljoin, urlparse
+from typing_extensions import Unpack
+from urllib.parse import urljoin, urlparse, quote
+from ..sources import BaseMusicClient, BaseMusicClientKwargs
 from ..utils import legalizestring, usesearchheaderscookies, safeextractfromdict, searchdictbykey, resp2json, cleanlrc, SongInfo, QuarkParser, AudioLinkTester, SongInfoUtils
 
 
@@ -21,7 +22,7 @@ from ..utils import legalizestring, usesearchheaderscookies, safeextractfromdict
 class YinyuedaoMusicClient(BaseMusicClient):
     source = 'YinyuedaoMusicClient'
     MUSIC_QUALITY_RANK = {"DSD": 100, "DSF": 100, "DFF": 100, "WAV": 95, "AIFF": 95, "FLAC": 90, "ALAC": 90, "APE": 88, "WV": 88, "OPUS": 70, "AAC": 65, "M4A": 65, "OGG": 60, "VORBIS": 60, "MP3": 50, "WMA": 45}
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Unpack[BaseMusicClientKwargs]):
         super(YinyuedaoMusicClient, self).__init__(**kwargs)
         if not self.quark_parser_config.get('cookies'): self.logger_handle.warning(f'{self.source}.__init__ >>> "quark_parser_config" is not configured, so song downloads are restricted and only mp3 files can be downloaded.')
         self.default_search_headers = {
@@ -37,7 +38,7 @@ class YinyuedaoMusicClient(BaseMusicClient):
         # init
         rule, request_overrides = rule or {}, request_overrides or {}
         # construct search urls
-        search_urls = [f'https://1mp3.top/search.html?keyword={keyword}']
+        search_urls = [f'https://1mp3.top/search.html?keyword={quote(keyword)}']
         self.search_size_per_page = self.search_size_per_source
         # return
         return search_urls
@@ -121,7 +122,7 @@ class YinyuedaoMusicClient(BaseMusicClient):
                 # --update progress
                 progress.update(task_id, description=f'{self.source}._search >>> Start to process the {search_result_idx+1}th search result on page {page_no}', completed=search_result_idx+1, total=search_result_idx+1)
                 # --download results
-                if not isinstance(search_result, dict) or ('id' not in search_result) or ('url' not in search_result): continue
+                if not isinstance(search_result, dict) or (not search_result.get('id')) or (not search_result.get('url')): continue
                 # ----obtain basic information
                 with suppress(Exception): resp = None; (resp := self.get(search_result['url'], **request_overrides)).raise_for_status(); download_result: dict = self._parsemusicpage(resp.text)
                 if not locals().get('resp') or not hasattr(locals().get('resp'), 'text'): continue

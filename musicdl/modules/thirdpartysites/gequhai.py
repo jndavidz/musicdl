@@ -15,15 +15,16 @@ import urllib.parse
 from bs4 import BeautifulSoup
 from contextlib import suppress
 from rich.progress import Progress
-from ..sources import BaseMusicClient
-from urllib.parse import urljoin, urlparse, parse_qs
+from typing_extensions import Unpack
+from urllib.parse import urljoin, urlparse, parse_qs, quote
+from ..sources import BaseMusicClient, BaseMusicClientKwargs
 from ..utils import legalizestring, usesearchheaderscookies, resp2json, safeextractfromdict, extractdurationsecondsfromlrc, searchdictbykey, cleanlrc, SongInfo, QuarkParser, AudioLinkTester, SongInfoUtils
 
 
 '''GequhaiMusicClient'''
 class GequhaiMusicClient(BaseMusicClient):
     source = 'GequhaiMusicClient'
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Unpack[BaseMusicClientKwargs]):
         super(GequhaiMusicClient, self).__init__(**kwargs)
         if not self.quark_parser_config.get('cookies'): self.logger_handle.warning(f'{self.source}.__init__ >>> "quark_parser_config" is not configured, so song downloads are restricted and only mp3 files can be downloaded.')
         self.default_search_headers = {"user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"}
@@ -38,8 +39,8 @@ class GequhaiMusicClient(BaseMusicClient):
         self.search_size_per_page = min(self.search_size_per_source, 12)
         search_urls, page_size, count = [], self.search_size_per_page, 0
         while self.search_size_per_source > count:
-            if int(count // page_size) + 1 == 1: search_urls.append(f'https://www.gequhai.com/s/{keyword}')
-            else: search_urls.append(f'https://www.gequhai.com/s/{keyword}?page={int(count // page_size) + 1}')
+            if int(count // page_size) + 1 == 1: search_urls.append(f'https://www.gequhai.com/s/{quote(keyword)}')
+            else: search_urls.append(f'https://www.gequhai.com/s/{quote(keyword)}?page={int(count // page_size) + 1}')
             count += page_size
         # return
         return search_urls
@@ -126,7 +127,7 @@ class GequhaiMusicClient(BaseMusicClient):
                 # --update progress
                 progress.update(task_id, description=f'{self.source}._search >>> Start to process the {search_result_idx+1}th search result on page {page_no}', completed=search_result_idx+1, total=search_result_idx+1)
                 # --download results
-                if not isinstance(search_result, dict) or ('play_url' not in search_result): continue
+                if not isinstance(search_result, dict) or not search_result.get('play_url'): continue
                 # ----obtain basic information
                 with suppress(Exception): resp = None; (resp := self.get(search_result['play_url'], **request_overrides)).raise_for_status(); download_result = self._extractappdataandwindowvars(resp.text)
                 if not locals().get('resp') or not locals().get('download_result') or not hasattr(locals().get('resp'), 'text'): continue

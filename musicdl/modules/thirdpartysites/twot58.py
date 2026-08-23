@@ -12,8 +12,9 @@ import requests
 from bs4 import BeautifulSoup
 from contextlib import suppress
 from rich.progress import Progress
-from ..sources import BaseMusicClient
-from urllib.parse import urljoin, urlparse
+from typing_extensions import Unpack
+from urllib.parse import urljoin, urlparse, quote
+from ..sources import BaseMusicClient, BaseMusicClientKwargs
 from ..utils import legalizestring, usesearchheaderscookies, extractdurationsecondsfromlrc, cleanlrc, SongInfo, RandomIPGenerator, AudioLinkTester, SongInfoUtils
 
 
@@ -21,7 +22,7 @@ from ..utils import legalizestring, usesearchheaderscookies, extractdurationseco
 class TwoT58MusicClient(BaseMusicClient):
     source = 'TwoT58MusicClient'
     MUSIC_QUALITIES = ['flac', 'wav', '320']
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Unpack[BaseMusicClientKwargs]):
         super(TwoT58MusicClient, self).__init__(**kwargs)
         self.default_search_headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36", "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8", "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8", "Connection": "keep-alive",}
         self.default_download_headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"}
@@ -35,8 +36,8 @@ class TwoT58MusicClient(BaseMusicClient):
         self.search_size_per_page = min(self.search_size_per_source, 68)
         search_urls, page_size, count = [], self.search_size_per_page, 0
         while self.search_size_per_source > count:
-            if int(count // page_size) + 1 == 1: search_urls.append(f'https://www.2t58.com/so/{keyword}.html')
-            else: search_urls.append(f'https://www.2t58.com/so/{keyword}/{int(count // page_size) + 1}.html')
+            if int(count // page_size) + 1 == 1: search_urls.append(f'https://www.2t58.com/so/{quote(keyword)}.html')
+            else: search_urls.append(f'https://www.2t58.com/so/{quote(keyword)}/{int(count // page_size) + 1}.html')
             count += page_size
         # return
         return search_urls
@@ -78,7 +79,7 @@ class TwoT58MusicClient(BaseMusicClient):
                 # --update progress
                 progress.update(task_id, description=f'{self.source}._search >>> Start to process the {search_result_idx+1}th search result on page {page_no}', completed=search_result_idx+1, total=search_result_idx+1)
                 # --download results
-                if not isinstance(search_result, dict) or ('url' not in search_result) or ('id' not in search_result): continue
+                if not isinstance(search_result, dict) or (not search_result.get('url')) or (not search_result.get('id')): continue
                 headers, song_info, song_id = copy.deepcopy(self.default_download_headers), SongInfo(source=self.source), search_result['id']
                 for music_quality in TwoT58MusicClient.MUSIC_QUALITIES:
                     download_url = f"https://www.2t58.com/plug/down.php?ac=music&id={song_id}&k={music_quality}"; RandomIPGenerator().addrandomipv4toheaders(headers=headers)

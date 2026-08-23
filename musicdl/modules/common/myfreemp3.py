@@ -11,14 +11,15 @@ import copy
 from contextlib import suppress
 from urllib.parse import urlparse
 from rich.progress import Progress
-from ..sources import BaseMusicClient
+from typing_extensions import Unpack
+from ..sources import BaseMusicClient, BaseMusicClientKwargs
 from ..utils import legalizestring, resp2json, usesearchheaderscookies, extractdurationsecondsfromlrc, searchdictbykey, cleanlrc, SongInfo, QuarkParser, AudioLinkTester, SongInfoUtils
 
 
 '''MyFreeMP3MusicClient'''
 class MyFreeMP3MusicClient(BaseMusicClient):
     source = 'MyFreeMP3MusicClient'
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Unpack[BaseMusicClientKwargs]):
         super(MyFreeMP3MusicClient, self).__init__(**kwargs)
         if not self.quark_parser_config.get('cookies'): self.logger_handle.warning(f'{self.source}.__init__ >>> "quark_parser_config" is not configured, so only "netease" source can be leveraged.')
         self.allowed_music_sources = ['kuake', 'netease'] if self.quark_parser_config.get('cookies') else ['netease']

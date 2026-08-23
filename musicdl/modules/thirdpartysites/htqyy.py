@@ -10,16 +10,17 @@ import re
 from html import unescape
 from bs4 import BeautifulSoup
 from contextlib import suppress
-from urllib.parse import urljoin
 from rich.progress import Progress
-from ..sources import BaseMusicClient
+from typing_extensions import Unpack
+from urllib.parse import urljoin, quote
+from ..sources import BaseMusicClient, BaseMusicClientKwargs
 from ..utils import legalizestring, usesearchheaderscookies, SongInfo, AudioLinkTester
 
 
 '''HTQYYMusicClient'''
 class HTQYYMusicClient(BaseMusicClient):
     source = 'HTQYYMusicClient'
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Unpack[BaseMusicClientKwargs]):
         super(HTQYYMusicClient, self).__init__(**kwargs)
         self.default_search_headers = {
             "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36", "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
@@ -33,7 +34,7 @@ class HTQYYMusicClient(BaseMusicClient):
         # init
         rule, request_overrides = rule or {}, request_overrides or {}
         # construct search urls
-        search_urls = [f'http://www.htqyy.com/home/search?wd={keyword}']
+        search_urls = [f'http://www.htqyy.com/home/search?wd={quote(keyword)}']
         self.search_size_per_page = self.search_size_per_source
         # return
         return search_urls
@@ -76,7 +77,7 @@ class HTQYYMusicClient(BaseMusicClient):
                 # --update progress
                 progress.update(task_id, description=f'{self.source}._search >>> Start to process the {search_result_idx+1}th search result on page {page_no}', completed=search_result_idx+1, total=search_result_idx+1)
                 # --download results
-                if not isinstance(search_result, dict) or ('play_url' not in search_result): continue
+                if not isinstance(search_result, dict) or not search_result.get('play_url'): continue
                 song_info, song_id = SongInfo(source=self.source), search_result.get('id') or search_result.get('sid')
                 with suppress(Exception): resp = None; (resp := self.get(search_result['play_url'], **request_overrides)).raise_for_status()
                 if not locals().get('resp') or not hasattr(locals().get('resp'), 'text'): continue

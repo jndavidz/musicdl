@@ -14,14 +14,15 @@ from contextlib import suppress
 from itertools import zip_longest
 from urllib.parse import urlencode
 from rich.progress import Progress
-from ..sources import BaseMusicClient
+from typing_extensions import Unpack
+from ..sources import BaseMusicClient, BaseMusicClientKwargs
 from ..utils import legalizestring, usesearchheaderscookies, resp2json, safeextractfromdict, SongInfo, SongInfoUtils, AudioLinkTester
 
 
 '''MP3JuiceMusicClient'''
 class MP3JuiceMusicClient(BaseMusicClient):
     source = 'MP3JuiceMusicClient'
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Unpack[BaseMusicClientKwargs]):
         kwargs['search_size_per_source'] = kwargs['search_size_per_source'] * 2
         super(MP3JuiceMusicClient, self).__init__(**kwargs)
         self.default_search_headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", "Referer": "https://mp3juice.sc/", "Origin": "https://mp3juice.sc"}
@@ -82,8 +83,8 @@ class MP3JuiceMusicClient(BaseMusicClient):
                 if not song_info.with_valid_download_url or song_info.ext not in AudioLinkTester.VALID_AUDIO_EXTS: continue
                 # ----you have to download the music contents immediately, otherwise the links will fail.
                 song_info.downloaded_contents = self.get(download_url, **request_overrides).content
-                song_info.file_size_bytes = song_info.downloaded_contents.__sizeof__()
-                song_info.file_size = SongInfoUtils.byte2mb(song_info.file_size_bytes)
+                song_info.file_size_bytes = song_info.downloaded_contents.__sizeof__(); song_info.file_size = SongInfoUtils.byte2mb(song_info.file_size_bytes)
+                song_info.duration_s = SongInfoUtils.naiveguessdurationfromaudiobytes(song_info.downloaded_contents); song_info.duration = SongInfoUtils.seconds2hms(song_info.duration_s)
                 # --append to song_infos
                 if song_info.with_valid_download_url: song_infos.append(song_info)
             # --update progress

@@ -1,10 +1,10 @@
 '''initialize'''
 from .mitu import MituMusicClient
 from .kkws import KKWSMusicClient
-from .flmp3 import FLMP3MusicClient
 from .htqyy import HTQYYMusicClient
 from .mgmp3 import MGMP3MusicClient
 from .sgogo import SgogoMusicClient
+from .xmfwav import XMFWAVMusicClient
 from .twot58 import TwoT58MusicClient
 from .fangpi import FangpiMusicClient
 from .buguyy import BuguyyMusicClient

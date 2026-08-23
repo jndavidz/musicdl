@@ -341,6 +341,7 @@ End users usually do not create this class directly. Instead, they use subclasse
 - `musicdl.modules.sources.AudiusMusicClient`
 - `musicdl.modules.sources.BilibiliMusicClient`
 - `musicdl.modules.sources.BodianMusicClient`
+- `musicdl.modules.sources.CCMixterMusicClient`
 - `musicdl.modules.sources.DeezerMusicClient`
 - `musicdl.modules.sources.FiveSingMusicClient`
 - `musicdl.modules.sources.FMAMusicClient`
@@ -367,7 +368,6 @@ End users usually do not create this class directly. Instead, they use subclasse
 - `musicdl.modules.thirdpartysites.BuguyyMusicClient`
 - `musicdl.modules.thirdpartysites.FiveSongMusicClient`
 - `musicdl.modules.thirdpartysites.FangpiMusicClient`
-- `musicdl.modules.thirdpartysites.FLMP3MusicClient`
 - `musicdl.modules.thirdpartysites.GequbaoMusicClient`
 - `musicdl.modules.thirdpartysites.GequhaiMusicClient`
 - `musicdl.modules.thirdpartysites.HTQYYMusicClient`
@@ -380,6 +380,7 @@ End users usually do not create this class directly. Instead, they use subclasse
 - `musicdl.modules.thirdpartysites.SgogoMusicClient`
 - `musicdl.modules.thirdpartysites.TwoT58MusicClient`
 - `musicdl.modules.thirdpartysites.XiagebaMusicClient`
+- `musicdl.modules.thirdpartysites.XMFWAVMusicClient`
 - `musicdl.modules.thirdpartysites.YinyuedaoMusicClient`
 - `musicdl.modules.thirdpartysites.ZhuolinMusicClient`
 - `musicdl.modules.common.GDStudioMusicClient`

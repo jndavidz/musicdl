@@ -7,12 +7,12 @@ WeChat Official Account (微信公众号):
     Charles的皮卡丘
 '''
 import re
-import functools
 from bs4 import BeautifulSoup
 from contextlib import suppress
 from rich.progress import Progress
-from ..sources import BaseMusicClient
-from urllib.parse import urljoin, urlsplit, urlparse, parse_qs
+from typing_extensions import Unpack
+from ..sources import BaseMusicClient, BaseMusicClientKwargs
+from urllib.parse import urljoin, urlsplit, urlparse, parse_qs, quote
 from ..utils import legalizestring, usesearchheaderscookies, searchdictbykey, extractdurationsecondsfromlrc, resp2json, cleanlrc, SongInfo, QuarkParser, AudioLinkTester, SongInfoUtils
 
 
@@ -20,7 +20,7 @@ from ..utils import legalizestring, usesearchheaderscookies, searchdictbykey, ex
 class KKWSMusicClient(BaseMusicClient):
     source = 'KKWSMusicClient'
     MUSIC_QUALITY_RANK = {"DSD": 100, "DSF": 100, "DFF": 100, "WAV": 95, "AIFF": 95, "FLAC": 90, "ALAC": 90, "APE": 88, "WV": 88, "OPUS": 70, "AAC": 65, "M4A": 65, "OGG": 60, "VORBIS": 60, "MP3": 50, "WMA": 45}
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Unpack[BaseMusicClientKwargs]):
         super(KKWSMusicClient, self).__init__(**kwargs)
         assert self.quark_parser_config.get('cookies'), f'{self.source}.__init__ >>> "quark_parser_config" is not configured, so the songs cannot be downloaded.'
         self.default_search_headers = {"user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"}
@@ -35,7 +35,7 @@ class KKWSMusicClient(BaseMusicClient):
         self.search_size_per_page = min(self.search_size_per_source, 15)
         search_urls, page_size, count = [], self.search_size_per_page, 0
         while self.search_size_per_source > count:
-            search_urls.append(f'https://www.kkws.cc/search.html?key={keyword}&page={int(count // page_size) + 1}')
+            search_urls.append(f'https://www.kkws.cc/search.html?key={quote(keyword)}&page={int(count // page_size) + 1}')
             count += page_size
         # return
         return search_urls
@@ -50,25 +50,21 @@ class KKWSMusicClient(BaseMusicClient):
             size = (m_size.group(1).replace(" ", "") if (m_size := re.search(r"-\s*([0-9.]+\s*[KMG]?)", full_text, re.IGNORECASE)) else "").strip()
             share_time = ems[0].get_text(strip=True).replace("分享时间：", "").strip() if len(ems := li.select("small em")) >= 1 else ""
             singer = ems[-1].get_text(strip=True).replace("演唱：", "").strip() if len(ems) >= 2 else ""
-            m_id = re.search(r"/detail/(\d+)\.html", (href := urljoin(base_url, a["href"]))); item_id = m_id.group(1) if m_id else ""
+            href = urljoin(base_url, a["href"]); item_id = urlparse(href).path.rsplit("/", 1)[-1]
             search_results.append({"id": item_id, "name": name, "format": file_format, "size": size, "share_time": share_time, "singer": singer, "detail_url": href})
         return search_results
     '''_extractlyricsandquark'''
-    def _extractlyricsandquark(self, html_text: str, song_id: str, request_overrides: dict = None):
-        request_overrides, tb, url_map, rank = request_overrides or {}, (soup := BeautifulSoup(html_text, "lxml")).select_one("#textbox"), {}, KKWSMusicClient.MUSIC_QUALITY_RANK
+    def _extractlyricsandquark(self, html_text: str, request_overrides: dict = None):
+        request_overrides, tb, quark_links, rank = request_overrides or {}, (soup := BeautifulSoup(html_text, "lxml")).select_one("#textbox"), [], KKWSMusicClient.MUSIC_QUALITY_RANK
         to_mmss_func = lambda t: (lambda s: f"{s//60:02d}:{s%60:02d}")(int(float(t.split(":",1)[0])*60+float(t.split(":",1)[1])) if ":" in t else int(float(t)))
         lyrics = "" if not tb else "\n".join((f"[{to_mmss_func(m.group(1))}] {m.group(2).strip()}" if (m:=re.match(r"^\[(\d+(?:\.\d+)?|\d{1,2}:\d{2}(?:\.\d+)?)\]\s*(.*)$", line)) else f"{line}") for line in (l.strip() for l in tb.get_text("\n").splitlines()) if line)
-        for a in soup.select("div.downbox a[onclick]"):
-            if not (onclick := (a.get("onclick") or "").strip()): continue
-            args = re.findall(r"'([^']*)'", onclick); name = fmt = url = None
-            if (parsed := ((args[1], args[2], args[3] or None) if onclick.startswith("openModel") and len(args) >= 4 else (args[1], args[2], None) if onclick.startswith("mbgotourl") and len(args) >= 3 else None)) is None: continue
-            name_fmt, url, fmt = parsed; name, fmt = ((lambda n, f2: (n, fmt or f2))(*map(str.strip, name_fmt.split("|", 1))) if "|" in name_fmt else (name_fmt.strip(), fmt))
-            with suppress(Exception): url = resp2json(self.get(f'https://www.kkws.cc/getdown?url={url}&j=1&id={song_id}', allow_redirects=True, **request_overrides))['data']['decrypted_url']
+        for a in soup.select('div.downbox a[onclick^="openModel"]'):
+            if len(args := re.findall(r"'([^']*)'", a.get("onclick") or "")) < 4: continue
+            download_id, name_fmt, url, fmt = args[:4]; name = name_fmt.split("|", 1)[0].strip()
+            with suppress(Exception): url = resp2json(self.get(f'https://www.kkws.cc/getdown?url={quote(url, safe="")}&j=1&id={download_id}&title={quote(name_fmt, safe="")}', **request_overrides))['data']['decrypted_url']
             if not url or "pan.quark.cn" not in str(urlsplit(str(url)).hostname): continue
-            e = url_map.setdefault(url, {"url": url, "formats": set(), "names": set()}); name and e["names"].add(name)
-            fmt and e["formats"].add(functools.reduce(lambda f, k: k if k.lower() in f.lower() else f, rank, fmt))
-        quark_links = sorted(({"url": e["url"], "formats": sorted(e["formats"]), "names": sorted(e["names"])} for e in url_map.values()), key=lambda x: rank.get(x["formats"][0] if x["formats"] else "UNKNOWN", 0), reverse=True)
-        quark_links = [q for q in quark_links if isinstance(q, dict) and q.get('url')]
+            quark_links.append({"url": url, "formats": [fmt], "names": [name]})
+        quark_links.sort(key=lambda x: rank.get(x["formats"][0], 0), reverse=True)
         return {"lyrics": lyrics, "quark_links": quark_links}
     '''_search'''
     @usesearchheaderscookies
@@ -84,10 +80,10 @@ class KKWSMusicClient(BaseMusicClient):
                 # --update progress
                 progress.update(task_id, description=f'{self.source}._search >>> Start to process the {search_result_idx+1}th search result on page {page_no}', completed=search_result_idx+1, total=search_result_idx+1)
                 # --download results
-                if not isinstance(search_result, dict) or ('detail_url' not in search_result) or (not (song_id := search_result.get('id'))): continue
+                if not isinstance(search_result, dict) or (not search_result.get('detail_url')) or (not (song_id := search_result.get('id'))): continue
                 with suppress(Exception): resp = None; (resp := self.get(search_result['detail_url'], **request_overrides)).raise_for_status()
                 if not locals().get('resp') or not hasattr(locals().get('resp'), 'text'): continue
-                download_result, song_info = self._extractlyricsandquark(resp.text, song_id, request_overrides), SongInfo(source=self.source)
+                download_result, song_info = self._extractlyricsandquark(resp.text, request_overrides), SongInfo(source=self.source)
                 for quark_info in download_result['quark_links']:
                     download_result['quark_parse_result'], download_url = QuarkParser.parsefromurl(quark_info['url'], **self.quark_parser_config)
                     if not download_url or not str(download_url).startswith('http'): continue
