@@ -1,0 +1,241 @@
+{
+  "platform": "qq",
+  "tested_at": "2026-08-23 11:10:32",
+  "total": 10,
+  "success": 10,
+  "success_rate": 1.0,
+  "latency_ms": {
+    "p50": 9414,
+    "avg": 9155,
+    "min": 1101,
+    "max": 21558
+  },
+  "ext_distribution": {
+    "m4a": 4,
+    "flac": 6
+  },
+  "per_parser": {
+    "_parsewithvkeysapi": {
+      "attempts": 10,
+      "ok": 6,
+      "avg_ms": 4679,
+      "errors_sample": [
+        "UnboundLocalError: cannot access local variable 'song_info' where it is not associated with a value",
+        "UnboundLocalError: cannot access local variable 'song_info' where it is not associated with a value"
+      ]
+    },
+    "_parsewithxcvtsapi": {
+      "attempts": 4,
+      "ok": 0,
+      "avg_ms": 3769,
+      "errors_sample": [
+        "TypeError: unsupported operand type(s) for *: 'int' and 'NoneType'",
+        "TypeError: unsupported operand type(s) for *: 'int' and 'NoneType'"
+      ]
+    },
+    "_parsewithxingmianapi": {
+      "attempts": 4,
+      "ok": 0,
+      "avg_ms": null,
+      "errors_sample": [
+        "UnboundLocalError: cannot access local variable 'song_info' where it is not associated with a value",
+        "UnboundLocalError: cannot access local variable 'song_info' where it is not associated with a value"
+      ]
+    },
+    "_parsewith317akapi": {
+      "attempts": 4,
+      "ok": 0,
+      "avg_ms": null,
+      "errors_sample": [
+        "UnboundLocalError: cannot access local variable 'song_info' where it is not associated with a value",
+        "UnboundLocalError: cannot access local variable 'song_info' where it is not associated with a value"
+      ]
+    },
+    "_parsewithxianyuwapi": {
+      "attempts": 4,
+      "ok": 2,
+      "avg_ms": 3330,
+      "errors_sample": []
+    },
+    "_parsewithnkiapi": {
+      "attempts": 2,
+      "ok": 2,
+      "avg_ms": 9340,
+      "errors_sample": []
+    }
+  },
+  "official_lowtier": {
+    "0039MnYb0qxYhV": {
+      "M800": {
+        "ok": false,
+        "ms": 361
+      },
+      "M500": {
+        "ok": false,
+        "ms": 416
+      }
+    },
+    "004Fs2FP1EvZYc": {
+      "M800": {
+        "ok": false,
+        "ms": 407
+      },
+      "M500": {
+        "ok": false,
+        "ms": 596
+      }
+    },
+    "002ASCKm3ROw7t": {
+      "M800": {
+        "ok": false,
+        "ms": 564
+      },
+      "M500": {
+        "ok": false,
+        "ms": 390
+      }
+    },
+    "000qXLmI47rb6L": {
+      "M800": {
+        "ok": false,
+        "ms": 407
+      },
+      "M500": {
+        "ok": false,
+        "ms": 353
+      }
+    },
+    "002E3MtF0IAMMY": {
+      "M800": {
+        "ok": false,
+        "ms": 571
+      },
+      "M500": {
+        "ok": false,
+        "ms": 600
+      }
+    }
+  },
+  "details": [
+    {
+      "idx": 0,
+      "tag": "hot",
+      "id": "0039MnYb0qxYhV",
+      "name": "晴天 - 周杰伦",
+      "ok": true,
+      "ext": "flac",
+      "size_mb": 178.32,
+      "ms": 11352,
+      "parser": "_parsewithvkeysapi",
+      "meta_fetched": true
+    },
+    {
+      "idx": 1,
+      "tag": "hot",
+      "id": "004Fs2FP1EvZYc",
+      "name": "晴天 (Live) - 周杰伦",
+      "ok": true,
+      "ext": "flac",
+      "size_mb": 161.63,
+      "ms": 11022,
+      "parser": "_parsewithvkeysapi",
+      "meta_fetched": true
+    },
+    {
+      "idx": 2,
+      "tag": "hot",
+      "id": "002ASCKm3ROw7t",
+      "name": "美人鱼 - 林俊杰",
+      "ok": true,
+      "ext": "flac",
+      "size_mb": 167.09,
+      "ms": 1101,
+      "parser": "_parsewithvkeysapi",
+      "meta_fetched": true
+    },
+    {
+      "idx": 3,
+      "tag": "hot",
+      "id": "000qXLmI47rb6L",
+      "name": "冻结 - 林俊杰",
+      "ok": true,
+      "ext": "flac",
+      "size_mb": 186.68,
+      "ms": 2086,
+      "parser": "_parsewithvkeysapi",
+      "meta_fetched": true
+    },
+    {
+      "idx": 4,
+      "tag": "hot",
+      "id": "002E3MtF0IAMMY",
+      "name": "光年之外 - G.E.M. 邓紫棋",
+      "ok": true,
+      "ext": "flac",
+      "size_mb": 150.8,
+      "ms": 1222,
+      "parser": "_parsewithvkeysapi",
+      "meta_fetched": true
+    },
+    {
+      "idx": 5,
+      "tag": "cold",
+      "id": "0033cyX20da7J8",
+      "name": "热水澡 - 蛋堡",
+      "ok": true,
+      "ext": "flac",
+      "size_mb": 113.43,
+      "ms": 1294,
+      "parser": "_parsewithvkeysapi",
+      "meta_fetched": true
+    },
+    {
+      "idx": 6,
+      "tag": "cold",
+      "id": "000in3G33jpz94",
+      "name": "归 - 龙井说唱",
+      "ok": true,
+      "ext": "m4a",
+      "size_mb": 5.37,
+      "ms": 16239,
+      "parser": "_parsewithnkiapi",
+      "meta_fetched": true
+    },
+    {
+      "idx": 7,
+      "tag": "cold",
+      "id": "0041DNjH0g8qIe",
+      "name": "達者でナ - 周国良",
+      "ok": true,
+      "ext": "m4a",
+      "size_mb": 2.48,
+      "ms": 7806,
+      "parser": "_parsewithxianyuwapi",
+      "meta_fetched": true
+    },
+    {
+      "idx": 8,
+      "tag": "cold",
+      "id": "001lHJur00e3DU",
+      "name": "哀愁列車 - 周国良",
+      "ok": true,
+      "ext": "m4a",
+      "size_mb": 2.51,
+      "ms": 17869,
+      "parser": "_parsewithxianyuwapi",
+      "meta_fetched": true
+    },
+    {
+      "idx": 9,
+      "tag": "cold",
+      "id": "00161EED3FYi4J",
+      "name": "白日梦 (Demo) - 小巫师乐队",
+      "ok": true,
+      "ext": "m4a",
+      "size_mb": 4.35,
+      "ms": 21558,
+      "parser": "_parsewithnkiapi",
+      "meta_fetched": true
+    }
+  ]
+}

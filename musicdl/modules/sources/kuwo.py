@@ -259,6 +259,17 @@ class KuwoMusicClient(BaseMusicClient):
         return song_info_flac
     '''_getsongmetainfo'''
     def _getsongmetainfo(self, song_id, request_overrides: dict = None):
+        # instance-level memo: avoid repeated meta fetches when the parser chain falls back for the same song (e.g. api server by-id usage)
+        cache = getattr(self, '_metamemo', None)
+        if cache is None: cache = self._metamemo = {}
+        if (cached := cache.get(str(song_id))): return copy.deepcopy(cached)
+        result = self._getsongmetainfonocache(song_id=song_id, request_overrides=request_overrides)
+        if result:
+            if len(cache) >= 1024: cache.clear()
+            cache[str(song_id)] = copy.deepcopy(result)
+        return result
+    '''_getsongmetainfonocache'''
+    def _getsongmetainfonocache(self, song_id, request_overrides: dict = None):
         # init
         request_overrides, resp = request_overrides or {}, None
         to_seconds_func = lambda x: (lambda s: 0 if not s else (lambda p: p[-3]*3600+p[-2]*60+p[-1] if len(p)>=3 else p[0]*60+p[1] if len(p)==2 else p[0] if len(p)==1 else 0)([int(v) for v in re.findall(r'\d+', s.replace('：', ':'))]) if (':' in s or '：' in s) else (lambda h,m,sec,num: (lambda tot: tot if tot>0 else num)(h*3600+m*60+sec))(int(mo.group(1)) if (mo:=re.search(r'(\d+)\s*(?:小时|时|h|hr)', s)) else 0, int(mo.group(1)) if (mo:=re.search(r'(\d+)\s*(?:分钟|分|m|min)', s)) else 0, (int(mo.group(1)) if (mo:=re.search(r'(\d+)\s*(?:秒|s|sec)', s)) else (int(mo.group(1)) if (mo:=re.search(r'(?:分钟|分|m|min)\s*(\d+)\b', s)) else 0)), int(mo.group(0)) if (mo:=re.search(r'\d+', s)) else 0))(str(x).strip().lower())

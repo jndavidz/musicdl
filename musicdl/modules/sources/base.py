@@ -65,7 +65,7 @@ class AudioAwareColumn(ProgressColumn):
 class BaseMusicClient():
     source = 'BaseMusicClient'
     def __init__(self, search_size_per_source: int = 5, auto_set_proxies: bool = False, random_update_ua: bool = False, enable_search_curl_cffi: bool = False, enable_parse_curl_cffi: bool = False, enable_download_curl_cffi: bool = False, maintain_session: bool = False, logger_handle: LoggerHandle = None, disable_print: bool = False, work_dir: str = 'musicdl_outputs', 
-                 max_retries: int = 3, freeproxy_settings: dict = None, default_search_cookies: dict | str = None, default_download_cookies: dict | str = None, default_parse_cookies: dict | str = None, strict_limit_search_size_per_page: bool = True, search_size_per_page: int = 10, quark_parser_config: dict = None):
+                 max_retries: int = 3, freeproxy_settings: dict = None, default_search_cookies: dict | str = None, default_download_cookies: dict | str = None, default_parse_cookies: dict | str = None, strict_limit_search_size_per_page: bool = True, search_size_per_page: int = 10, quark_parser_config: dict = None, audio_link_tester_timeout: tuple | list = None):
         # set up work dir
         IOUtils.touchdir(work_dir)
         # search size
@@ -109,6 +109,8 @@ class BaseMusicClient():
         self.quark_parser_config = quark_parser_config or {}
         self.quark_default_download_headers = {'user-agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.71 Safari/537.36 Core/1.94.225.400 QQBrowser/12.2.5544.400', 'origin': 'https://pan.quark.cn', 'referer': 'https://pan.quark.cn/', 'accept-language': 'zh-CN,zh;q=0.9', 'cookie': cookies2string(self.quark_parser_config.get('cookies'))}
         self.quark_default_download_cookies = {} # placeholder for future potential changes in quark, useless now
+        # audio link tester timeout, e.g. (3, 8) for latency-sensitive api server usage
+        self.audio_link_tester_timeout = tuple(audio_link_tester_timeout) if audio_link_tester_timeout else (5, 15)
         # init requests.Session
         self._initsession()
     '''_listccimpersonates'''
@@ -125,8 +127,8 @@ class BaseMusicClient():
         if TYPE_CHECKING: import curl_cffi as curl_cffi
         self.session = requests.Session() if not self.enable_curl_cffi else curl_cffi.requests.Session()
         self.session.headers = self.default_headers
-        self.audio_link_tester = AudioLinkTester(headers=copy.deepcopy(self.default_download_headers), cookies=copy.deepcopy(self.default_download_cookies))
-        self.quark_audio_link_tester = AudioLinkTester(headers=copy.deepcopy(self.quark_default_download_headers), cookies=copy.deepcopy(self.quark_default_download_cookies))
+        self.audio_link_tester = AudioLinkTester(timeout=getattr(self, 'audio_link_tester_timeout', None) or (5, 15), headers=copy.deepcopy(self.default_download_headers), cookies=copy.deepcopy(self.default_download_cookies))
+        self.quark_audio_link_tester = AudioLinkTester(timeout=getattr(self, 'audio_link_tester_timeout', None) or (5, 15), headers=copy.deepcopy(self.quark_default_download_headers), cookies=copy.deepcopy(self.quark_default_download_cookies))
     '''_constructsearchurls'''
     def _constructsearchurls(self, keyword: str, rule: dict = None, request_overrides: dict = None) -> list:
         raise NotImplementedError('not to be implemented')
@@ -148,7 +150,7 @@ class BaseMusicClient():
         raise NotImplementedError('not be implemented')
     '''search'''
     @usesearchheaderscookies
-    def search(self, keyword: str, num_threadings: int = 5, request_overrides: dict = None, rule: dict = None, main_process_context: Progress = None, main_progress_id: int = None, main_progress_lock: Lock = None) -> list[SongInfo]:
+    def search(self, keyword: str, num_threadings: int = 5, request_overrides: dict = None, rule: dict = None, main_process_context: Progress = None, main_progress_id: int = None, main_progress_lock: Lock = None, persist_results: bool = True) -> list[SongInfo]:
         # logging
         self.logger_handle.info(f'Start to search music files using {self.source}.', disable_print=self.disable_print)
         # construct search urls
@@ -173,7 +175,13 @@ class BaseMusicClient():
                     main_process_context.update(progress_id, description=f"{self.source}.search >>> Completed ({num_searched_urls}/{len(search_urls)}) Search URLs")
                     main_progress_id is not None and main_process_context.advance(main_progress_id, 1)
                     main_progress_id is not None and main_process_context.update(main_progress_id, description=f"Search From Sources >>> Completed ({int(main_process_context.tasks[main_progress_id].completed)}/{int(main_process_context.tasks[main_progress_id].total or 0)}) Search URLs")
-        song_infos, work_dir, work_dir_to_song_info = self._removeduplicates(song_infos=list(chain.from_iterable(song_infos.values()))), self._constructuniqueworkdir(keyword=keyword), defaultdict(list)
+        song_infos = self._removeduplicates(song_infos=list(chain.from_iterable(song_infos.values())))
+        # persist disabled (e.g. api server usage): skip workdir creation and pickle dumping
+        if not persist_results:
+            self.logger_handle.info(f'Finished searching music files from {self.source}. Persist disabled, valid items: {len(song_infos)}.', disable_print=self.disable_print)
+            if owns_progress: main_process_context.__exit__(None, None, None)
+            return song_infos
+        work_dir, work_dir_to_song_info = self._constructuniqueworkdir(keyword=keyword), defaultdict(list)
         for song_info in song_infos:
             if not isinstance(song_info, SongInfo) or not song_info.with_valid_download_url: continue
             song_info.work_dir, episodes = work_dir, song_info.episodes if isinstance(song_info.episodes, list) else []

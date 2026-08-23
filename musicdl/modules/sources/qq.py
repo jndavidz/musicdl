@@ -325,10 +325,18 @@ class QQMusicClient(BaseMusicClient):
         return song_info_flac
     '''_getsongmetainfo'''
     def _getsongmetainfo(self, song_id, request_overrides: dict = None):
+        # instance-level memo: avoid repeated meta fetches when the parser chain falls back for the same song (e.g. api server by-id usage)
+        cache = getattr(self, '_metamemo', None)
+        if cache is None: cache = self._metamemo = {}
+        if (cached := cache.get(str(song_id))): return copy.deepcopy(cached)
         request_overrides, resp, url = request_overrides or {}, None, "https://u.y.qq.com/cgi-bin/musicu.fcg"
         payload = {"songinfo": {"method": "get_song_detail_yqq", "module": "music.pf_song_detail_svr", "param": {"song_mid": song_id}}}
         with suppress(Exception): (resp := self.post(url, json=payload, **request_overrides)).raise_for_status()
-        return (safeextractfromdict(resp2json(resp=resp), ['songinfo', 'data', 'track_info'], {}) or {})
+        result = (safeextractfromdict(resp2json(resp=resp), ['songinfo', 'data', 'track_info'], {}) or {})
+        if result:
+            if len(cache) >= 1024: cache.clear()
+            cache[str(song_id)] = copy.deepcopy(result)
+        return result
     '''_parsewithofficialapiv1'''
     def _parsewithofficialapiv1(self, search_result: dict, song_info_flac: SongInfo = None, lossless_quality_is_sufficient: bool = True, lossless_quality_definitions: set | list | tuple = {'flac', 'ogg'}, request_overrides: dict = None) -> "SongInfo":
         # init

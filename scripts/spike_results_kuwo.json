@@ -1,0 +1,247 @@
+{
+  "platform": "kuwo",
+  "tested_at": "2026-08-23 11:09:37",
+  "total": 10,
+  "success": 10,
+  "success_rate": 1.0,
+  "latency_ms": {
+    "p50": 3564,
+    "avg": 4557,
+    "min": 2170,
+    "max": 15249
+  },
+  "ext_distribution": {
+    "flac": 6,
+    "ogg": 1,
+    "m4a": 1,
+    "mp3": 2
+  },
+  "per_parser": {
+    "_parsewithliuyunidcapi": {
+      "attempts": 10,
+      "ok": 0,
+      "avg_ms": null,
+      "errors_sample": [
+        "SSLError: HTTPSConnectionPool(host='kwdec.liuyunidc.cn', port=443): Max retries exceeded with url: /kwurl?data=b2a3795c0898dddfe86def17f3a49d1ed7936038b86ade1c5cead0ab (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: certificate has expired (_ssl.c:1000)')))",
+        "SSLError: HTTPSConnectionPool(host='kwdec.liuyunidc.cn', port=443): Max retries exceeded with url: /kwurl?data=b2a3795c0898dddce362e715f8b6830c849d786bf7318f0558eb86b39573cb (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: certificate has expired (_ssl.c:1000)')))"
+      ]
+    },
+    "_parsewithcggapi": {
+      "attempts": 10,
+      "ok": 0,
+      "avg_ms": 241,
+      "errors_sample": []
+    },
+    "_parsewithlxmusicapi": {
+      "attempts": 10,
+      "ok": 0,
+      "avg_ms": null,
+      "errors_sample": [
+        "HTTPError: 503 Server Error: Service Unavailable for url: https://lxmusicapi.onrender.com/url/kw/228908/flac",
+        "HTTPError: 503 Server Error: Service Unavailable for url: https://lxmusicapi.onrender.com/url/kw/197123020/flac"
+      ]
+    },
+    "_parsewithnxinxzapi": {
+      "attempts": 10,
+      "ok": 6,
+      "avg_ms": 999,
+      "errors_sample": []
+    },
+    "_parsewithhaitangwapi": {
+      "attempts": 4,
+      "ok": 0,
+      "avg_ms": 400,
+      "errors_sample": []
+    },
+    "_parsewithnobbapi": {
+      "attempts": 4,
+      "ok": 4,
+      "avg_ms": 1542,
+      "errors_sample": []
+    }
+  },
+  "official_lowtier": {
+    "228908": {
+      "320kmp3": {
+        "ok": true,
+        "ms": 101,
+        "bitrate_hint": "128\r"
+      },
+      "128kmp3": {
+        "ok": true,
+        "ms": 90,
+        "bitrate_hint": "128\r"
+      }
+    },
+    "197123020": {
+      "320kmp3": {
+        "ok": true,
+        "ms": 1975,
+        "bitrate_hint": "48\r"
+      },
+      "128kmp3": {
+        "ok": true,
+        "ms": 103,
+        "bitrate_hint": "48\r"
+      }
+    },
+    "93157": {
+      "320kmp3": {
+        "ok": true,
+        "ms": 88,
+        "bitrate_hint": "20900\r"
+      },
+      "128kmp3": {
+        "ok": true,
+        "ms": 82,
+        "bitrate_hint": "20900\r"
+      }
+    },
+    "93151": {
+      "320kmp3": {
+        "ok": true,
+        "ms": 107,
+        "bitrate_hint": "20501\r"
+      },
+      "128kmp3": {
+        "ok": true,
+        "ms": 93,
+        "bitrate_hint": "20501\r"
+      }
+    },
+    "206462064": {
+      "320kmp3": {
+        "ok": true,
+        "ms": 83,
+        "bitrate_hint": "128\r"
+      },
+      "128kmp3": {
+        "ok": true,
+        "ms": 89,
+        "bitrate_hint": "128\r"
+      }
+    }
+  },
+  "details": [
+    {
+      "idx": 0,
+      "tag": "hot",
+      "id": "228908",
+      "name": "晴天 - 周杰伦",
+      "ok": true,
+      "ext": "flac",
+      "size_mb": 52.83,
+      "ms": 4128,
+      "parser": "_parsewithnxinxzapi",
+      "meta_fetched": true
+    },
+    {
+      "idx": 1,
+      "tag": "hot",
+      "id": "197123020",
+      "name": "晴天+告白气球 (Live) - 周杰伦",
+      "ok": true,
+      "ext": "m4a",
+      "size_mb": 2.94,
+      "ms": 15249,
+      "parser": "_parsewithnobbapi",
+      "meta_fetched": true
+    },
+    {
+      "idx": 2,
+      "tag": "hot",
+      "id": "93157",
+      "name": "江南 - 林俊杰",
+      "ok": true,
+      "ext": "flac",
+      "size_mb": 29.93,
+      "ms": 2170,
+      "parser": "_parsewithnxinxzapi",
+      "meta_fetched": true
+    },
+    {
+      "idx": 3,
+      "tag": "hot",
+      "id": "93151",
+      "name": "美人鱼 - 林俊杰",
+      "ok": true,
+      "ext": "flac",
+      "size_mb": 29.81,
+      "ms": 2398,
+      "parser": "_parsewithnxinxzapi",
+      "meta_fetched": true
+    },
+    {
+      "idx": 4,
+      "tag": "hot",
+      "id": "206462064",
+      "name": "光年之外（邓紫棋 / 鲤鱼（LY） remix） - 邓紫棋&鲤鱼（LY）",
+      "ok": true,
+      "ext": "mp3",
+      "size_mb": 3.87,
+      "ms": 3628,
+      "parser": "_parsewithnobbapi",
+      "meta_fetched": true
+    },
+    {
+      "idx": 5,
+      "tag": "cold",
+      "id": "479190033",
+      "name": "達者でナ (cover: 三橋美智也) - 周国良",
+      "ok": true,
+      "ext": "mp3",
+      "size_mb": 3.27,
+      "ms": 3501,
+      "parser": "_parsewithnobbapi",
+      "meta_fetched": true
+    },
+    {
+      "idx": 6,
+      "tag": "cold",
+      "id": "468837467",
+      "name": "哀愁列車 (cover: 三橋美智也) - 周国良",
+      "ok": true,
+      "ext": "ogg",
+      "size_mb": 4.01,
+      "ms": 4726,
+      "parser": "_parsewithnobbapi",
+      "meta_fetched": true
+    },
+    {
+      "idx": 7,
+      "tag": "cold",
+      "id": "356776",
+      "name": "南方蝶道 (Southern Butterfly Path) - 甜梅号",
+      "ok": true,
+      "ext": "flac",
+      "size_mb": 60.71,
+      "ms": 3176,
+      "parser": "_parsewithnxinxzapi",
+      "meta_fetched": true
+    },
+    {
+      "idx": 8,
+      "tag": "cold",
+      "id": "176807",
+      "name": "独立 - 蜜雪薇琪",
+      "ok": true,
+      "ext": "flac",
+      "size_mb": 41.28,
+      "ms": 4337,
+      "parser": "_parsewithnxinxzapi",
+      "meta_fetched": true
+    },
+    {
+      "idx": 9,
+      "tag": "cold",
+      "id": "41531316",
+      "name": "不要怕&啊杰咯 - 莫西子诗",
+      "ok": true,
+      "ext": "flac",
+      "size_mb": 63.26,
+      "ms": 2259,
+      "parser": "_parsewithnxinxzapi",
+      "meta_fetched": true
+    }
+  ]
+}

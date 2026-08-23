@@ -105,3 +105,8 @@ venv.bak/
 
 # ZCode 会话计划（本地瞬时产物，不跨机、不提交；技能 skills/ 需提交 git）
 .zcode/plans/
+.uvcache/
+
+# musicdl api-server runtime
+.state/
+.spike_tmp/
