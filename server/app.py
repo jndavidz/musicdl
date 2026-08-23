@@ -22,6 +22,7 @@ from server.cache import TTLCache
 from server.parsers_health import ParserHealth
 from server.schemas import Envelope, SearchData, SearchItem, SongUrlData, SongInfoData, LyricData
 from server.adapters import ADAPTER_CLASSES, AdapterError
+from datetime import datetime, timezone, timedelta as _td
 from server import proxy as passthrough
 import functools as _ft
 
@@ -163,7 +164,91 @@ async def lyric(source: str, id: str = Query(..., min_length=1)):
     return ok(LyricData(id=id, source=source, lyric=text, cached=False).model_dump())
 
 
-# ---------------- generic passthrough to sibling containers ----------------
+# ---------------- kugou vip ops (semantic endpoints over passthrough) ----------------
+
+def _shanghai_today() -> str:
+    return datetime.now(timezone(_td(hours=8))).strftime('%Y-%m-%d')
+
+
+def _vip_result(raw_status_body: bytes) -> Response:
+    import json as _json
+    d = _json.loads(raw_status_body.decode('utf-8', errors='ignore'))
+    code, err = d.get('error_code'), d.get('error_msg', '')
+    if d.get('status') == 1:
+        return ok({'success': True, 'data': d.get('data'), 'raw_code': code})
+    semantic = {131001: 'already claimed today', 297002: 'upgrade reward already claimed'}.get(code)
+    return JSONResponse({'code': 200 if semantic else 500, 'msg': semantic or err or f'error_code {code}',
+                         'data': {'success': bool(semantic), 'error_code': code}, 'timestamp': int(time.time()*1000)},
+                        status_code=200)
+
+
+def _vip_fetch(path: str, extra_query: dict = None):
+    q = dict(extra_query or {})
+    q['receive_day'] = None  # placeholder removed below when unused
+    q.pop('receive_day', None)
+    fn = _ft.partial(passthrough.fetch, source='kugou', method='GET', path=path,
+                     query=q, kugou_cookie_fn=adapters['kugou']._get_cookie, timeout=30)
+    return adapters['kugou'].run(fn)
+
+
+@app.post('/kugou/vip/day', summary='claim today concept listening VIP')
+async def kugou_vip_day():
+    day = _shanghai_today()
+    status, ctype, raw = await adapters['kugou'].run(
+        lambda: passthrough.fetch('kugou', 'GET', 'youth/day/vip',
+                                  {'receive_day': day}, kugou_cookie_fn=adapters['kugou']._get_cookie,
+                                  timeout=PROXY_TIMEOUT))
+    return _vip_result(raw)
+
+
+@app.post('/kugou/vip/upgrade', summary='upgrade concept vip reward')
+async def kugou_vip_upgrade():
+    status, ctype, raw = await adapters['kugou'].run(
+        lambda: passthrough.fetch('kugou', 'GET', 'youth/day/vip/upgrade',
+                                  kugou_cookie_fn=adapters['kugou']._get_cookie, timeout=PROXY_TIMEOUT))
+    return _vip_result(raw)
+
+
+@app.get('/kugou/vip/status', summary='structured vip entitlements + monthly claim records')
+async def kugou_vip_status():
+    import json as _json
+
+    def _fetch(path):
+        return passthrough.fetch('kugou', 'GET', path,
+                                 kugou_cookie_fn=adapters['kugou']._get_cookie, timeout=PROXY_TIMEOUT)
+
+    union_st, _, union_raw = await adapters['kugou'].run(_fetch, 'youth/union/vip')
+    rec_st, _, rec_raw = await adapters['kugou'].run(_fetch, 'youth/month/vip/record')
+
+    def _load(raw):
+        try:
+            d = _json.loads(raw.decode('utf-8', errors='ignore'))
+            return d.get('data') if isinstance(d.get('data'), dict) else {}
+        except Exception:
+            return {}
+
+    union, record = _load(union_raw), _load(rec_raw)
+
+    def _busi(product_type):
+        for item in (union.get('busi_vip') or []):
+            if isinstance(item, dict) and item.get('product_type') == product_type:
+                return {'is_vip': bool(item.get('is_vip')), 'begin': item.get('vip_begin_time'),
+                        'end': item.get('vip_end_time')}
+        return {'is_vip': False, 'begin': None, 'end': None}
+
+    claims = [{'day': r.get('day'), 'vip_type': r.get('vip_type')} for r in (record.get('list') or []) if isinstance(r, dict)]
+    return ok({
+        'svip_concept': _busi('svip'),          # 概念版 VIP
+        'tvip_listening': _busi('tvip'),        # 畅听 VIP
+        'claimed_days_this_month': len(claims),
+        'claim_records': claims,
+        'month': record.get('month'),
+        'future_duration': record.get('future_duration'),
+        'raw': {'union': union, 'record': record},
+    })
+
+
+# ---------------- generic passthrough to sibling containers ----------------# ---------------- generic passthrough to sibling containers ----------------
 # covers ALL upstream endpoints (catalog browsing / vip ops / comments / ...)
 # with account cookies injected; body streamed verbatim; API-key guarded globally.
 
