@@ -54,10 +54,16 @@ class Settings:
     # listed in untrusted_hosts, otherwise external traffic relayed through it is trusted too.
     trusted_networks: list = _networks('TRUSTED_NETWORKS', '127.0.0.0/8,10.10.10.0/24,172.16.0.0/12,192.168.0.0/16')
     untrusted_hosts: list = [h.strip() for h in os.getenv('UNTRUSTED_HOSTS', '10.10.10.1').split(',') if h.strip()]
+    # sibling api containers on the NAS (their long-lived logins power netease/kugou resolution)
+    ncm_api_base: str = os.getenv('NCM_API_BASE', 'http://10.10.10.2:3000')
+    kugou_api_base: str = os.getenv('KUGOU_API_BASE', 'http://10.10.10.2:3001')
+    kugou_cookie_url: str = os.getenv('KUGOU_COOKIE_URL', 'http://10.10.10.2:3002/kugou')
+    netease_cookie: str = os.getenv('NETEASE_COOKIE', '').strip()
+    cookie_refresh_s: int = int(os.getenv('COOKIE_REFRESH_S', '1800'))
 
 
 settings = Settings()
-SOURCES = ('kuwo', 'qq', 'qianqian', 'migu')  # deezer experimental — resolver sites down
+SOURCES = ('kuwo', 'qq', 'qianqian', 'migu', 'netease', 'kugou')
 
 QUALITY_ALIASES = {
     'low': '128k', 'standard': '128k', 'high': '320k', 'super': '320k',

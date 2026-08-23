@@ -21,8 +21,12 @@ class NeteaseAdapter(SourceAdapter):
         return NeteaseMusicClient(search_size_per_source=self.settings.search_size_max,
                                   disable_print=True, work_dir='/tmp/kwqq-netease', max_retries=2)
 
-    '''raw GET against the sibling ncm-api container, gzip-decoded'''
+    '''raw GET against the sibling ncm-api container, gzip-decoded.
+       NETEASE_COOKIE (e.g. MUSIC_U=xxx) is attached when configured — enables VIP lossless.'''
     def _api_get(self, path: str, params: dict = None) -> dict:
+        params = dict(params or {})
+        if self.settings.netease_cookie:
+            params['cookie'] = self.settings.netease_cookie
         return requests_get(f'{self.settings.ncm_api_base}{path}', params)
 
     '''metadata-only search via cloudsearch (standard fields: id/name/ar[]/al/duration)'''
