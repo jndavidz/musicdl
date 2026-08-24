@@ -37,7 +37,7 @@ def requests_get(url: str, params: dict = None, timeout: int = 20) -> dict:
 
 class KugouAdapter(SourceAdapter):
     source_key = 'kugou'
-    QUALITY = {'128k': '128', '320k': '320', 'auto': '320', 'flac': 'flac', 'hires': 'flac'}
+    QUALITY = {'128k': '128', '320k': '320', 'auto': '320', 'flac': 'flac', 'hires': 'hires'}
 
     def _build_client(self):
         from musicdl.modules.sources.kugou import KugouMusicClient
