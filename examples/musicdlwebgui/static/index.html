@@ -122,6 +122,9 @@ td.c-check{width:34px;text-align:center}
 tr.suspect td{opacity:.45}
 tr.suspect .t-name::after{content:' ⚠ 疑似假质量';font-size:10.5px;color:var(--warn);opacity:.9;font-weight:400}
 .chip.searching .dot{animation:pulse 1s infinite}
+.subrow{flex-basis:100%;display:flex;gap:6px;padding-left:14px;flex-wrap:wrap;margin-top:-4px}
+.subchip{font-size:11px;padding:2px 10px;border-radius:99px;border:1px solid var(--line);color:var(--tx3);cursor:pointer;transition:.12s;user-select:none}
+.subchip.on{border-color:var(--acc);color:var(--acc2);background:#5b8cff12}
 .chip .cnt{padding:0 8px 0 0;font-size:11px;color:var(--tx3)}
 .chip .cnt.ok{color:var(--ok)} .chip .cnt.bad{color:var(--err)}
 .bar.ind>i{width:38%;background:repeating-linear-gradient(90deg,var(--acc) 0 14px,#8f6bff 14px 28px);animation:slide 1s linear infinite}
@@ -218,6 +221,7 @@ footer{text-align:center;color:var(--tx3);font-size:11.5px;margin-top:26px}
       <div class="opts-row">
         <div class="opt">音质偏好
           <select id="qualitySel">
+            <option value="hires_first">母带优先 (24bit)</option>
             <option value="lossless_first">无损优先</option>
             <option value="lossless_only">仅无损</option>
             <option value="320k">320k</option>
@@ -344,6 +348,7 @@ const state = {
   searching: false,
   chipStatus: {},         // {pid: {st:'searching'|'ok'|'fail', n, err}}
   searchTimer: null,
+  subsources: {},         // {tunehub: ['netease','qq'], gdstudio: [...]}
 };
 
 /* ---------- utils ---------- */
@@ -365,6 +370,13 @@ async function init(){
     on: ls.platforms?.[p.id]?.on ?? (p.id in defaults),
     limit: ls.platforms?.[p.id]?.limit ?? p.default_limit,
   }));
+  // 聚合源子源: localStorage 优先, 其次服务端配置, 缺省全选
+  state.subsources = {};
+  state.platforms.filter(p=>p.subsources).forEach(p => {
+    state.subsources[p.id] = ls.subsources?.[p.id]
+      || state.cfg.platform_subsources?.[p.id]
+      || p.subsources.map(s => s.id);
+  });
   if (!state.platforms.some(p => p.on)) state.platforms[0].on = true;
   $('#qualitySel').value = ls.qualityPref || state.cfg.quality_pref_default;
   $('#dedupeChk').checked = ls.dedupe ?? state.cfg.dedupe_default;
@@ -390,11 +402,18 @@ function renderChips(){
     <div class="chip ${p.on?'on':''} ${cs?.st==='searching'?'searching':''}" data-i="${state.platforms.indexOf(p)}">
       <span class="nm" data-act="toggle"><span class="dot"></span>${esc(p.name)}</span>
       <span class="stepper">
-        <button data-act="dec" title="减少 ${esc(p.name)} 搜索数量">−</button>
-        <span class="val" title="${esc(p.name)} 搜索数量">${p.limit}</span>
-        <button data-act="inc" title="增加 ${esc(p.name)} 搜索数量">＋</button>
+        <button data-act="dec" title="减少 ${esc(p.name)} 搜索数量(每子源)">−</button>
+        <span class="val" title="${esc(p.name)} 每子源搜索数量">${p.limit}</span>
+        <button data-act="inc" title="增加 ${esc(p.name)} 搜索数量(每子源)">＋</button>
       </span>${cnt}
     </div>`;};
+  // 聚合平台的子源选择行
+  const subRow = (p) => {
+    if (!p.subsources || p.group !== 'agg' || !p.on) return '';
+    const active = state.subsources[p.id] || p.subsources.map(s=>s.id);
+    return `<span class="subrow" data-agg="${p.id}">` + p.subsources.map(s =>
+      `<span class="subchip ${active.includes(s.id)?'on':''}" data-sub="${s.id}">${esc(s.name)}</span>`).join('') + '</span>';
+  };
   const apiDot = state.cfg?.kwqq_api_online
     ? '<span style="color:var(--ok)">● 在线</span>'
     : '<span style="color:var(--err)" title="NAS kwqq-api 不可达, 该组平台搜索将失败">○ 离线</span>';
@@ -403,10 +422,23 @@ function renderChips(){
     if (!ps.length) return '';
     const head = `<span style="flex-basis:100%;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--tx3);padding-top:${g==='api'?0:6}px">
       <span>${GROUP_TITLES[g]}</span>${g==='api'?apiDot:''}<span style="flex:1;height:1px;background:var(--line)"></span></span>`;
-    return head + ps.map(chipHtml).join('');
+    return head + ps.map(p => chipHtml(p) + subRow(p)).join('');
   }).join('');
 }
 $('#platformChips').addEventListener('click', e => {
+  const sub = e.target.closest('.subchip');
+  if (sub){
+    const aggId = sub.closest('.subrow').dataset.agg;
+    const list = state.subsources[aggId] || state.platforms.find(p=>p.id===aggId).subsources.map(s=>s.id);
+    const sid = sub.dataset.sub;
+    const next = list.includes(sid) ? (list.filter(x=>x!==sid).length ? list.filter(x=>x!==sid) : list) : [...list, sid];
+    state.subsources[aggId] = next;
+    saveLS({subsources: state.subsources});
+    fetch('/api/config', {method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({platform_subsources: state.subsources})});
+    renderChips();
+    return;
+  }
   const btn = e.target.closest('[data-act]');
   const chipEl = e.target.closest('.chip');
   if (!chipEl) return;

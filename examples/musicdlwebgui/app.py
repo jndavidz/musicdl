@@ -55,6 +55,8 @@ DEFAULT_CONFIG = {
     'save_lrc_sidecar': False,
     'kwqq_api_base': 'http://10.10.10.2:3003',
     'kwqq_api_key': '',
+    # aggregator subsource selection, e.g. {"tunehub": ["netease", "qq"], "gdstudio": ["netease"]}
+    'platform_subsources': {},
     'api_key': '',
     'platform_defaults': {'qq': 5, 'netease': 5, 'kugou': 5, 'kuwo': 5, 'migu': 5, 'qianqian': 5},
 }
@@ -70,9 +72,12 @@ PLATFORMS = [
     # ---- 直连匿名链 (进程内库, 不依赖 NAS; 与自有版并存互为备份) ----
     {'id': 'netease_direct', 'client': 'NeteaseMusicClient', 'name': '网易云·直连', 'short': '网易',   'group': 'own'},
     {'id': 'kugou_direct',   'client': 'KugouMusicClient',   'name': '酷狗·直连',   'short': '酷狗',   'group': 'own'},
-    # ---- 聚合网关 (进程内库) ----
-    {'id': 'tunehub',  'client': 'TuneHubMusicClient',   'name': 'TuneHub',  'short': 'TH',   'group': 'agg'},
-    {'id': 'gdstudio', 'client': 'GDStudioMusicClient',  'name': 'GDStudio', 'short': 'GD',   'group': 'agg'},
+    # ---- 聚合网关 (进程内库; 子源可在 UI 上按平台勾选) ----
+    {'id': 'tunehub',  'client': 'TuneHubMusicClient',   'name': 'TuneHub',  'short': 'TH',   'group': 'agg',
+     'subsources': [{'id': 'netease', 'name': '网易'}, {'id': 'qq', 'name': 'QQ'}, {'id': 'kuwo', 'name': '酷我'}]},
+    {'id': 'gdstudio', 'client': 'GDStudioMusicClient',  'name': 'GDStudio', 'short': 'GD',   'group': 'agg',
+     'subsources': [{'id': 'netease', 'name': '网易'}, {'id': 'joox', 'name': 'JOOX'}, {'id': 'tidal', 'name': 'TIDAL'},
+                    {'id': 'qobuz', 'name': 'Qobuz'}, {'id': 'apple', 'name': 'Apple'}, {'id': 'bilibili', 'name': 'B站'}]},
     # ---- extended / experimental sources (off by default) ----
     {'id': 'bilibili',  'client': 'BilibiliMusicClient',  'name': '哔哩哔哩', 'short': 'B站',   'group': 'ext'},
     {'id': 'soda',      'client': 'SodaMusicClient',      'name': '汽水音乐', 'short': '汽水',  'group': 'ext'},
@@ -232,7 +237,8 @@ def api_search_sync(platform_id: str, keyword: str, limit: int) -> list:
     return out
 
 
-_API_QUALITY_MAP = {'lossless_first': 'flac', 'lossless_only': 'flac', '320k': '320k', '128k': '128k', 'any': 'auto'}
+_API_QUALITY_MAP = {'hires_first': 'hires', 'lossless_first': 'flac', 'lossless_only': 'flac',
+                    '320k': '320k', '128k': '128k', 'any': 'auto'}
 
 
 def api_resolve_into(info: ApiSongInfo, quality_pref: str):
@@ -310,9 +316,13 @@ def search_platform_sync(platform_id: str, keyword: str, limit: int) -> list:
         return api_search_sync(platform_id, keyword, limit)
     client = get_client(platform_id)
     limit = max(1, min(int(limit), int(SETTINGS['max_limit_per_source'])))
-    client.search_size_per_source = limit          # per-search dynamic limit
+    client.search_size_per_source = limit          # per-search dynamic limit (per subsource for aggregators)
     client.search_size_per_page = max(10, min(limit, 30))
-    song_infos = client.search(keyword=keyword, num_threadings=min(limit, 5), persist_results=False) or []
+    if meta.get('group') == 'agg':                 # apply UI-selected aggregator subsource whitelist
+        subs = (SETTINGS.get('platform_subsources') or {}).get(platform_id)
+        if subs: client.allowed_music_sources = list(subs)
+    song_infos = client.search(keyword=keyword, num_threadings=min(limit, 5), persist_results=False,
+                               main_process_context=ProgressStub()) or []
     # library only uses search_size_per_source for paging; enforce the hard cap here
     valid = [info for info in song_infos if isinstance(info, SongInfo)]
     return valid[:limit]
@@ -322,6 +332,7 @@ def search_platform_sync(platform_id: str, keyword: str, limit: int) -> list:
 LOSSLESS_EXTS = {'flac', 'wav', 'alac', 'ape', 'wv', 'tta', 'dsf', 'dff'}
 QUALITY_ORDER = {'master': 0, 'hires': 1, 'lossless': 2, '320k': 3, '128k': 4, 'other': 5, 'low': 6, 'pending': -1}
 QUALITY_PREF_RANKS = {
+    'hires_first': ['master', 'hires', 'lossless', '320k', '128k', 'other', 'low'],
     'lossless_first': ['master', 'hires', 'lossless', '320k', '128k', 'other', 'low'],
     'lossless_only': ['master', 'hires', 'lossless'],
     '320k': ['320k', 'master', 'hires', 'lossless', '128k', 'low', 'other'],
@@ -812,6 +823,7 @@ class ConfigBody(BaseModel):
     dedupe_default: bool | None = None
     api_key: str | None = None
     platform_defaults: dict | None = None
+    platform_subsources: dict | None = None
 
 
 @app.get('/healthz')
@@ -831,6 +843,7 @@ async def get_config():
         'has_api_key': bool(SETTINGS.get('api_key')), 'config_path': str(CONFIG_PATH),
         'kwqq_api_base': SETTINGS['kwqq_api_base'], 'kwqq_api_online': api_online(),
         'platform_defaults': dict(SETTINGS['platform_defaults']),
+        'platform_subsources': dict(SETTINGS.get('platform_subsources') or {}),
         'platforms': [{**p, 'default_limit': SETTINGS['platform_defaults'].get(p['id'], 5)} for p in PLATFORMS],
     }}
 
@@ -858,6 +871,14 @@ async def put_config(body: ConfigBody):
         SETTINGS['platform_defaults'] = {k: max(1, min(int(v), SETTINGS['max_limit_per_source']))
                                          for k, v in body.platform_defaults.items() if k in PLATFORM_MAP}
         changed.append('platform_defaults')
+    if body.platform_subsources is not None:
+        clean_subs = {}
+        for pid, subs in (body.platform_subsources or {}).items():
+            meta = PLATFORM_MAP.get(pid)
+            if not meta or not meta.get('subsources'): continue
+            valid = [x['id'] for x in meta['subsources']]
+            clean_subs[pid] = [s for s in subs if s in valid] or valid
+        SETTINGS['platform_subsources'] = clean_subs; changed.append('platform_subsources')
     if changed: save_config(SETTINGS)
     return {'code': 200, 'msg': f'updated: {", ".join(changed) or "nothing"}', 'data': {'changed': changed}}
 
