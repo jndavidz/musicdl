@@ -45,22 +45,28 @@ class NeteaseAdapter(SourceAdapter):
 
     async def song_url(self, song_id: str, quality: str) -> dict:
         q = quality if quality in {'auto', '320k', '128k', 'flac', 'hires'} else 'auto'
-        level = self.LEVELS[q]
         t0 = time.perf_counter()
-        data = await self.run(self._api_get, '/song/url/v1', {'id': song_id, 'level': level})
-        entry = ((data.get('data') or [{}])[0]) if isinstance(data.get('data'), list) else {}
-        url = entry.get('url') or ''
-        if not str(url).startswith('http'):
-            raise AdapterError(404, f'no url at level={level} — is the ncm-api container logged in?')
-        return {'id': str(song_id), 'source': self.source_key, 'quality': q,
-                'url': url, 'ext': entry.get('type') or 'mp3',
-                'size_bytes': int(float(entry.get('size') or 0)) or None,
-                'bitrate_kbps': int(float(entry.get('br') or 0)) // 1000 or None,
-                'duration_s': int(float(entry.get('time') or 0)) // 1000 or None,
-                'cover': None, 'verified': False, 'headers': {},
-                'parser': f'ncm-api.{level}',
-                'platform_tag': str(entry.get('level') or level),   # actual level ncm-api granted
-                'elapsed_ms': round((time.perf_counter() - t0) * 1000), 'cached': False}
+        # hires: try jymaster (master) first — black-vip accounts get it on eligible
+        # tracks; standard/hifi accounts fall back to plain hires automatically.
+        levels = ['jymaster', 'hires'] if q == 'hires' else [self.LEVELS[q]]
+        last_err_entry = {}
+        for level in levels:
+            data = await self.run(self._api_get, '/song/url/v1', {'id': song_id, 'level': level})
+            entry = ((data.get('data') or [{}])[0]) if isinstance(data.get('data'), list) else {}
+            url = entry.get('url') or ''
+            if not str(url).startswith('http'):
+                last_err_entry = {'level': level}
+                continue
+            return {'id': str(song_id), 'source': self.source_key, 'quality': q,
+                    'url': url, 'ext': entry.get('type') or 'mp3',
+                    'size_bytes': int(float(entry.get('size') or 0)) or None,
+                    'bitrate_kbps': int(float(entry.get('br') or 0)) // 1000 or None,
+                    'duration_s': int(float(entry.get('time') or 0)) // 1000 or None,
+                    'cover': None, 'verified': False, 'headers': {},
+                    'parser': f'ncm-api.{level}',
+                    'platform_tag': str(entry.get('level') or level),   # actual level ncm-api granted
+                    'elapsed_ms': round((time.perf_counter() - t0) * 1000), 'cached': False}
+        raise AdapterError(404, f"no url at level={levels} — is the ncm-api container logged in? {last_err_entry}")
 
     async def song_info(self, song_id: str) -> dict:
         data = await self.run(self._api_get, '/song/detail', {'ids': str(song_id)})
