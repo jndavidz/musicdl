@@ -66,7 +66,24 @@ class NeteaseAdapter(SourceAdapter):
                     'parser': f'ncm-api.{level}',
                     'platform_tag': str(entry.get('level') or level),   # actual level ncm-api granted
                     'elapsed_ms': round((time.perf_counter() - t0) * 1000), 'cached': False}
-        raise AdapterError(404, f"no url at level={levels} — is the ncm-api container logged in? {last_err_entry}")
+        # official sources exhausted (grey / delisted track) -> unblock via /song/url/match,
+        # which mirrors from kuwo/migu CDNs; those links need anti-hotlink referer headers.
+        match = await self.run(self._api_get, '/song/url/match', {'id': song_id})
+        match_url = str(match.get('data') or '')
+        if match_url.startswith('http'):
+            status = await self.run(self.client.audio_link_tester.test, match_url)
+            unblock_headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36',
+                               'Referer': 'https://kuwo.cn/', 'Origin': 'https://kuwo.cn'}
+            ext = (status.get('ext') or match_url.rsplit('.', 1)[-1].split('?')[0] or 'mp3').lower()
+            return {'id': str(song_id), 'source': self.source_key, 'quality': q,
+                    'url': status.get('download_url') or match_url, 'ext': ext,
+                    'size_bytes': status.get('file_size_bytes'), 'bitrate_kbps': None,
+                    'duration_s': None, 'cover': None, 'verified': bool(status.get('ok')),
+                    'headers': unblock_headers,
+                    'parser': 'ncm-api.match.unblock',
+                    'platform_tag': '解灰(第三方音源镜像)',
+                    'elapsed_ms': round((time.perf_counter() - t0) * 1000), 'cached': False}
+        raise AdapterError(404, f"no url at level={levels} and unblock match failed — {last_err_entry}")
 
     async def song_info(self, song_id: str) -> dict:
         data = await self.run(self._api_get, '/song/detail', {'ids': str(song_id)})

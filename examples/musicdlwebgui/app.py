@@ -172,6 +172,11 @@ class ApiSongInfo:
         self.default_download_headers = {}; self.default_download_cookies = {}
         self.episodes = None; self.lyric = ''; self.cover_url = ''
         self.platform_tag = ''; self.work_dir = './'; self._save_path = None
+        self.song_name = ''; self.singers = ''; self.album = ''
+        self.ext = ''; self.file_size_bytes = None; self.file_size = ''
+        self.duration_s = None; self.duration = ''; self.bitrate_kbps = None
+        self.samplerate = None; self.channels = None; self.codec = None
+        self.root_source = ''; self.source = ''
         self.__dict__.update(kw)
 
     @property
@@ -271,6 +276,10 @@ def api_resolve_into(info: ApiSongInfo, quality_pref: str):
     if not url: raise RuntimeError('API 未返回可用直链')
     info.download_url = url
     info.platform_tag = str(data.get('platform_tag') or '')
+    # unblock/mirror links (e.g. netease match -> kuwo CDN) require anti-hotlink headers
+    resp_headers = data.get('headers') or {}
+    if isinstance(resp_headers, dict) and resp_headers:
+        info.default_download_headers = {**resp_headers, **getattr(info, 'default_download_headers', {})}
     if data.get('ext'): info.ext = str(data['ext']).lstrip('.')
     if data.get('size_bytes'): info.file_size_bytes = data['size_bytes']
     if data.get('duration_s'):
@@ -649,6 +658,7 @@ class DownloadEngine:
                 # two-stage: resolve a fresh direct url (quality per preference), then fetch via generic downloader
                 api_resolve_into(info, task['quality_pref'])
                 if getattr(info, 'api_fallback_note', None): item['api_note'] = info.api_fallback_note
+                item['platform_tag'] = info.platform_tag   # surface the granted tier in the queue view
                 info.with_valid_download_url = True
             ext = str(info.ext or 'mp3').lower().lstrip('.')
             pid = info.source if info.source in PLATFORM_MAP else item['source']
