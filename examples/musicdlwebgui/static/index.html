@@ -494,7 +494,7 @@ function renderResults(){
     // 跨平台同名计数: 只统计真正出现在多个平台的结果
     const dupSrcs = new Set(state.items.filter(x => x.dedupe_key === it.dedupe_key).map(x => x.source)).size;
     const srcLabel = srcName(it.source) + (it.root_source ? `·${String(it.root_source).toUpperCase()}` : '');
-    const suspectTip = it.suspect_reason ? ` ⚠ ${esc(it.suspect_reason)}` : (it.suspect ? ' ⚠ 疑似假质量' : '');
+    const suspectTip = it.resolve_error ? ` ✗ 解析失败: ${esc(it.resolve_error)}` : (it.suspect_reason ? ` ⚠ ${esc(it.suspect_reason)}` : (it.suspect ? ' ⚠ 疑似假质量' : ''));
     const qTitle = [it.platform_tag ? '平台标注: ' + esc(it.platform_tag) : '', it.bitrate_kbps ? it.bitrate_kbps + ' kbps' : ''].filter(Boolean).join(' · ');
     return `<tr data-key="${it.key}" class="${checked?'checked':''} ${it.has_url?'':'no-url'} ${it.suspect?'suspect':''}">
       <td class="c-check"><input type="checkbox" class="cbx" ${checked?'checked':''}></td>
@@ -524,10 +524,14 @@ function maybePrefetch(shown){
     .then(r => r.json()).then(resp => {
       if (resp.code === 200){
         let changed = false;
-        (resp.data.items || []).forEach(upd => {
+        const apply = upd => {
           const it = state.items.find(x => x.key === upd.key);
-          if (it){ Object.assign(it, upd); changed = true; }
-        });
+          if (it){ Object.assign(it, upd);
+            if (upd.resolve_error) it.resolve_error = upd.resolve_error;
+            changed = true; }
+        };
+        (resp.data.items || []).forEach(apply);
+        (resp.data.failed || []).forEach(f => apply({...f, resolve_error: f.error}));
         if (changed) renderResults();
       }
     })

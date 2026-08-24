@@ -30,7 +30,8 @@ class QianqianAdapter(SourceAdapter):
     def item_from_raw(raw: dict) -> dict:
         artists = ', '.join(a.get('name') for a in (raw.get('artist') or []) if isinstance(a, dict) and a.get('name'))
         return {'id': str(raw.get('TSID') or ''), 'name': raw.get('title'), 'singer': artists or None,
-                'album': raw.get('albumTitle'), 'ext': None, 'size_bytes': None, 'duration_s': None,
+                'album': raw.get('albumTitle'), 'ext': None, 'size_bytes': None,
+                'duration_s': int(float(raw.get('duration') or 0)) or None,
                 'cover': raw.get('pic'), 'source': 'qianqian'}
 
     def _tracklink(self, tsid: str, rate: str) -> dict:
