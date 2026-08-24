@@ -54,7 +54,34 @@ uv run python examples/musicdlwebgui/app.py            # 默认 http://127.0.0.1
 配置（`config.json`）：`"kwqq_api_base": "http://10.10.10.2:3003"`、`"kwqq_api_key": ""`
 （外网访问才需要 key，内网免）。
 
-## 各源音质能力矩阵（2026-08 实测，邓丽君/周杰伦/周深多曲采样）
+## 音质映射总表（调查实证后的最终落地）
+
+### webgui 音质偏好 → 各后端实际请求
+
+| webgui 偏好 | kuwo(API) | netease(API·自有) | kugou(API) | migu(API) | qq/qianqian(API) | 直连/聚合源 |
+|------------|-----------|-------------------|------------|-----------|------------------|------------|
+| 母带优先 | `20000kflac` | jymaster→dolby→sky→jyeffect→hires 尝试链 | `high`(54.9MB级) | SQ/ZQ | HR/3000 | 内置恒为最高档序 |
+| 无损优先 | `2000kflac` | lossless | `flac` | SQ | SQ/3000 | 同上 |
+| 仅无损 | 同无损优先，交付非FLAC即跳过 | 同左 | — | — | — | 同上 |
+| 320k / 128k | 对应码率档 | standard/exhigh | 320/128 | HQ/PQ | 320/128 | 同上 |
+| 不限 | auto | exhigh(320k) | 320(=auto) | HQ | 320 | 同上 |
+
+### 库直连源内置档序（已全部是"最高→最低"，无需配置）
+
+| 直连源 | 解析档序（从高到低） |
+|--------|--------------------|
+| 网易云·直连 | `jymaster → jyeffect → sky → hires → lossless → dolby → exhigh → standard`（八级 Eapi，实测峰值 37.8 MB/min 准母带）|
+| 酷狗·直连 | 第三方 API 组：`viper_tape/viper_clear/viper_atmos/flac/high/320/128` 与 `hires/lossless/exhigh`（蝰蛇系上游未交付可用文件，实测上限 CD 7.3）|
+| 酷我·直连 | nmobi `master/atmos_plus/atmos/flac` + 2000kflac/20000kflac 系（匿名上限 CD 12.5）|
+| QQ·直连(l1组) | vkeys `[7,9,10,8,6,5]` · xingmian `flac24bit/hires/flac/320k` · xcvts/lxmusic `[999…]`（HR 实测 40.8）|
+| TuneHub | parse API `flac24bit→flac→320k→128k`(kuwo/qq) + meting `400/380/320/128`(netease) |
+| GDStudio | br=`999/740/320/192/128` |
+| 千千/咪咕/小站群 | 3000 / SQ-ZQ / flac-wav 直链（CD 上限）|
+
+> 说明：webgui 的音质偏好下拉**仅对 kwqq-API 六源生效**（下发 quality 参数）；直连与聚合源
+> 由 musicdl 库固定按最高→最低档序解析，偏好只影响结果排序与择优。
+
+### 实测能力矩阵 v3（2026-08，邓丽君/周杰伦/周深多曲采样）
 
 | 渠道 | 请求的最高档 | 实测交付上限 (MB/min) | 高解析(17-42) | 母带(≥42) |
 |------|------------|---------------------|:---:|:---:|
