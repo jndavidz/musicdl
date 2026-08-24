@@ -61,7 +61,7 @@ uv run python examples/musicdlwebgui/app.py            # 默认 http://127.0.0.1
 | 网易·自有 (88VIP 黑胶) | jymaster→hires 尝试链 + 灰色解灰(match→酷我镜像) | **jyeffect 21.5** / 灰色曲目解灰 flac 视镜像 | ✓ | ✗ 需SVIP |
 | QQ 音乐 (l1 SVIP 解析器组) | HR Hi-Res | **40.8**（贴母带线）| ✓ | ✗ 差一线 |
 | 酷我 (API 匿名) | 20000kflac 臻品母带 | ~12.5（CD 级，匿名被降级）| ✗ | ✗ 需VIP Cookie |
-| 酷狗·自有 (概念版VIP) | kugou-api flac | flac ~6.7（CD 级）| ✗ | ✗ |
+| 酷狗·自有 (概念版VIP) | quality=**high**（真发，不再映射 flac）| flac ~11.8（CD 上限级）；部分回退 128k 如实标注 | ✗ | ✗ viper_tape 需转码，KuGouMusicApi 未实现 |
 | 千千 | rate=3000 | flac 12.3（CD 级）| ✗ | ✗ |
 | 咪咕 | SQ/ZQ flag | 实际交付 mp3 HQ（标注与实物不符）| ✗ | ✗ |
 | TuneHub | flac24bit 仅限 kuwo/qq parse API；netease 子源走 meting ≤400kbps | kuwo 子源 ~12.5；qq parse 服务常无响应 | ✗ | ✗ |

@@ -37,7 +37,7 @@ def requests_get(url: str, params: dict = None, timeout: int = 20) -> dict:
 
 class KugouAdapter(SourceAdapter):
     source_key = 'kugou'
-    QUALITY = {'128k': '128', '320k': '320', 'auto': '320', 'flac': 'flac', 'hires': 'hires'}
+    QUALITY = {'128k': '128', '320k': '320', 'auto': '320', 'flac': 'flac', 'hires': 'high'}
 
     def _build_client(self):
         from musicdl.modules.sources.kugou import KugouMusicClient
@@ -96,9 +96,10 @@ class KugouAdapter(SourceAdapter):
             raise AdapterError(404, f'no url at quality={self.QUALITY[q]} — cookie expired?')
         return {'id': str(song_id), 'source': self.source_key, 'quality': q,
                 'url': url, 'ext': (data.get('extName') or 'mp3').lstrip('.'),
-                'bitrate_kbps': {'128': 128, '320': 320}.get(self.QUALITY[q]),
-                'size_bytes': int(float(data.get('timeLen') or 0)) or None,
-                'duration_s': None, 'cover': None, 'verified': False, 'headers': {},
+                'bitrate_kbps': int(float(data.get('bitRate') or 0)) // 1000 or None,
+                'size_bytes': int(float(data.get('fileSize') or 0)) or None,
+                'duration_s': (int(float(data.get('timeLength') or 0)) // 1000 or None),
+                'cover': None, 'verified': False, 'headers': {},
                 'parser': f'kugou-api.{self.QUALITY[q]}',
                 'platform_tag': str(data.get('quality') or self.QUALITY[q]),
                 'elapsed_ms': round((time.perf_counter() - t0) * 1000), 'cached': False}
