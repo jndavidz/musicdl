@@ -58,10 +58,12 @@ uv run python examples/musicdlwebgui/app.py            # 默认 http://127.0.0.1
 
 | 渠道 | 请求的最高档 | 实测交付上限 (MB/min) | 高解析(17-42) | 母带(≥42) |
 |------|------------|---------------------|:---:|:---:|
-| 网易·自有 (88VIP 黑胶) | jymaster→hires 尝试链 + 灰色解灰(match→酷我镜像) | **jyeffect 21.5** / 灰色曲目解灰 flac 视镜像 | ✓ | ✗ 需SVIP |
-| QQ 音乐 (l1 SVIP 解析器组) | HR Hi-Res | **40.8**（贴母带线）| ✓ | ✗ 差一线 |
+| **网易云·直连** (库内置公共 MUSIC_U) | 库八级档 jymaster→standard | **37.8**（《晴天》175.8MB flac）| ✓ 准母带 | ✗ 未命中 |
+| QQ 音乐 (l1 SVIP 解析器组) | HR Hi-Res | **40.8**（《又见炊烟》104MB）| ✓ 贴母带线 | ✗ 差一线 |
+| 网易云·自有 (88VIP 黑胶, ncm-api) | jymaster→hires 尝试链 + 灰色解灰(match→酷我镜像) | **jyeffect 21.4** / 灰色曲目解灰 flac 视镜像 | ✓ | ✗ 需SVIP |
 | 酷我 (API 匿名) | 20000kflac 臻品母带 | ~12.5（CD 级，匿名被降级）| ✗ | ✗ 需VIP Cookie |
-| 酷狗·自有 (概念版VIP) | quality=**high**（真发，不再映射 flac）| flac ~11.8（CD 上限级）；部分回退 128k 如实标注 | ✗ | ✗ viper_tape 需转码，KuGouMusicApi 未实现 |
+| 酷狗·自有 (概念版VIP) | quality=**high**（真发）| flac ~11.8（CD 上限级）；部分回退 128k 如实标注 | ✗ | ✗ viper_tape 需转码未实现 |
+| **酷狗·直连** (库第三方API含蝰蛇档) | viper_tape/viper_clear/flac | flac 7.3（蝰蛇系上游未交付可用文件）| ✗ | ✗ |
 | 千千 | rate=3000 | flac 12.3（CD 级）| ✗ | ✗ |
 | 咪咕 | SQ/ZQ flag | 实际交付 mp3 HQ（标注与实物不符）| ✗ | ✗ |
 | TuneHub | flac24bit 仅限 kuwo/qq parse API；netease 子源走 meting ≤400kbps | kuwo 子源 ~12.5；qq parse 服务常无响应 | ✗ | ✗ |
@@ -69,10 +71,11 @@ uv run python examples/musicdlwebgui/app.py            # 默认 http://127.0.0.1
 | 小站群 LIVEPOO/TWOT58/GEQUHAI/MITU/JCPOO/FLMP3 | flac/wav 直链 | 6–10（CD 级）| ✗ | ✗ |
 
 要点：
-- **母带级 (≥42 MB/min) 当前全渠道不可得** —— 酷我/QQ 的母带档位需要对应平台 VIP 权益直连，
-  匿名与第三方解析链均会被降级；分级体系按实测体积如实标注，不信任上游档名。
+- **严格母带(≥42) 当前全渠道未实测命中**，但「网易云·直连」37.8 与「QQ HR」40.8 已是
+  准母带级（24bit 转制规格）。分级体系按实测体积如实标注，不信任上游档名。
 - 高解析的两个稳定来源：网易·自有(88VIP 在架曲目, 18-22) 与 QQ HR(38-40.8)。
 - 聚合网关(TuneHub/GDStudio)存在压缩陷阱：同曲直连 36-41 的源经它们只有 ≤19。
+- 库内置公共 cookie 权益可能随上游变动 —— 「直连」通道规格以实际 resolve 为准。
 
 ## 下载目录指向群晖（/volume1/music/download）
 
