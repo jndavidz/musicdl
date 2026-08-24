@@ -118,6 +118,7 @@ td.c-check{width:34px;text-align:center}
 .q-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:.4px}
 .q-hires{background:#e8b84b1f;color:var(--gold);border:1px solid #e8b84b44}
 .q-lossless{background:#4cc38a1a;color:var(--green);border:1px solid #4cc38a40}
+.q-master{background:linear-gradient(135deg,#e8b84b26,#8f6bff26);color:#e8c96a;border:1px solid #c9a53f66}
 tr.suspect td{opacity:.45}
 tr.suspect .t-name::after{content:' ⚠ 疑似假质量';font-size:10.5px;color:var(--warn);opacity:.9;font-weight:400}
 .chip.searching .dot{animation:pulse 1s infinite}
@@ -300,7 +301,7 @@ footer{text-align:center;color:var(--tx3);font-size:11.5px;margin-top:26px}
     </div>
     <div class="f-group">
       <label class="opt" style="justify-content:space-between">
-        <span>拦截疑似假质量文件<span style="display:block;color:var(--tx3);font-size:11px">320K&lt;5MB · FLAC&lt;10MB · Hi-Res&lt;25MB · 128K&lt;2MB 的结果将被跳过并标灰</span></span>
+        <span>拦截疑似假质量文件<span style="display:block;color:var(--tx3);font-size:11px">按每分钟体积判定: FLAC&lt;3.5MB/分钟视为假无损(320K转码≈2.34) · 另有 320K&lt;5MB / 128K&lt;2MB 总量下限, 命中即跳过并标灰</span></span>
         <span class="switch"><input type="checkbox" id="cfgGuard"><span class="tr"></span></span>
       </label>
     </div>
@@ -481,7 +482,7 @@ function doSearch(){
 }
 function setStatus(html, warn){ $('#searchStatus').innerHTML = html; }
 
-const Q_LABEL = {hires:'Hi-Res·24b', lossless:'FLAC', '320k':'320K', '128k':'128K', low:'低码', other:'其他', pending:'待解析'};
+const Q_LABEL = {master:'母带·24b', hires:'高解析', lossless:'CD·FLAC', '320k':'HQ·320K', '128k':'PQ·128K', low:'低码', other:'其他', pending:'待解析…'};
 function renderResults(){
   const card = $('#resultsCard');
   if (!state.items.length){ card.style.display='none'; return; }
@@ -501,7 +502,7 @@ function renderResults(){
       <td class="t-dim" title="${esc(it.singers)}">${esc(it.singers)||'—'}</td>
       <td class="t-dim hide-sm" title="${esc(it.album)}">${esc(it.album)||'—'}</td>
       <td class="t-num hide-sm">${esc(it.duration)||'—'}</td>
-      <td class="t-num">${fmtSize(it.file_size_bytes)}</td>
+      <td class="t-num" title="${it.mbpm?('约 '+it.mbpm+' MB/分钟'):'体积数据待解析'}">${fmtSize(it.file_size_bytes)}</td>
       <td><span class="src-tag" title="${esc(srcLabel)}">${esc(srcLabel)}</span></td>
     </tr>`;
   }).join('');

@@ -251,7 +251,23 @@ def api_resolve_into(info: ApiSongInfo, quality_pref: str):
     if data.get('size_bytes'): info.file_size_bytes = data['size_bytes']
     if data.get('duration_s'):
         info.duration_s = data['duration_s']; info.duration = seconds2hms(data['duration_s'])
-    if quality_pref in {'lossless_first', 'lossless_only'} and str(info.ext).lower() not in LOSSLESS_EXTS and not info.api_fallback_note:
+    # kugou/migu/qianqian style resolvers omit size -> probe it via HEAD (Content-Length)
+    if not info.file_size_bytes:
+        with contextlib.suppress(Exception):
+            h = requests.head(url, timeout=(3, 8), allow_redirects=True,
+                              headers={'User-Agent': 'Mozilla/5.0'})
+            cl = int(h.headers.get('Content-Length', 0) or 0)
+            if cl > 0: info.file_size_bytes = cl
+    # migu-style resolvers omit duration too -> fetch it from /song/info (also refreshes cover)
+    if not getattr(info, 'duration_s', None):
+        with contextlib.suppress(Exception):
+            meta = _api_get(f"/{info.api_source}/song/info", params) or {}
+            if meta.get('duration_s'):
+                info.duration_s = meta['duration_s']; info.duration = seconds2hms(meta['duration_s'])
+            if meta.get('size_bytes') and not info.file_size_bytes:
+                info.file_size_bytes = meta['size_bytes']
+            info.cover_url = str(meta.get('cover') or '') or info.cover_url
+    if quality_pref in {'lossless_first', 'lossless_only'} and str(info.ext).lower() not in LOSSLESS_EXTS and not getattr(info, 'api_fallback_note', None):
         info.api_fallback_note = 'API 返回非无损(检查 ENABLE_LOSSLESS)'
     if quality_pref == 'lossless_only' and str(info.ext).lower() not in LOSSLESS_EXTS:
         raise RuntimeError('音质偏好为仅无损, 但 API 未返回无损资源')
@@ -295,18 +311,27 @@ def search_platform_sync(platform_id: str, keyword: str, limit: int) -> list:
 '''---------------- helpers: quality tiers / readable naming / dedupe ----------------'''
 
 LOSSLESS_EXTS = {'flac', 'wav', 'alac', 'ape', 'wv', 'tta', 'dsf', 'dff'}
-QUALITY_ORDER = {'hires': 0, 'lossless': 1, '320k': 2, '128k': 3, 'other': 4, 'low': 5, 'pending': -1}
+QUALITY_ORDER = {'master': 0, 'hires': 1, 'lossless': 2, '320k': 3, '128k': 4, 'other': 5, 'low': 6, 'pending': -1}
 QUALITY_PREF_RANKS = {
-    'lossless_first': ['hires', 'lossless', '320k', '128k', 'other', 'low'],
-    'lossless_only': ['hires', 'lossless'],
-    '320k': ['320k', 'hires', 'lossless', '128k', 'low', 'other'],
-    '128k': ['128k', '320k', 'low', 'other', 'lossless', 'hires'],
-    'any': ['hires', 'lossless', '320k', '128k', 'other', 'low'],
+    'lossless_first': ['master', 'hires', 'lossless', '320k', '128k', 'other', 'low'],
+    'lossless_only': ['master', 'hires', 'lossless'],
+    '320k': ['320k', 'master', 'hires', 'lossless', '128k', 'low', 'other'],
+    '128k': ['128k', '320k', 'low', 'other', 'master', 'hires', 'lossless'],
+    'any': ['master', 'hires', 'lossless', '320k', '128k', 'other', 'low'],
 }
-# anti-fake-quality minimum sizes (MB). rationale:
-#   320kbps*120s/8 = 4.8MB -> files under 5MB claiming 320k are almost always lower-bitrate;
-#   128kbps*125s/8 ~= 2MB; lossless <10MB is the classic transcode-from-mp3 signature.
-MIN_SIZE_MB = {'hires': 25, 'lossless': 10, '320k': 5, '128k': 2}
+# 音质规格表 (每分钟体积 MB/min), 用于分级与假质量清洗:
+#   母带级 24bit/192kHz FLAC : 45-70 | 高解析 24bit/96kHz : 20-35
+#   CD 16bit/44.1kHz FLAC    : 5-10  | HQ 320kbps mp3 : ~2.34 | PQ 128kbps : ~0.9
+LOSSLESS_MBPM_FLOOR = 3.5      # flac below this is a transcode (320k->flac is 2.34)
+MASTER_MBPM = 40               # between hires ceiling(35) and master floor(45)
+
+
+def calc_mbpm(size_bytes, duration_s):
+    '''volume in MB per minute; None when data missing (never guess).'''
+    try:
+        if not size_bytes or not duration_s: return None
+        return round(size_bytes / 1048576 / (float(duration_s) / 60), 1)
+    except Exception: return None
 
 
 def estimate_kbps(size_bytes, duration_s):
@@ -314,17 +339,21 @@ def estimate_kbps(size_bytes, duration_s):
     try:
         if not size_bytes or not duration_s: return None
         kbps = int(round(size_bytes * 8 / float(duration_s) / 1000))
-        return kbps if 24 <= kbps <= 6000 else None   # e.g. "5s but 20MB" -> metadata is garbage
+        return kbps if 24 <= kbps <= 12000 else None   # master-grade flac can exceed 6000
     except Exception: return None
 
 
 def quality_tier(ext, size_bytes=None, duration_s=None) -> str:
     e = str(ext or '').lower().lstrip('.') or 'unknown'
-    kbps = estimate_kbps(size_bytes, duration_s)
     if e in LOSSLESS_EXTS:
-        # 24bit/96kHz flac ~= 3000kbps, 16/44.1 flac ~= 900kbps -> 2200 splits them well
-        hires = ((kbps or 0) >= 2200 or (size_bytes or 0) >= 80 * 1024 * 1024)
-        return 'hires' if hires else 'lossless'
+        m = calc_mbpm(size_bytes, duration_s)
+        if m is None:
+            # metadata incomplete -> base tier by ext; big files are likely hi-res
+            return 'hires' if (size_bytes or 0) >= 80 * 1024 * 1024 else 'lossless'
+        if m >= MASTER_MBPM: return 'master'
+        if m >= 18: return 'hires'
+        return 'lossless'
+    kbps = estimate_kbps(size_bytes, duration_s)
     if e == 'mp3':
         return '320k' if (kbps or 0) >= 240 else ('128k' if (kbps or 0) >= 96 else 'low')
     if e in {'m4a', 'aac', 'ogg', 'opus', 'wma'}:
@@ -332,10 +361,14 @@ def quality_tier(ext, size_bytes=None, duration_s=None) -> str:
     return 'other'
 
 
-def is_suspect_quality(tier: str, size_bytes) -> bool:
-    '''True when file size is below the floor for its claimed tier (fake-quality guard).'''
+def is_suspect_quality(tier: str, size_bytes, duration_s=None) -> bool:
+    '''fake-quality guard: lossless judged by MB/min floor (user spec table),
+       mp3 tiers by absolute size floors. Missing data never flags.'''
     if not SETTINGS.get('quality_guard', True): return False
-    floor_mb = MIN_SIZE_MB.get(tier)
+    if tier in {'master', 'hires', 'lossless'}:
+        m = calc_mbpm(size_bytes, duration_s)
+        return m is not None and m < LOSSLESS_MBPM_FLOOR
+    floor_mb = {'320k': 5, '128k': 2}.get(tier)
     if not floor_mb: return False
     return bool(size_bytes) and size_bytes < floor_mb * 1024 * 1024
 
@@ -431,7 +464,8 @@ def serialize_item(key: str, info, platform_id: str) -> dict:
         'duration_s': duration_s, 'ext': str(info.ext or '').lstrip('.'),
         'file_size': str(info.file_size or ''), 'file_size_bytes': size_bytes,
         'quality_tier': tier, 'bitrate_kbps': estimate_kbps(size_bytes, duration_s),
-        'suspect': False if tier == 'pending' else is_suspect_quality(tier, size_bytes),
+        'mbpm': calc_mbpm(size_bytes, duration_s),
+        'suspect': False if tier == 'pending' else is_suspect_quality(tier, size_bytes, duration_s),
         'root_source': '' if is_api else str(getattr(info, 'root_source', '') or ''),
         'has_url': bool(info.with_valid_download_url), 'dedupe_key': normkey(info),
     }
@@ -516,9 +550,12 @@ class DownloadEngine:
             s = serialized[k]
             if k in skipped_reason: status, error = 'skipped', skipped_reason[k]
             elif s['suspect']:
-                floor = MIN_SIZE_MB.get(s['quality_tier'])
-                status, error = 'skipped', f'疑似假质量({fmt_mb(s["file_size_bytes"])} < {floor}MB {s["quality_tier"]}下限)'
-            elif quality_pref == 'lossless_only' and s['quality_tier'] not in {'hires', 'lossless'}:
+                if s['quality_tier'] in {'master', 'hires', 'lossless'}:
+                    reason = f"疑似假无损({s.get('mbpm')}MB/分钟 < {LOSSLESS_MBPM_FLOOR})"
+                else:
+                    reason = f"疑似假质量({fmt_mb(s['file_size_bytes'])} 低于{s['quality_tier']}下限)"
+                status, error = 'skipped', reason
+            elif quality_pref == 'lossless_only' and s['quality_tier'] not in {'master', 'hires', 'lossless'}:
                 status, error = 'skipped', '音质偏好为仅无损'
             else: status, error = 'queued', ''
             items.append({
@@ -747,7 +784,9 @@ async def get_config():
         'concurrency': SETTINGS['concurrency'], 'search_timeout_s': SETTINGS['search_timeout_s'],
         'save_lrc_sidecar': SETTINGS['save_lrc_sidecar'], 'quality_pref_default': SETTINGS['quality_pref_default'],
         'dedupe_default': SETTINGS['dedupe_default'], 'max_limit_per_source': SETTINGS['max_limit_per_source'],
-        'quality_guard': SETTINGS.get('quality_guard', True), 'min_size_mb': dict(MIN_SIZE_MB),
+        'quality_guard': SETTINGS.get('quality_guard', True),
+        'lossless_mbpm_floor': LOSSLESS_MBPM_FLOOR, 'master_mbpm': MASTER_MBPM,
+        'mp3_size_floors_mb': {'320k': 5, '128k': 2},
         'has_api_key': bool(SETTINGS.get('api_key')), 'config_path': str(CONFIG_PATH),
         'kwqq_api_base': SETTINGS['kwqq_api_base'], 'kwqq_api_online': api_online(),
         'platform_defaults': dict(SETTINGS['platform_defaults']),
