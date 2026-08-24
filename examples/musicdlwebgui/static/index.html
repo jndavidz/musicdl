@@ -349,6 +349,7 @@ const state = {
   chipStatus: {},         // {pid: {st:'searching'|'ok'|'fail', n, err}}
   searchTimer: null,
   subsources: {},         // {tunehub: ['netease','qq'], gdstudio: [...]}
+  collapsedGroups: new Set(['radio','global','other']),
 };
 
 /* ---------- utils ---------- */
@@ -367,7 +368,7 @@ async function init(){
   const defaults = state.cfg.platform_defaults || {};
   state.platforms = state.cfg.platforms.map(p => ({
     ...p,
-    on: ls.platforms?.[p.id]?.on ?? (p.id in defaults),
+    on: ls.platforms?.[p.id]?.on ?? (p.id in defaults || p.id === 'netease_direct'),
     limit: ls.platforms?.[p.id]?.limit ?? p.default_limit,
   }));
   // 聚合源子源: localStorage 优先, 其次服务端配置, 缺省全选
@@ -387,12 +388,15 @@ async function init(){
 /* ---------- platform chips ---------- */
 const GROUP_TITLES = {
   api: 'kwqq-API 六源 · 自有账户态 (NAS)',
-  own: '直连匿名链',
+  cn: '国内 · 库直连',
   agg: '聚合网关',
-  ext: '扩展平台 (稳定性不一, 自行取舍)',
+  radio: '广播 / 有声',
+  global: '国外流媒体 / 独立',
+  other: '其他 · 站点抓取',
 };
+const GROUP_COLLAPSIBLE = new Set(['radio', 'global', 'other']);   // 默认折叠的组
 function renderChips(){
-  const order = ['api','own','agg','ext'];
+  const order = ['api','cn','agg','radio','global','other'];
   const chipHtml = (p) => {
     const cs = state.chipStatus[p.id];
     const cnt = !cs ? '' : cs.st==='searching' ? '<span class="cnt">…</span>'
@@ -402,17 +406,17 @@ function renderChips(){
     <div class="chip ${p.on?'on':''} ${cs?.st==='searching'?'searching':''}" data-i="${state.platforms.indexOf(p)}">
       <span class="nm" data-act="toggle"><span class="dot"></span>${esc(p.name)}</span>
       <span class="stepper">
-        <button data-act="dec" title="减少 ${esc(p.name)} 搜索数量(每子源)">−</button>
-        <span class="val" title="${esc(p.name)} 每子源搜索数量">${p.limit}</span>
-        <button data-act="inc" title="增加 ${esc(p.name)} 搜索数量(每子源)">＋</button>
+        <button data-act="dec" title="减少 ${esc(p.name)} 搜索数量(聚合源为每子源)">−</button>
+        <span class="val" title="${esc(p.name)} 搜索数量">${p.limit}</span>
+        <button data-act="inc" title="增加 ${esc(p.name)} 搜索数量(聚合源为每子源)">＋</button>
       </span>${cnt}
     </div>`;};
-  // 聚合平台的子源选择行
+  // 聚合平台的子源选择行(开关; 每子源数量由该平台 stepper 控制)
   const subRow = (p) => {
     if (!p.subsources || p.group !== 'agg' || !p.on) return '';
     const active = state.subsources[p.id] || p.subsources.map(s=>s.id);
-    return `<span class="subrow" data-agg="${p.id}">` + p.subsources.map(s =>
-      `<span class="subchip ${active.includes(s.id)?'on':''}" data-sub="${s.id}">${esc(s.name)}</span>`).join('') + '</span>';
+    return `<span class="subrow" data-agg="${p.id}"><span style="font-size:10.5px;color:var(--tx3);align-self:center">子源:</span>` +
+      p.subsources.map(s => `<span class="subchip ${active.includes(s.id)?'on':''}" data-sub="${s.id}">${esc(s.name)}</span>`).join('') + '</span>';
   };
   const apiDot = state.cfg?.kwqq_api_online
     ? '<span style="color:var(--ok)">● 在线</span>'
@@ -420,12 +424,24 @@ function renderChips(){
   $('#platformChips').innerHTML = order.map(g => {
     const ps = state.platforms.filter(p => (p.group||'agg') === g);
     if (!ps.length) return '';
+    const collapsed = state.collapsedGroups.has(g);
+    const toggleAttr = GROUP_COLLAPSIBLE.has(g) ? `data-gtoggle="${g}" style="cursor:pointer"` : '';
+    const chev = GROUP_COLLAPSIBLE.has(g) ? `<span ${toggleAttr.replace('style','s')} >${collapsed?'▸':'▾'}</span>` : '';
     const head = `<span style="flex-basis:100%;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--tx3);padding-top:${g==='api'?0:6}px">
-      <span>${GROUP_TITLES[g]}</span>${g==='api'?apiDot:''}<span style="flex:1;height:1px;background:var(--line)"></span></span>`;
+      <span>${GROUP_TITLES[g]}</span>${g==='api'?apiDot:''}
+      <span style="font-size:10px">(${ps.length})</span><span ${toggleAttr}>${collapsed?'▸':'▾'}</span>
+      <span style="flex:1;height:1px;background:var(--line)" ${toggleAttr}></span></span>`;
+    if (collapsed) return head;
     return head + ps.map(p => chipHtml(p) + subRow(p)).join('');
   }).join('');
 }
-$('#platformChips').addEventListener('click', e => {
+document.getElementById('platformChips').addEventListener('click', e => {
+  const gt = e.target.closest('[data-gtoggle]');
+  if (gt){
+    const g = gt.dataset.gtoggle;
+    state.collapsedGroups.has(g) ? state.collapsedGroups.delete(g) : state.collapsedGroups.add(g);
+    renderChips(); return;
+  }
   const sub = e.target.closest('.subchip');
   if (sub){
     const aggId = sub.closest('.subrow').dataset.agg;
