@@ -54,6 +54,17 @@ uv run python examples/musicdlwebgui/app.py            # 默认 http://127.0.0.1
 配置（`config.json`）：`"kwqq_api_base": "http://10.10.10.2:3003"`、`"kwqq_api_key": ""`
 （外网访问才需要 key，内网免）。
 
+## ⚠️ 禁止事项（会静默降级音质/权益的操作）
+
+1. **不要把任何 MUSIC_U / 个人 cookie 注入「直连」client**（`get_client()` 已硬编码空 cookies 并注释警告）：
+   musicdl 的镜像解析器以 cookie 身份做门控 —— netease 带非默认 cookie 会整段跳过镜像解析、
+   酷我带任意 cookie 会禁用第三方链。直连通道的准母带产出(37.8)正是靠零 cookie 的镜像 API。
+2. **不要把库内公共 MUSIC_U 提取进 ncm-api 的 NETEASE_COOKIE**：该共享号已失效(实测 profile=None)，
+   写入只会把 ncm-api 从你的 88VIP(jyeffect 21.4 + 灰色解灰) 降级为匿名 320k。88VIP cookie
+   应始终保留在 compose 的 `NETEASE_COOKIE`。
+3. **不要给 kwqq-api 容器关闭 `ENABLE_LOSSLESS` 后仍期待无损**：webgui 会自动回退 320k 并标注，
+   但想要真无损请保持 `true`。
+
 ## 音质映射总表（调查实证后的最终落地）
 
 ### webgui 音质偏好 → 各后端实际请求

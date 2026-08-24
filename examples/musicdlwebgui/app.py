@@ -144,6 +144,13 @@ def get_client(platform_id: str):
         client = _clients.get(platform_id)
         if client is not None: return client
         meta = PLATFORM_MAP[platform_id]
+        # ⚠️ DO NOT inject personal cookies into these direct-connection clients.
+        # musicdl gates its third-party mirror parsers on cookie identity:
+        #   netease.py — a non-default cookie skips the mirror parser entirely
+        #   kuwo.py    — any cookie disables the third-party resolution chain
+        # The direct channels' high-spec output (netease quasi-master 37.8 MB/min)
+        # comes from those cookie-free mirror APIs; adding cookies would silently
+        # downgrade them. VIP benefits belong to the kwqq-API sources only.
         client = BuildMusicClient(module_cfg={
             'type': meta['client'], 'work_dir': SETTINGS['download_dir'],
             'search_size_per_source': int(SETTINGS['platform_defaults'].get(platform_id, 5)),
