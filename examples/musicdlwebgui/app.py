@@ -292,6 +292,7 @@ def api_search_sync(platform_id: str, keyword: str, limit: int) -> list:
             cover_url=str(it.get('cover') or ''), lyric='',
             source=platform_id, root_source=f"{meta['api_source']}@api",
             download_url=None, protocol='HTTP',
+            platform_tag=str(it.get('stock_tier') or ''),
             api_id=str(it.get('id')), api_source=meta['api_source'],
             api_extra=dict(it.get('extra') or {}),
         ))
@@ -555,6 +556,10 @@ def serialize_item(key: str, info, platform_id: str) -> dict:
     # kwqq-api metadata search carries no ext/size; the real format is only known after
     # the per-song /song/url resolve at download time -> show an honest "pending" badge.
     if is_api and not str(info.ext or '').strip(): tier = 'pending'
+    # search-stage stock (qq file sizes / netease hr-sq-h): show real payload even
+    # while ext is unknown; also feeds the size column for pending rows.
+    if not size_bytes and is_api:
+        size_bytes = int(getattr(info, 'stock_size_bytes', 0) or 0) or None
     platform_tag = str(getattr(info, 'platform_tag', '') or '')
     api_src = str(getattr(info, 'api_source', '') or '')
     suspect, suspect_reason = False, ''

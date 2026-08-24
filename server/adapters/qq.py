@@ -73,10 +73,19 @@ class QQAdapter(SourceAdapter):
     @staticmethod
     def item_from_raw(raw: dict) -> dict:
         album = raw.get('album') or {}
+        file = raw.get('file') or {}
+        # search-stage quality stock (exact sizes from tencent) — surfaced so the UI
+        # can show what the platform actually stocks before any resolve happens.
+        if file.get('size_hires'): stock_tier, stock_size = 'HR', int(file['size_hires'])
+        elif file.get('size_flac'): stock_tier, stock_size = 'SQ', int(file['size_flac'])
+        elif file.get('size_320mp3'): stock_tier, stock_size = 'HQ', int(file['size_320mp3'])
+        elif file.get('size_128mp3'): stock_tier, stock_size = 'PQ', int(file['size_128mp3'])
+        else: stock_tier, stock_size = None, None
         return {'id': raw.get('mid') or raw.get('songmid') or '', 'name': raw.get('title') or raw.get('songname'),
                 'singer': ', '.join(s.get('name') for s in (raw.get('singer') or []) if isinstance(s, dict) and s.get('name')) or None,
                 'album': album.get('title') if isinstance(album, dict) else None,
                 'ext': None, 'size_bytes': None,
+                'stock_tier': stock_tier, 'stock_size_bytes': stock_size,
                 'duration_s': int(float(raw.get('interval') or 0)) or None,
                 'cover': f"https://y.gtimg.cn/music/photo_new/T002R300x300M000{album.get('mid', '')}.jpg" if isinstance(album, dict) else None,
                 'source': 'qq'}

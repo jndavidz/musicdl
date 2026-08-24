@@ -37,10 +37,18 @@ class NeteaseAdapter(SourceAdapter):
 
     @staticmethod
     def item_from_raw(raw: dict) -> dict:
+        # search-stage quality stock: cloudsearch rows carry per-tier size entries
+        #   hr = Hi-Res, sq = lossless, h = 320k — surface the best available tier.
+        stock_tier, stock_size = None, None
+        for key, tier in (('hr', 'HR'), ('sq', 'SQ'), ('h', 'HQ')):
+            entry = raw.get(key) or {}
+            if entry.get('size'):
+                stock_tier, stock_size = tier, int(entry['size']); break
         return {'id': str(raw.get('id') or ''), 'name': raw.get('name'),
                 'singer': ', '.join(a.get('name') for a in (raw.get('ar') or []) if isinstance(a, dict) and a.get('name')) or None,
                 'album': (raw.get('al') or {}).get('name'),
                 'ext': None, 'size_bytes': None,
+                'stock_tier': stock_tier, 'stock_size_bytes': stock_size,
                 'duration_s': int(float(raw.get('dt') or 0)) // 1000 or None,
                 'cover': (raw.get('al') or {}).get('picUrl'), 'source': 'netease'}
 

@@ -24,6 +24,10 @@ class SearchItem(BaseModel):
     duration_s: Optional[int] = None
     cover: Optional[str] = None
     source: str
+    # search-stage quality stock (qq file sizes / netease hr-sq-h tiers) — lets
+    # clients show what the platform stocks before any per-song resolve happens.
+    stock_tier: Optional[str] = None
+    stock_size_bytes: Optional[int] = None
     # platform-specific fields the client should echo back to /song/url
     # (e.g. migu needs copyrightId for by-id resolution)
     extra: dict = {}

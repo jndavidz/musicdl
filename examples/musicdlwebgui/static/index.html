@@ -542,7 +542,10 @@ function doSearch(){
 }
 function setStatus(html, warn){ $('#searchStatus').innerHTML = html; }
 
-const Q_LABEL = {master:'母带·24b', hires:'高解析', lossless:'CD·FLAC', '320k':'HQ·320K', '128k':'PQ·128K', low:'低码', other:'其他', pending:'待解析…'};
+const Q_LABEL = {master:'母带·24b', hires:'高解析', lossless:'CD·FLAC', '320k':'HQ·320K', '128k':'PQ·128K', low:'低码', other:'其他'};
+const Q_BADGE = (it) => it.quality_tier === 'pending'
+  ? `待解析${it.platform_tag ? '·' + esc(it.platform_tag) : ''}`
+  : (Q_LABEL[it.quality_tier] || String(it.ext||'').toUpperCase());
 function renderResults(){
   const card = $('#resultsCard');
   if (!state.items.length){ card.style.display='none'; return; }
@@ -571,7 +574,7 @@ function renderResults(){
     const qTitle = [it.platform_tag ? '平台标注: ' + esc(it.platform_tag) : '', it.bitrate_kbps ? it.bitrate_kbps + ' kbps' : ''].filter(Boolean).join(' · ');
     return `<tr data-key="${it.key}" class="${checked?'checked':''} ${it.has_url?'':'no-url'} ${it.suspect?'suspect':''}">
       <td class="c-check"><input type="checkbox" class="cbx" ${checked?'checked':''}></td>
-      <td><span class="q-badge q-${it.quality_tier}" title="${qTitle}">${Q_LABEL[it.quality_tier]||it.ext.toUpperCase()}</span></td>
+      <td><span class="q-badge q-${it.quality_tier}" title="${qTitle}">${Q_BADGE(it)}</span></td>
       <td><span class="t-name" title="${esc(it.song_name)}${suspectTip}">${esc(it.song_name)}</span>${dupSrcs>1?`<span class="dup-note" title="该曲目在 ${dupSrcs} 个平台有结果">${dupSrcs} 源</span>`:''}${it.has_url?'':' <span class="q-badge q-other" title="无有效链接">失效</span>'}</td>
       <td class="t-dim" title="${esc(it.singers)}">${esc(it.singers)||'—'}</td>
       <td class="t-dim hide-sm" title="${esc(it.album)}">${esc(it.album)||'—'}</td>
@@ -723,7 +726,7 @@ function renderTask(snap){
     return `<div class="q-item">
       <div class="q-meta">
         <div class="q-title"><b title="${esc(it.song_name)}">${esc(it.song_name)}</b>
-          <span class="q-badge q-${it.quality_tier}" style="font-size:10px;padding:1px 6px">${Q_LABEL[it.quality_tier]||''}</span>
+          <span class="q-badge q-${it.quality_tier}" style="font-size:10px;padding:1px 6px">${Q_BADGE(it)}</span>
           <span class="src-tag">${esc(srcName(it.source))}</span></div>
         <div class="q-sub">${subExtra || esc([it.singers,it.album].filter(Boolean).join(' · '))}</div>
         <div class="bar ${cls}"><i style="width:${it.status==='success'?100:(indet?38:pct)}%"></i></div>
