@@ -166,13 +166,20 @@ class ApiSongInfo:
         self.downloaded_contents = None; self.chunk_size = 1024 * 1024
         self.default_download_headers = {}; self.default_download_cookies = {}
         self.episodes = None; self.lyric = ''; self.cover_url = ''
-        self.work_dir = './'; self._save_path = None
+        self.platform_tag = ''; self.work_dir = './'; self._save_path = None
         self.__dict__.update(kw)
 
     @property
     def save_path(self):
         if self._save_path: return self._save_path
         return os.path.join(self.work_dir, f'{self.song_name or "unknown"}.{self.ext or "mp3"}')
+
+
+# platform quality tags that describe a LOSSY tier (per-source native naming)
+_LOSSY_TAG_RE = re.compile(r'mp3|standard|exhigh|\b128\b|\b320\b|\bpq\b|\bhq\b', re.I)
+# sources whose platform_tag faithfully reflects the delivered file (qq's third-party
+# chain frequently upgrades the request, so its annotation must not trigger the guard)
+_TAG_TRUSTED_SOURCES = {'kuwo', 'netease', 'kugou', 'migu', 'qianqian'}
 
 
 def _api_get(path: str, params: dict = None, timeout: float = 35):
@@ -247,6 +254,7 @@ def api_resolve_into(info: ApiSongInfo, quality_pref: str):
     url = data.get('url')
     if not url: raise RuntimeError('API 未返回可用直链')
     info.download_url = url
+    info.platform_tag = str(data.get('platform_tag') or '')
     if data.get('ext'): info.ext = str(data['ext']).lstrip('.')
     if data.get('size_bytes'): info.file_size_bytes = data['size_bytes']
     if data.get('duration_s'):
@@ -449,14 +457,37 @@ def parse_size_bytes(file_size_str):
     return None
 
 
+# DRM/encrypted container formats that can never be played once downloaded
+ENCRYPTED_EXTS = {'mgg', 'mxp', 'ncm', 'mflac', 'm4a?'}
+
+
 def serialize_item(key: str, info, platform_id: str) -> dict:
     size_bytes = info.file_size_bytes or parse_size_bytes(info.file_size)
     duration_s = info.duration_s or parse_duration_seconds(info.duration)
-    tier = quality_tier(info.ext, size_bytes, duration_s)
+    ext_l = str(info.ext or '').lower().lstrip('.')
+    if ext_l in ENCRYPTED_EXTS:
+        info.with_valid_download_url = False   # unusable source -> shown as 失效 in UI
+    tier = quality_tier(ext_l, size_bytes, duration_s)
     is_api = PLATFORM_MAP.get(platform_id, {}).get('group') == 'api'
     # kwqq-api metadata search carries no ext/size; the real format is only known after
     # the per-song /song/url resolve at download time -> show an honest "pending" badge.
     if is_api and not str(info.ext or '').strip(): tier = 'pending'
+    platform_tag = str(getattr(info, 'platform_tag', '') or '')
+    api_src = str(getattr(info, 'api_source', '') or '')
+    suspect, suspect_reason = False, ''
+    if tier != 'pending':
+        # (1) 平台标注前置: 可信源的有损档标注 + 无损文件 = 转码铁证, 先于体积推算
+        if (platform_tag and is_api and api_src in _TAG_TRUSTED_SOURCES
+                and _LOSSY_TAG_RE.search(platform_tag) and str(info.ext or '').lower().lstrip('.') in LOSSLESS_EXTS):
+            suspect, suspect_reason = True, f'平台标注「{platform_tag}」为有损档, 文件却是{str(info.ext).upper()}, 疑似转码'
+        # (2) 体积推算兜底 (规格表 MB/分钟)
+        elif is_suspect_quality(tier, size_bytes, duration_s):
+            m = calc_mbpm(size_bytes, duration_s)
+            if tier in {'master', 'hires', 'lossless'} and m is not None:
+                conflict = f'（与平台标注「{platform_tag}」矛盾）' if platform_tag else ''
+                suspect_reason = f'疑似假无损({m}MB/分钟 < {LOSSLESS_MBPM_FLOOR}){conflict}'
+            else:
+                suspect_reason = f"疑似假质量({fmt_mb(size_bytes)} 低于{tier}下限)"
     return {
         'key': key, 'source': platform_id, 'origin': 'api' if is_api else 'lib',
         'song_name': str(info.song_name or ''), 'singers': str(info.singers or ''),
@@ -465,7 +496,8 @@ def serialize_item(key: str, info, platform_id: str) -> dict:
         'file_size': str(info.file_size or ''), 'file_size_bytes': size_bytes,
         'quality_tier': tier, 'bitrate_kbps': estimate_kbps(size_bytes, duration_s),
         'mbpm': calc_mbpm(size_bytes, duration_s),
-        'suspect': False if tier == 'pending' else is_suspect_quality(tier, size_bytes, duration_s),
+        'platform_tag': platform_tag,
+        'suspect': suspect, 'suspect_reason': suspect_reason,
         'root_source': '' if is_api else str(getattr(info, 'root_source', '') or ''),
         'has_url': bool(info.with_valid_download_url), 'dedupe_key': normkey(info),
     }

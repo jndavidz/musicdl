@@ -494,10 +494,11 @@ function renderResults(){
     // 跨平台同名计数: 只统计真正出现在多个平台的结果
     const dupSrcs = new Set(state.items.filter(x => x.dedupe_key === it.dedupe_key).map(x => x.source)).size;
     const srcLabel = srcName(it.source) + (it.root_source ? `·${String(it.root_source).toUpperCase()}` : '');
-    const suspectTip = it.suspect ? ` ⚠ 体积低于该音质档下限, 疑似假质量(下载将被跳过)` : '';
+    const suspectTip = it.suspect_reason ? ` ⚠ ${esc(it.suspect_reason)}` : (it.suspect ? ' ⚠ 疑似假质量' : '');
+    const qTitle = [it.platform_tag ? '平台标注: ' + esc(it.platform_tag) : '', it.bitrate_kbps ? it.bitrate_kbps + ' kbps' : ''].filter(Boolean).join(' · ');
     return `<tr data-key="${it.key}" class="${checked?'checked':''} ${it.has_url?'':'no-url'} ${it.suspect?'suspect':''}">
       <td class="c-check"><input type="checkbox" class="cbx" ${checked?'checked':''}></td>
-      <td><span class="q-badge q-${it.quality_tier}">${Q_LABEL[it.quality_tier]||it.ext.toUpperCase()}</span></td>
+      <td><span class="q-badge q-${it.quality_tier}" title="${qTitle}">${Q_LABEL[it.quality_tier]||it.ext.toUpperCase()}</span></td>
       <td><span class="t-name" title="${esc(it.song_name)}${suspectTip}">${esc(it.song_name)}</span>${dupSrcs>1?`<span class="dup-note" title="该曲目在 ${dupSrcs} 个平台有结果">${dupSrcs} 源</span>`:''}${it.has_url?'':' <span class="q-badge q-other" title="无有效链接">失效</span>'}</td>
       <td class="t-dim" title="${esc(it.singers)}">${esc(it.singers)||'—'}</td>
       <td class="t-dim hide-sm" title="${esc(it.album)}">${esc(it.album)||'—'}</td>

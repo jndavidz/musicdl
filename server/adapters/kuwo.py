@@ -98,14 +98,15 @@ class KuwoAdapter(SourceAdapter):
                 'duration_s': duration or None, 'cover': raw.get('hts_MVPIC') or raw.get('albumpic') or raw.get('pic'), 'source': 'kuwo'}
 
     '''HEAD-probe a direct link and build the response dict'''
-    async def _finalize_direct(self, song_id: str, q: str, direct: dict, t0: float, parser: str) -> dict:
+    async def _finalize_direct(self, song_id: str, q: str, direct: dict, t0: float, parser: str, platform_tag: str = '') -> dict:
         status = await self.run(self.client.audio_link_tester.test, direct['url'])
         return {
             'id': str(song_id), 'source': self.source_key, 'quality': q,
             'url': status.get('download_url') or direct['url'], 'ext': status.get('ext') or 'mp3',
             'size_bytes': status.get('file_size_bytes'), 'bitrate_kbps': direct['bitrate'] or None,
             'duration_s': direct.get('duration_s'), 'cover': None, 'verified': bool(status.get('ok')),
-            'headers': {}, 'parser': parser, 'elapsed_ms': round((time.perf_counter() - t0) * 1000),
+            'headers': {}, 'parser': parser, 'platform_tag': platform_tag or direct.get('format'),
+            'elapsed_ms': round((time.perf_counter() - t0) * 1000),
             'cached': False,
         }
 
@@ -122,16 +123,18 @@ class KuwoAdapter(SourceAdapter):
             lossless_br = '20000kflac' if q == 'hires' else '2000kflac'
             direct = await self.run(self._nmobi_direct, song_id, lossless_br)
             if direct and direct['bitrate'] >= 900:
-                return await self._finalize_direct(song_id, q, direct, t0, 'nmobi.direct')
+                return await self._finalize_direct(song_id, q, direct, t0, 'nmobi.direct', platform_tag=lossless_br)
             info = await self.run(self._via_thirdparty, song_id)
             if not (info.with_valid_download_url and info.ext in LOSSLESS_EXTS): raise AdapterError(404, 'no lossless source found')
-            return self.urldata_from_songinfo(song_id, q, info, round((time.perf_counter() - t0) * 1000))
+            return self.urldata_from_songinfo(song_id, q, info, round((time.perf_counter() - t0) * 1000),
+                                              platform_tag='第三方链无损')
 
         min_kbps = MIN_KBPS.get(q, 256)
         # tier-1a: nmobi structured JSON (exact bitrate, verified live 2026-08-12)
         direct = await self.run(self._nmobi_direct, song_id, {'128k': '128kmp3'}.get(q, '320kmp3'))
         if direct and direct['bitrate'] >= min_kbps:
-            return await self._finalize_direct(song_id, q, direct, t0, 'nmobi.direct')
+            return await self._finalize_direct(song_id, q, direct, t0, 'nmobi.direct',
+                                               platform_tag={'128k': '128kmp3'}.get(q, '320kmp3'))
         # tier-1b: mobi.s encrypted sibling
         legacy = await self.run(self._official_direct, song_id, '128kmp3' if q == '128k' else '320kmp3')
         if legacy and legacy['bitrate'] >= min_kbps:

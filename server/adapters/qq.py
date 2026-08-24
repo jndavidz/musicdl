@@ -89,6 +89,8 @@ class QQAdapter(SourceAdapter):
         t0 = time.perf_counter()
         info = await self.run(self._via_thirdparty, song_id)
         elapsed = round((time.perf_counter() - t0) * 1000)
+        qq_tag = {'auto': 'HQ 320K', '320k': 'HQ 320K', '128k': 'PQ 128K',
+                  'flac': 'SQ 无损', 'hires': 'HR Hi-Res'}[q]
         if not (info.with_valid_download_url and info.ext in AudioLinkTester.VALID_AUDIO_EXTS):
             # chain exhausted -> yuanli SVIP relay, then 3e0 aggregate relay
             fallback = await self.run(self._via_yuanli, song_id, q)
@@ -97,7 +99,8 @@ class QQAdapter(SourceAdapter):
                         'url': fallback['download_url'], 'ext': fallback.get('ext') or 'mp3',
                         'size_bytes': fallback.get('file_size_bytes'), 'bitrate_kbps': None,
                         'duration_s': None, 'cover': None, 'verified': True,
-                        'headers': {}, 'parser': 'yuanli.relay', 'elapsed_ms': round((time.perf_counter() - t0) * 1000),
+                        'headers': {}, 'parser': 'yuanli.relay', 'platform_tag': qq_tag,
+                        'elapsed_ms': round((time.perf_counter() - t0) * 1000),
                         'cached': False}
             fallback = await self.run(self._via_3e0, song_id)
             if fallback:
@@ -105,10 +108,11 @@ class QQAdapter(SourceAdapter):
                         'url': fallback['download_url'], 'ext': fallback.get('ext') or 'mp3',
                         'size_bytes': fallback.get('file_size_bytes'), 'bitrate_kbps': None,
                         'duration_s': None, 'cover': None, 'verified': True,
-                        'headers': {}, 'parser': '3e0.relay', 'elapsed_ms': round((time.perf_counter() - t0) * 1000),
+                        'headers': {}, 'parser': '3e0.relay', 'platform_tag': f'{qq_tag}(聚合降级)',
+                        'elapsed_ms': round((time.perf_counter() - t0) * 1000),
                         'cached': False}
             raise AdapterError(404, 'no playable url resolved')
-        data = self.urldata_from_songinfo(song_id, q, info, elapsed)
+        data = self.urldata_from_songinfo(song_id, q, info, elapsed, platform_tag=qq_tag)
         # annotate actual tier honestly
         if info.ext in LOSSLESS_EXTS: data['quality'] = 'flac' if q not in {'flac', 'hires'} else q
         return data

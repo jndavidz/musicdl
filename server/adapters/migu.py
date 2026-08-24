@@ -83,7 +83,8 @@ class MiguAdapter(SourceAdapter):
                     'url': resolved['url'], 'ext': status.get('ext'),
                     'size_bytes': status.get('file_size_bytes'), 'bitrate_kbps': 320 if flag == 'HQ' else None,
                     'duration_s': None, 'cover': None, 'verified': True, 'headers': {},
-                    'parser': f'migu.listen.{flag}', 'elapsed_ms': elapsed(), 'cached': False}
+                    'parser': f'migu.listen.{flag}', 'platform_tag': flag,
+                    'elapsed_ms': elapsed(), 'cached': False}
         raise AdapterError(404, 'no playable url resolved')
 
     '''song meta: reuse listen-url response data.song (works with HQ)'''

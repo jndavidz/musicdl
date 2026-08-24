@@ -59,6 +59,7 @@ class NeteaseAdapter(SourceAdapter):
                 'duration_s': int(float(entry.get('time') or 0)) // 1000 or None,
                 'cover': None, 'verified': False, 'headers': {},
                 'parser': f'ncm-api.{level}',
+                'platform_tag': str(entry.get('level') or level),   # actual level ncm-api granted
                 'elapsed_ms': round((time.perf_counter() - t0) * 1000), 'cached': False}
 
     async def song_info(self, song_id: str) -> dict:

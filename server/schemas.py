@@ -49,6 +49,7 @@ class SongUrlData(BaseModel):
     verified: bool = False
     headers: dict = {}
     parser: Optional[str] = None
+    platform_tag: Optional[str] = None   # upstream native quality tag (2000kflac/lossless/SQ/HQ...)
     elapsed_ms: int = 0
     cached: bool = False
 

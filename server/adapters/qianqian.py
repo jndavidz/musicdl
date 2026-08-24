@@ -60,6 +60,7 @@ class QianqianAdapter(SourceAdapter):
                     'size_bytes': status.get('file_size_bytes'), 'bitrate_kbps': int(rate) if rate.isdigit() else None,
                     'duration_s': int(float(link.get('duration') or 0)) or None,
                     'cover': None, 'verified': True, 'headers': {}, 'parser': f'tracklink.{rate}',
+                    'platform_tag': f'{rate}kbps',
                     'elapsed_ms': elapsed(), 'cached': False}
         raise AdapterError(404, f'no playable url resolved (rates tried: {rates})')
 

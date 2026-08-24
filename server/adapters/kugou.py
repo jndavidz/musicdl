@@ -100,6 +100,7 @@ class KugouAdapter(SourceAdapter):
                 'size_bytes': int(float(data.get('timeLen') or 0)) or None,
                 'duration_s': None, 'cover': None, 'verified': False, 'headers': {},
                 'parser': f'kugou-api.{self.QUALITY[q]}',
+                'platform_tag': str(data.get('quality') or self.QUALITY[q]),
                 'elapsed_ms': round((time.perf_counter() - t0) * 1000), 'cached': False}
 
     '''song meta via musicdl's kugou metainfo helper (lowercase fields: songname/singername/album_name)'''

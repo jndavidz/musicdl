@@ -61,11 +61,12 @@ class SourceAdapter:
         raise NotImplementedError
 
     '''SongInfo / direct-dict -> song url dict'''
-    def urldata_from_songinfo(self, song_id: str, quality: str, info, elapsed_ms: int, cached: bool = False) -> dict:
+    def urldata_from_songinfo(self, song_id: str, quality: str, info, elapsed_ms: int, cached: bool = False, platform_tag: str | None = None) -> dict:
         return {
             'id': str(song_id), 'source': self.source_key, 'quality': quality,
             'url': info.download_url, 'ext': info.ext, 'size_bytes': info.file_size_bytes,
             'bitrate_kbps': getattr(info, 'bitrate', None), 'duration_s': info.duration_s,
             'cover': info.cover_url, 'verified': True, 'headers': {},
             'parser': (info.raw_data or {}).get('spike_parser'), 'elapsed_ms': elapsed_ms, 'cached': cached,
+            'platform_tag': platform_tag,
         }
