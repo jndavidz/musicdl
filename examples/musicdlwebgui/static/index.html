@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>musicdl · 音乐下载</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ctext y='19' font-size='19'%3E🎵%3C/text%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#0f1115; --bg2:#151823; --card:#1a1e2c; --card2:#20263600;
+  --line:#2a3046; --line2:#343c58;
+  --tx:#e8ebf4; --tx2:#9aa3b8; --tx3:#66708a;
+  --acc:#5b8cff; --acc2:#7aa5ff; --ok:#3fb96f; --warn:#e0a63a; --err:#e05a5a;
+  --gold:#e8b84b; --green:#4cc38a; --blue:#5b8cff; --grayb:#8892ab; --gray:#5d6579;
+  --rad:12px; --shadow:0 10px 30px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:radial-gradient(1200px 600px at 80% -10%, #1a2140 0%, var(--bg) 55%) fixed;
+  color:var(--tx);
+  font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  padding-bottom:60px;
+}
+::selection{background:#3350a080}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input,select{font:inherit;color:var(--tx)}
+.wrap{max-width:1080px;margin:0 auto;padding:0 18px}
+
+/* ---------- header ---------- */
+header{position:sticky;top:0;z-index:50;background:#0f1115ee;backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.hd{display:flex;align-items:center;gap:12px;padding:14px 0}
+.logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,#5b8cff,#8f6bff);display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 4px 14px #5b8cff44}
+.hd h1{font-size:17px;font-weight:650;letter-spacing:.5px}
+.hd h1 small{color:var(--tx3);font-weight:400;margin-left:8px;font-size:12px}
+.dir-badge{margin-left:auto;display:flex;align-items:center;gap:6px;color:var(--tx2);font-size:12px;background:var(--bg2);border:1px solid var(--line);padding:6px 12px;border-radius:99px;max-width:340px}
+.dir-badge b{color:var(--tx2);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.icon-btn{width:34px;height:34px;border-radius:9px;border:1px solid var(--line);background:var(--bg2);display:flex;align-items:center;justify-content:center;color:var(--tx2);transition:.15s}
+.icon-btn:hover{border-color:var(--acc);color:var(--tx)}
+
+/* ---------- cards ---------- */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--rad);margin-top:16px;box-shadow:var(--shadow)}
+.card-hd{display:flex;align-items:center;gap:10px;padding:13px 18px;border-bottom:1px solid var(--line)}
+.card-hd .t{font-weight:600;font-size:14px}
+.card-hd .sub{color:var(--tx3);font-size:12px}
+.card-bd{padding:16px 18px}
+
+/* ---------- search ---------- */
+.search-row{display:flex;gap:10px}
+.search-row input[type=text]{
+  flex:1;background:var(--bg2);border:1px solid var(--line);border-radius:10px;
+  padding:11px 14px;font-size:15px;outline:none;transition:.15s
+}
+.search-row input[type=text]:focus{border-color:var(--acc);box-shadow:0 0 0 3px #5b8cff22}
+.btn-primary{
+  background:linear-gradient(135deg,#5b8cff,#4a72e8);color:#fff;font-weight:600;
+  border-radius:10px;padding:11px 26px;transition:.15s;white-space:nowrap
+}
+.btn-primary:hover:not(:disabled){filter:brightness(1.1)}
+.btn-primary:disabled{opacity:.45;cursor:not-allowed}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:13px}
+.chip{
+  display:flex;align-items:center;gap:2px;border:1px solid var(--line);background:var(--bg2);
+  border-radius:99px;overflow:hidden;transition:.15s;user-select:none
+}
+.chip.on{border-color:var(--acc);background:#5b8cff18;box-shadow:0 0 0 1px #5b8cff33}
+.chip .nm{padding:6px 10px 6px 13px;font-size:13px;color:var(--tx2);cursor:pointer;display:flex;align-items:center;gap:6px}
+.chip.on .nm{color:var(--tx)}
+.chip .dot{width:7px;height:7px;border-radius:50%;background:var(--gray);flex:none}
+.chip.on .dot{background:var(--acc)}
+.stepper{display:flex;align-items:center;border-left:1px solid var(--line)}
+.stepper button{width:22px;height:30px;color:var(--tx3);font-size:14px;line-height:1}
+.stepper button:hover{color:var(--acc)}
+.stepper .val{min-width:20px;text-align:center;font-size:12.5px;font-variant-numeric:tabular-nums;color:var(--acc2);font-weight:600}
+.opts-row{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:14px}
+.opt{display:flex;align-items:center;gap:7px;color:var(--tx2);font-size:13px;cursor:pointer}
+select{
+  background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:7px 10px;outline:none;cursor:pointer
+}
+select:focus{border-color:var(--acc)}
+.switch{position:relative;width:34px;height:19px;flex:none}
+.switch input{opacity:0;width:100%;height:100%;position:absolute;cursor:pointer;z-index:2;margin:0}
+.switch .tr{position:absolute;inset:0;background:var(--line);border-radius:99px;transition:.18s}
+.switch .tr::after{content:'';position:absolute;top:2.5px;left:3px;width:14px;height:14px;border-radius:50%;background:var(--tx2);transition:.18s}
+.switch input:checked+.tr{background:var(--acc)}
+.switch input:checked+.tr::after{left:17px;background:#fff}
+.search-status{font-size:12.5px;color:var(--tx3);margin-top:12px;min-height:18px}
+.search-status .fail{color:var(--warn)}
+
+/* ---------- results ---------- */
+.toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 18px;border-bottom:1px solid var(--line);font-size:13px}
+.toolbar .grow{flex:1}
+.link-btn{color:var(--acc2);font-size:13px;padding:4px 8px;border-radius:7px}
+.link-btn:hover{background:#5b8cff18}
+.pill-toggle{display:flex;align-items:center;gap:6px;color:var(--tx2);font-size:12.5px;padding:5px 12px;border:1px solid var(--line);border-radius:99px;cursor:pointer;transition:.15s}
+.pill-toggle.on{border-color:var(--green);color:var(--green);background:#3fb96f14}
+.dl-btn{
+  display:flex;align-items:center;gap:7px;background:linear-gradient(135deg,#3fb96f,#2e9e5b);color:#fff;
+  font-weight:600;border-radius:9px;padding:8px 18px;transition:.15s
+}
+.dl-btn:hover:not(:disabled){filter:brightness(1.1)}
+.dl-btn:disabled{opacity:.4;cursor:not-allowed}
+.table-scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead th{
+  text-align:left;padding:9px 12px;color:var(--tx3);font-weight:500;font-size:12px;
+  border-bottom:1px solid var(--line);white-space:nowrap;background:#ffffff05
+}
+tbody td{padding:9px 12px;border-bottom:1px solid #222840;vertical-align:middle}
+tbody tr{cursor:pointer;transition:background .12s}
+tbody tr:hover{background:#ffffff06}
+tbody tr.checked{background:#5b8cff0d}
+tbody tr.no-url{opacity:.42}
+td.c-check{width:34px;text-align:center}
+.cbx{appearance:none;width:16px;height:16px;border:1.5px solid var(--line2);border-radius:5px;cursor:pointer;vertical-align:-3px;position:relative;transition:.12s}
+.cbx:checked{background:var(--acc);border-color:var(--acc)}
+.cbx:checked::after{content:'✓';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:11px}
+.q-badge{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;letter-spacing:.4px}
+.q-hires{background:#e8b84b1f;color:var(--gold);border:1px solid #e8b84b44}
+.q-lossless{background:#4cc38a1a;color:var(--green);border:1px solid #4cc38a40}
+tr.suspect td{opacity:.45}
+tr.suspect .t-name::after{content:' ⚠ 疑似假质量';font-size:10.5px;color:var(--warn);opacity:.9;font-weight:400}
+.chip.searching .dot{animation:pulse 1s infinite}
+.chip .cnt{padding:0 8px 0 0;font-size:11px;color:var(--tx3)}
+.chip .cnt.ok{color:var(--ok)} .chip .cnt.bad{color:var(--err)}
+.bar.ind>i{width:38%;background:repeating-linear-gradient(90deg,var(--acc) 0 14px,#8f6bff 14px 28px);animation:slide 1s linear infinite}
+@keyframes slide{from{transform:translateX(-120%)}to{transform:translateX(340%)}}
+.q-320k{background:#5b8cff1a;color:var(--acc2);border:1px solid #5b8cff3d}
+.q-128k{background:#8892ab1a;color:var(--grayb);border:1px solid #8892ab33}
+.q-low,.q-other{background:#ffffff0a;color:var(--tx3);border:1px solid #ffffff14}
+.t-name{font-weight:550;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.t-dim{color:var(--tx2);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.t-num{font-variant-numeric:tabular-nums;color:var(--tx2);white-space:nowrap}
+.src-tag{display:inline-block;padding:1px 8px;border-radius:6px;font-size:11px;background:var(--bg2);border:1px solid var(--line);color:var(--tx2);white-space:nowrap}
+.dup-note{font-size:11px;color:var(--tx3);margin-left:6px}
+.empty-tip{padding:34px;text-align:center;color:var(--tx3);font-size:13px}
+
+/* ---------- queue ---------- */
+.task-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.state-pill{padding:2px 11px;border-radius:99px;font-size:12px;font-weight:600}
+.st-running{background:#5b8cff1c;color:var(--acc2);animation:pulse 1.6s infinite}
+@keyframes pulse{50%{opacity:.55}}
+.st-completed{background:#3fb96f1c;color:var(--ok)}
+.st-partial{background:#e0a63a1c;color:var(--warn)}
+.st-cancelled,.st-cancelling{background:#8892ab1c;color:var(--grayb)}
+.btn-danger{color:var(--err);border:1px solid #e05a5a44;border-radius:8px;padding:5px 13px;font-size:12.5px}
+.btn-danger:hover{background:#e05a5a14}
+.btn-mini{color:var(--tx2);border:1px solid var(--line2);border-radius:7px;padding:3px 10px;font-size:12px}
+.btn-mini:hover{color:var(--tx);border-color:var(--acc)}
+.q-item{display:flex;align-items:center;gap:12px;padding:10px 18px;border-bottom:1px solid #222840;font-size:13px}
+.q-item:last-child{border-bottom:none}
+.q-meta{flex:1;min-width:0}
+.q-title{display:flex;align-items:center;gap:8px;overflow:hidden}
+.q-title b{font-weight:550;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.q-sub{color:var(--tx3);font-size:11.5px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar{height:5px;background:#ffffff0d;border-radius:99px;margin-top:7px;overflow:hidden}
+.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--acc),#8f6bff);border-radius:99px;transition:width .4s}
+.bar.ok>i{background:var(--ok)}
+.bar.bad>i{background:var(--err)}
+.q-pct{width:52px;text-align:right;font-variant-numeric:tabular-nums;color:var(--tx2);font-size:12.5px;flex:none}
+.q-st{width:86px;text-align:right;font-size:12px;flex:none}
+.q-ok{color:var(--ok)} .q-warn{color:var(--warn)} .q-err{color:var(--err)} .q-run{color:var(--acc2)} .q-skip{color:var(--tx3)}
+
+/* ---------- settings drawer ---------- */
+.overlay{position:fixed;inset:0;background:#00000070;z-index:90;opacity:0;pointer-events:none;transition:.2s}
+.overlay.show{opacity:1;pointer-events:auto}
+.drawer{
+  position:fixed;top:0;right:-420px;width:min(400px,92vw);height:100%;z-index:95;
+  background:var(--bg2);border-left:1px solid var(--line);transition:right .25s ease;
+  display:flex;flex-direction:column
+}
+.drawer.show{right:0}
+.drawer-hd{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line);font-weight:600}
+.drawer-bd{flex:1;overflow-y:auto;padding:20px}
+.f-group{margin-bottom:20px}
+.f-label{font-size:12px;color:var(--tx3);margin-bottom:7px;display:block;letter-spacing:.3px}
+.f-static{background:#ffffff07;border:1px dashed var(--line2);border-radius:9px;padding:10px 13px;color:var(--tx2);word-break:break-all;font-size:13px}
+.f-input{width:100%;background:var(--card);border:1px solid var(--line);border-radius:9px;padding:9px 12px;outline:none}
+.f-input:focus{border-color:var(--acc)}
+.preview{background:#141824;border:1px solid var(--line);border-radius:9px;padding:10px 13px;color:var(--acc2);font-family:ui-monospace,Menlo,monospace;font-size:12.5px;word-break:break-all;margin-top:8px}
+.f-hint{font-size:11.5px;color:var(--tx3);margin-top:6px;line-height:1.5}
+.drawer-ft{padding:14px 20px;border-top:1px solid var(--line);display:flex;gap:10px;justify-content:flex-end}
+.btn-ghost{border:1px solid var(--line2);border-radius:9px;padding:9px 18px;color:var(--tx2)}
+.btn-ghost:hover{color:var(--tx)}
+
+footer{text-align:center;color:var(--tx3);font-size:11.5px;margin-top:26px}
+.spin{display:inline-block;width:13px;height:13px;border:2px solid #ffffff44;border-top-color:#fff;border-radius:50%;animation:rot .7s linear infinite;vertical-align:-2px;margin-right:6px}
+@keyframes rot{to{transform:rotate(360deg)}}
+@media (max-width:720px){
+  .dir-badge{display:none}
+  .t-name{max-width:150px}.t-dim{max-width:90px}
+  th.hide-sm,td.hide-sm{display:none}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap hd">
+    <div class="logo">🎵</div>
+    <h1>musicdl<small>多平台音乐下载</small></h1>
+    <div class="dir-badge" title="所有文件统一保存到此目录">📁 <b id="dirBadge">…</b></div>
+    <button class="icon-btn" id="btnSettings" title="设置">⚙️</button>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- 搜索 -->
+  <section class="card">
+    <div class="card-bd">
+      <div class="search-row">
+        <input type="text" id="kwInput" placeholder="输入歌名 / 歌手 / 专辑，回车搜索…" autocomplete="off">
+        <button class="btn-primary" id="btnSearch"><span id="btnSearchTxt">搜 索</span></button>
+      </div>
+      <div class="chips" id="platformChips"></div>
+      <div class="opts-row">
+        <div class="opt">音质偏好
+          <select id="qualitySel">
+            <option value="lossless_first">无损优先</option>
+            <option value="lossless_only">仅无损</option>
+            <option value="320k">320k</option>
+            <option value="128k">128k</option>
+            <option value="any">不限</option>
+          </select>
+        </div>
+        <label class="opt">跨平台同曲择优
+          <span class="switch"><input type="checkbox" id="dedupeChk" checked><span class="tr"></span></span>
+        </label>
+        <span style="flex:1"></span>
+        <span class="opt" style="cursor:default;color:var(--tx3)" id="hintNaming"></span>
+      </div>
+      <div class="search-status" id="searchStatus"></div>
+    </div>
+  </section>
+
+  <!-- 结果 -->
+  <section class="card" id="resultsCard" style="display:none">
+    <div class="card-hd">
+      <span class="t">搜索结果</span><span class="sub" id="resultsSub"></span>
+    </div>
+    <div class="toolbar">
+      <button class="link-btn" id="btnAll">全选</button>
+      <button class="link-btn" id="btnNone">清空</button>
+      <button class="pill-toggle" id="btnOnlyLossless">仅看无损</button>
+      <span class="grow"></span>
+      <span style="color:var(--tx2)" id="selCount">已选 0 首</span>
+      <button class="dl-btn" id="btnDownload" disabled>⬇ 下载选中</button>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr>
+          <th class="c-check"></th><th style="width:74px">质量</th><th>歌曲</th>
+          <th>歌手</th><th class="hide-sm">专辑</th><th class="hide-sm" style="width:56px">时长</th>
+          <th style="width:76px">大小</th><th style="width:64px">来源</th>
+        </tr></thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 下载队列 -->
+  <section class="card" id="queueCard" style="display:none">
+    <div class="card-hd">
+      <span class="t">下载任务</span>
+      <span class="state-pill st-running" id="taskStatePill">…</span>
+      <span class="sub" id="taskSummary"></span>
+      <span style="flex:1"></span>
+      <button class="btn-danger" id="btnCancelTask">取消任务</button>
+    </div>
+    <div id="queueItems"></div>
+  </section>
+
+  <footer>musicdl-webgui · 基于 musicdl (Hi-Fi) · 文件统一保存，歌词封面已嵌入音频</footer>
+</div>
+
+<!-- 设置 -->
+<div class="overlay" id="overlay"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-hd">设置 <button class="icon-btn" id="btnCloseDrawer">✕</button></div>
+  <div class="drawer-bd">
+    <div class="f-group">
+      <span class="f-label">kwqq-API 服务（六源后端）</span>
+      <div class="f-static" style="display:flex;align-items:center;gap:8px">
+        <span id="apiDot" style="font-size:11px">…</span>
+        <span style="flex:1;word-break:break-all" id="cfgApiBase">…</span>
+      </div>
+      <div class="f-hint">地址与 Key 在 <code>config.json</code> 的 <code>kwqq_api_base / kwqq_api_key</code> 中修改。离线时六源不可用，可改用「自有直连」组。</div>
+    </div>
+    <div class="f-group">
+      <span class="f-label">下载目录（固定，不分平台子目录）</span>
+      <div class="f-static" id="cfgDir">…</div>
+      <div class="f-hint">如需修改目录：编辑 <code id="cfgPath" style="color:var(--tx2)">config.json</code> 后重启，或用 <code>--download-dir</code> 启动参数。</div>
+    </div>
+    <div class="f-group">
+      <span class="f-label">文件命名模板（三要素：歌手 / 曲名 / 专辑）</span>
+      <input class="f-input" id="cfgTemplate" placeholder="{artist} - {title} - {album}">
+      <div class="preview" id="templatePreview"></div>
+      <div class="f-hint">变量：<code>{artist}</code> 歌手 · <code>{title}</code> 曲名 · <code>{album}</code> 专辑 · <code>{source}</code> 来源。缺失要素自动省略，扩展名自动追加。</div>
+    </div>
+    <div class="f-group">
+      <label class="opt" style="justify-content:space-between">
+        <span>拦截疑似假质量文件<span style="display:block;color:var(--tx3);font-size:11px">320K&lt;5MB · FLAC&lt;10MB · Hi-Res&lt;25MB · 128K&lt;2MB 的结果将被跳过并标灰</span></span>
+        <span class="switch"><input type="checkbox" id="cfgGuard"><span class="tr"></span></span>
+      </label>
+    </div>
+    <div class="f-group">
+      <label class="opt" style="justify-content:space-between">
+        <span>另存外挂歌词 .lrc<span style="display:block;color:var(--tx3);font-size:11px">默认关闭：歌词直接嵌入音频文件，保持单曲单文件</span></span>
+        <span class="switch"><input type="checkbox" id="cfgLrc"><span class="tr"></span></span>
+      </label>
+    </div>
+    <div class="f-group">
+      <span class="f-label">同时下载并发数（重启后生效）</span>
+      <select class="f-input" id="cfgConcurrency" style="width:120px">
+        <option>1</option><option selected>3</option><option>4</option><option>6</option>
+      </select>
+    </div>
+    <div class="f-group">
+      <span class="f-label">各平台默认下载数量</span>
+      <div class="f-hint" id="cfgPlatformDefaults" style="font-size:12.5px;color:var(--tx2)"></div>
+    </div>
+  </div>
+  <div class="drawer-ft">
+    <button class="btn-ghost" id="btnCancelCfg">关闭</button>
+    <button class="btn-primary" id="btnSaveCfg" style="padding:9px 22px">保存设置</button>
+  </div>
+</aside>
+
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+const LS_KEY = 'musicdl-webgui-v1';
+
+const state = {
+  cfg: null,
+  platforms: [],          // {id,name,on,limit}
+  items: [],              // search results
+  selected: new Set(),
+  onlyLossless: false,
+  currentTaskId: null,
+  es: null,
+  searching: false,
+  chipStatus: {},         // {pid: {st:'searching'|'ok'|'fail', n, err}}
+  searchTimer: null,
+};
+
+/* ---------- utils ---------- */
+const fmtSize = b => !b ? '—' : b >= 1073741824 ? (b/1073741824).toFixed(2)+' GB' : b >= 1048576 ? (b/1048576).toFixed(1)+' MB' : Math.round(b/1024)+' KB';
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function loadLS(){ try { return JSON.parse(localStorage.getItem(LS_KEY)) || {}; } catch(e){ return {}; } }
+function saveLS(patch){ const ls = {...loadLS(), ...patch}; localStorage.setItem(LS_KEY, JSON.stringify(ls)); }
+
+/* ---------- init ---------- */
+async function init(){
+  const res = await fetch('/api/config'); state.cfg = (await res.json()).data;
+  $('#dirBadge').textContent = state.cfg.download_dir;
+  $('#dirBadge').title = '下载目录: ' + state.cfg.download_dir;
+  $('#hintNaming').textContent = '命名: ' + state.cfg.naming_template.replace(/\{(artist|title|album|source)\}/g,'$1') + '.ext';
+  const ls = loadLS();
+  const defaults = state.cfg.platform_defaults || {};
+  state.platforms = state.cfg.platforms.map(p => ({
+    ...p,
+    on: ls.platforms?.[p.id]?.on ?? (p.id in defaults),
+    limit: ls.platforms?.[p.id]?.limit ?? p.default_limit,
+  }));
+  if (!state.platforms.some(p => p.on)) state.platforms[0].on = true;
+  $('#qualitySel').value = ls.qualityPref || state.cfg.quality_pref_default;
+  $('#dedupeChk').checked = ls.dedupe ?? state.cfg.dedupe_default;
+  renderChips();
+  $('#kwInput').focus();
+}
+
+/* ---------- platform chips ---------- */
+const GROUP_TITLES = {
+  api: 'kwqq-API 六源 · 自有账户态 (NAS)',
+  own: '直连匿名链',
+  agg: '聚合网关',
+  ext: '扩展平台 (稳定性不一, 自行取舍)',
+};
+function renderChips(){
+  const order = ['api','own','agg','ext'];
+  const chipHtml = (p) => {
+    const cs = state.chipStatus[p.id];
+    const cnt = !cs ? '' : cs.st==='searching' ? '<span class="cnt">…</span>'
+      : cs.st==='ok' ? `<span class="cnt ok">${cs.n}条</span>`
+      : `<span class="cnt bad" title="${esc(cs.err||'搜索失败')}">✗</span>`;
+    return `
+    <div class="chip ${p.on?'on':''} ${cs?.st==='searching'?'searching':''}" data-i="${state.platforms.indexOf(p)}">
+      <span class="nm" data-act="toggle"><span class="dot"></span>${esc(p.name)}</span>
+      <span class="stepper">
+        <button data-act="dec" title="减少 ${esc(p.name)} 搜索数量">−</button>
+        <span class="val" title="${esc(p.name)} 搜索数量">${p.limit}</span>
+        <button data-act="inc" title="增加 ${esc(p.name)} 搜索数量">＋</button>
+      </span>${cnt}
+    </div>`;};
+  const apiDot = state.cfg?.kwqq_api_online
+    ? '<span style="color:var(--ok)">● 在线</span>'
+    : '<span style="color:var(--err)" title="NAS kwqq-api 不可达, 该组平台搜索将失败">○ 离线</span>';
+  $('#platformChips').innerHTML = order.map(g => {
+    const ps = state.platforms.filter(p => (p.group||'agg') === g);
+    if (!ps.length) return '';
+    const head = `<span style="flex-basis:100%;display:flex;align-items:center;gap:8px;font-size:11px;color:var(--tx3);padding-top:${g==='api'?0:6}px">
+      <span>${GROUP_TITLES[g]}</span>${g==='api'?apiDot:''}<span style="flex:1;height:1px;background:var(--line)"></span></span>`;
+    return head + ps.map(chipHtml).join('');
+  }).join('');
+}
+$('#platformChips').addEventListener('click', e => {
+  const btn = e.target.closest('[data-act]');
+  const chipEl = e.target.closest('.chip');
+  if (!chipEl) return;
+  const i = +chipEl.dataset.i, p = state.platforms[i];
+  if (!btn || btn.dataset.act === 'toggle'){
+    p.on = !p.on;
+  } else if (btn.dataset.act === 'inc'){
+    p.limit = Math.min(state.cfg.max_limit_per_source, p.limit + (e.shiftKey?5:1));
+    p.on = true;
+  } else if (btn.dataset.act === 'dec'){
+    p.limit = Math.max(1, p.limit - (e.shiftKey?5:1));
+  }
+  saveLS({platforms: Object.fromEntries(state.platforms.map(x=>[x.id,{on:x.on,limit:x.limit}]))});
+  renderChips();
+});
+
+/* ---------- search (SSE progressive, per-platform progress like the CLI) ---------- */
+function doSearch(){
+  if (state.searching) return;
+  const kw = $('#kwInput').value.trim();
+  if (!kw) return $('#kwInput').focus();
+  const sources = {};
+  state.platforms.filter(p=>p.on).forEach(p => sources[p.id] = p.limit);
+  if (!Object.keys(sources).length) return setStatus('请至少选择一个平台', true);
+  const nSrc = Object.keys(sources).length;
+
+  state.items = []; state.selected.clear();
+  state.chipStatus = {};
+  Object.keys(sources).forEach(pid => state.chipStatus[pid] = {st:'searching'});
+  state.searching = true;
+  $('#btnSearch').disabled = true;
+  $('#btnSearchTxt').innerHTML = `<span class="spin"></span><span id="searchPct">0/${nSrc} · 0s</span>`;
+  setStatus(`正在搜索「${esc(kw)}」· 各平台完成后结果即时显示 ↓`);
+  renderChips();
+
+  const t0 = Date.now();
+  const timer = setInterval(() => {
+    const el = document.getElementById('searchPct');
+    if (el){
+      const doneN = Object.values(state.chipStatus).filter(c=>c.st!=='searching').length;
+      el.textContent = `${doneN}/${nSrc} · ${(Date.now()-t0)/1000|0}s`;
+    }
+  }, 400);
+
+  const finish = (msg) => {
+    clearInterval(timer);
+    try{ es.close(); }catch(e){}
+    state.searching = false;
+    $('#btnSearch').disabled = false;
+    $('#btnSearchTxt').textContent = '搜 索';
+    saveLS({lastKw: kw});
+    renderChips();
+    const fails = Object.entries(msg.failed || {}).filter(([p]) => p !== '_');
+    let s = `搜索完成 · 共 ${state.items.length} 条（可下载 ${state.items.filter(i=>i.has_url).length} 条）`;
+    if (fails.length) s += ` · <span class="fail">⚠ ${fails.map(([p,e])=>p+': '+e.slice(0,60)).join(' ; ')}</span>`;
+    else if ((msg.failed||{})['_']) s += ` · <span class="fail">⚠ ${esc(msg.failed['_'])}</span>`;
+    setStatus(s + ' · 点击行勾选后下载', fails.length > 0 || !!(msg.failed||{})['_']);
+    renderResults();
+  };
+
+  const es = new EventSource(`/api/search/stream?keyword=${encodeURIComponent(kw)}&sources=${encodeURIComponent(JSON.stringify(sources))}`);
+  es.onmessage = ev => {
+    let msg; try { msg = JSON.parse(ev.data); } catch(e){ return; }
+    if (msg.type === 'source_done'){
+      state.chipStatus[msg.source] = msg.failed ? {st:'fail', err:msg.failed} : {st:'ok', n:msg.count};
+      (msg.items || []).forEach(it => state.items.push(it));
+      renderChips(); renderResults();
+    } else if (msg.type === 'done'){
+      finish(msg);
+    }
+  };
+  es.onerror = () => { if (state.searching) finish({failed:{_: '搜索连接中断'}}); };
+}
+function setStatus(html, warn){ $('#searchStatus').innerHTML = html; }
+
+const Q_LABEL = {hires:'Hi-Res·24b', lossless:'FLAC', '320k':'320K', '128k':'128K', low:'低码', other:'其他', pending:'待解析'};
+function renderResults(){
+  const card = $('#resultsCard');
+  if (!state.items.length){ card.style.display='none'; return; }
+  card.style.display='';
+  const shown = state.items.filter(it => !state.onlyLossless || ['hires','lossless'].includes(it.quality_tier));
+  $('#resultsSub').textContent = `${shown.length}/${state.items.length} 条`;
+  $('#resultsBody').innerHTML = shown.map(it => {
+    const checked = state.selected.has(it.key);
+    // 跨平台同名计数: 只统计真正出现在多个平台的结果
+    const dupSrcs = new Set(state.items.filter(x => x.dedupe_key === it.dedupe_key).map(x => x.source)).size;
+    const srcLabel = srcName(it.source) + (it.root_source ? `·${String(it.root_source).toUpperCase()}` : '');
+    const suspectTip = it.suspect ? ` ⚠ 体积低于该音质档下限, 疑似假质量(下载将被跳过)` : '';
+    return `<tr data-key="${it.key}" class="${checked?'checked':''} ${it.has_url?'':'no-url'} ${it.suspect?'suspect':''}">
+      <td class="c-check"><input type="checkbox" class="cbx" ${checked?'checked':''}></td>
+      <td><span class="q-badge q-${it.quality_tier}">${Q_LABEL[it.quality_tier]||it.ext.toUpperCase()}</span></td>
+      <td><span class="t-name" title="${esc(it.song_name)}${suspectTip}">${esc(it.song_name)}</span>${dupSrcs>1?`<span class="dup-note" title="该曲目在 ${dupSrcs} 个平台有结果">${dupSrcs} 源</span>`:''}${it.has_url?'':' <span class="q-badge q-other" title="无有效链接">失效</span>'}</td>
+      <td class="t-dim" title="${esc(it.singers)}">${esc(it.singers)||'—'}</td>
+      <td class="t-dim hide-sm" title="${esc(it.album)}">${esc(it.album)||'—'}</td>
+      <td class="t-num hide-sm">${esc(it.duration)||'—'}</td>
+      <td class="t-num">${fmtSize(it.file_size_bytes)}</td>
+      <td><span class="src-tag" title="${esc(srcLabel)}">${esc(srcLabel)}</span></td>
+    </tr>`;
+  }).join('');
+  updateSelUI();
+  maybePrefetch(shown);
+}
+
+/* progressive quality resolution for kwqq-api items: visible "pending" rows are
+   pre-resolved in the background (server caches urls 600s -> later downloads are free) */
+const resolvingSet = new Set();
+function maybePrefetch(shown){
+  const keys = shown.filter(it => it.quality_tier === 'pending' && it.has_url && !resolvingSet.has(it.key))
+                   .slice(0, 10).map(it => it.key);
+  if (!keys.length) return;
+  keys.forEach(k => resolvingSet.add(k));
+  fetch('/api/resolve', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({keys, quality_pref: $('#qualitySel').value})})
+    .then(r => r.json()).then(resp => {
+      if (resp.code === 200){
+        let changed = false;
+        (resp.data.items || []).forEach(upd => {
+          const it = state.items.find(x => x.key === upd.key);
+          if (it){ Object.assign(it, upd); changed = true; }
+        });
+        if (changed) renderResults();
+      }
+    })
+    .catch(() => {})
+    .finally(() => keys.forEach(k => resolvingSet.delete(k)));
+}
+const srcName = id => state.platforms.find(p=>p.id===id)?.name || id;
+function visibleRows(){ return state.items.filter(it => !state.onlyLossless || ['hires','lossless'].includes(it.quality_tier)); }
+function updateSelUI(){
+  const n = state.selected.size;
+  $('#selCount').textContent = `已选 ${n} 首`;
+  $('#btnDownload').disabled = !n;
+  $('#btnDownload').innerHTML = n ? `⬇ 下载选中 (${n})` : '⬇ 下载选中';
+}
+$('#resultsBody').addEventListener('click', e => {
+  const tr = e.target.closest('tr[data-key]');
+  if (!tr) return;
+  const key = tr.dataset.key;
+  const it = state.items.find(x=>x.key===key);
+  if (!it?.has_url) return setStatus('该条目无有效下载链接，请换选其他版本', true);
+  state.selected.has(key) ? state.selected.delete(key) : state.selected.add(key);
+  renderResults();
+});
+$('#btnAll').onclick = () => { visibleRows().forEach(it => it.has_url && state.selected.add(it.key)); renderResults(); };
+$('#btnNone').onclick = () => { state.selected.clear(); renderResults(); };
+$('#btnOnlyLossless').onclick = () => {
+  state.onlyLossless = !state.onlyLossless;
+  $('#btnOnlyLossless').classList.toggle('on', state.onlyLossless);
+  renderResults();
+};
+$('#btnSearch').onclick = doSearch;
+$('#kwInput').addEventListener('keydown', e => e.key==='Enter' && doSearch());
+$('#qualitySel').addEventListener('change', e => saveLS({qualityPref: e.target.value}));
+$('#dedupeChk').addEventListener('change', e => saveLS({dedupe: e.target.checked}));
+
+/* ---------- download ---------- */
+$('#btnDownload').onclick = async () => {
+  if (!state.selected.size) return;
+  const keys = state.items.filter(it=>state.selected.has(it.key)).map(it=>it.key);
+  const body = JSON.stringify({keys, quality_pref: $('#qualitySel').value, dedupe: $('#dedupeChk').checked});
+  try {
+    $('#btnDownload').disabled = true;
+    const res = await fetch('/api/downloads', {method:'POST', headers:{'Content-Type':'application/json'}, body});
+    const resp = await res.json();
+    if (resp.code !== 200) throw new Error(resp.msg);
+    showTask(resp.data);
+    setStatus(`已创建下载任务（${resp.data.items.filter(i=>i.status!=='skipped').length}/${resp.data.items.length} 首待下载）`);
+  } catch(err){ setStatus('创建任务失败: '+err.message, true); }
+  finally { updateSelUI(); }
+};
+
+/* ---------- task queue (SSE) ---------- */
+function showTask(snap){
+  $('#queueCard').style.display = '';
+  state.currentTaskId = snap.task_id;
+  renderTask(snap);
+  if (state.es) state.es.close();
+  state.es = new EventSource(`/api/tasks/${snap.task_id}/events`);
+  state.es.onmessage = ev => { try { renderTask(JSON.parse(ev.data)); } catch(e){} };
+  state.es.addEventListener('gone', () => { state.es.close(); });
+}
+function renderTask(snap){
+  const pill = $('#taskStatePill');
+  const labels = {running:'进行中', completed:'已完成', partial:'部分完成', cancelled:'已取消', cancelling:'取消中'};
+  pill.textContent = labels[snap.status] || snap.status;
+  pill.className = 'state-pill st-' + snap.status;
+  const c = snap.counts || {};
+  $('#taskSummary').textContent =
+    `${c.success||0} 成功 · ${c.failed||0} 失败 · ${c.skipped||0} 跳过 · ${c.downloading+c.queued||0} 待完成`;
+  $('#btnCancelTask').style.display = snap.status==='running' ? '' : 'none';
+  const doneMsg = {completed:'✓ 全部下载完成', partial:'⚠ 部分完成, 见队列明细', cancelled:'已取消', cancelling:'取消中…'}[snap.status];
+  if (doneMsg) setStatus(`下载${snap.status==='completed'?'完成':snap.status==='partial'?'结束':'已停止'}: ` +
+    `${c.success||0} 成功 · ${c.failed||0} 失败 · ${c.skipped||0} 跳过 — ${doneMsg}`);
+  $('#queueItems').innerHTML = snap.items.map(it => {
+    const pct = it.progress || 0;
+    const indet = it.status==='downloading' && !it.total_bytes;   // no Content-Length -> indeterminate
+    const cls = it.status==='success' ? 'ok' : (['failed','cancelled'].includes(it.status) ? 'bad' : (indet?'ind':''));
+    let stHtml = '', subExtra = '';
+    switch(it.status){
+      case 'success': stHtml = '<span class="q-ok">✓ 完成</span>';
+        subExtra = [it.saved_path ? esc(it.saved_path.split('/').pop()) : '', it.real_spec ? esc(it.real_spec) : ''].filter(Boolean).join(' · '); break;
+      case 'downloading': stHtml = `<span class="q-run">${it.speed||'下载中'}</span>`; break;
+      case 'queued': stHtml = '<span class="q-run">排队中</span>'; break;
+      case 'skipped': stHtml = '<span class="q-skip">跳过 · '+esc(it.error||'')+'</span>'; break;
+      case 'failed': stHtml = '<span class="q-err">✗ 失败</span>';
+        subExtra = esc(it.error||''); break;
+      case 'cancelled': case 'cancelling': stHtml = '<span class="q-skip">已取消</span>'; break;
+    }
+    return `<div class="q-item">
+      <div class="q-meta">
+        <div class="q-title"><b title="${esc(it.song_name)}">${esc(it.song_name)}</b>
+          <span class="q-badge q-${it.quality_tier}" style="font-size:10px;padding:1px 6px">${Q_LABEL[it.quality_tier]||''}</span>
+          <span class="src-tag">${esc(srcName(it.source))}</span></div>
+        <div class="q-sub">${subExtra || esc([it.singers,it.album].filter(Boolean).join(' · '))}</div>
+        <div class="bar ${cls}"><i style="width:${it.status==='success'?100:(indet?38:pct)}%"></i></div>
+      </div>
+      <span class="q-pct">${it.status==='success'?'':(it.total_bytes ? fmtSize(it.downloaded_bytes)+' '+pct+'%' : fmtSize(it.downloaded_bytes))}</span>
+      <span class="q-st">${stHtml}</span>
+      <span>${['failed','cancelled','cancelling'].includes(it.status)?`<button class="btn-mini" data-retry="${it.item_id}">重试</button>`:''}</span>
+    </div>`;
+  }).join('');
+}
+$('#queueItems').addEventListener('click', async e => {
+  const btn = e.target.closest('[data-retry]');
+  if (!btn || !state.currentTaskId) return;
+  try {
+    const res = await fetch(`/api/tasks/${state.currentTaskId}/retry`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({item_id: btn.dataset.retry})});
+    const resp = await res.json();
+    if (resp.code !== 200) throw new Error(resp.msg);
+  } catch(err){ alert('重试失败: '+err.message); }
+});
+$('#btnCancelTask').onclick = async () => {
+  if (!state.currentTaskId || !confirm('取消整个下载任务？')) return;
+  try {
+    const res = await fetch(`/api/tasks/${state.currentTaskId}`, {method:'DELETE'});
+    const resp = await res.json();
+    if (resp.code === 200) renderTask(resp.data);
+  } catch(e){}
+};
+
+/* restore last task on page load (best-effort) */
+async function restoreTasks(){
+  try {
+    const res = await fetch('/api/tasks');
+    const tasks = (await res.json()).data || [];
+    const active = tasks.find(t => ['running','partial'].includes(t.status)) || tasks[0];
+    if (active) showTask(active);
+  } catch(e){}
+}
+
+/* ---------- settings drawer ---------- */
+function openDrawer(){
+  const c = state.cfg;
+  $('#cfgDir').textContent = c.download_dir;
+  $('#cfgPath').textContent = c.config_path;
+  $('#cfgApiBase').textContent = c.kwqq_api_base || '(未配置)';
+  $('#apiDot').innerHTML = c.kwqq_api_online
+    ? '<span style="color:var(--ok)">● 在线</span>' : '<span style="color:var(--err)">○ 离线</span>';
+  $('#cfgTemplate').value = c.naming_template;
+  $('#cfgLrc').checked = c.save_lrc_sidecar;
+  $('#cfgGuard').checked = c.quality_guard !== false;
+  $('#cfgConcurrency').value = String(c.concurrency);
+  $('#cfgPlatformDefaults').textContent = c.platforms.map(p=>`${p.name} ${p.default_limit}`).join(' · ');
+  updatePreview();
+  $('#drawer').classList.add('show'); $('#overlay').classList.add('show');
+}
+function closeDrawer(){ $('#drawer').classList.remove('show'); $('#overlay').classList.remove('show'); }
+function updatePreview(){
+  const t = $('#cfgTemplate').value || '{artist} - {title} - {album}';
+  let stem = t.replace('{artist}','林俊杰').replace('{title}','尾戒')
+              .replace(/\{album\}/g,$('#cfgTemplate').value.includes('{album}')?'曹操':'')
+              .replace('{album}','曹操').replace('{source}','QQ').replace(/\{ext\}/g,'flac');
+  const segs = stem.split('-').map(s=>s.trim()).filter(Boolean);
+  $('#templatePreview').textContent = '预览: ' + segs.join(' - ') + '.flac';
+}
+$('#cfgTemplate').addEventListener('input', updatePreview);
+$('#btnSettings').onclick = openDrawer;
+$('#btnCloseDrawer').onclick = $('#btnCancelCfg').onclick = $('#overlay').onclick = closeDrawer;
+$('#btnSaveCfg').onclick = async () => {
+  const payload = {
+    naming_template: $('#cfgTemplate').value.trim(),
+    save_lrc_sidecar: $('#cfgLrc').checked,
+    quality_guard: $('#cfgGuard').checked,
+    concurrency: +$('#cfgConcurrency').value,
+    platform_defaults: Object.fromEntries(state.platforms.filter(p=>p.on).map(p=>[p.id,p.limit])),
+  };
+  try {
+    const res = await fetch('/api/config', {method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    const resp = await res.json();
+    if (resp.code !== 200) throw new Error(resp.msg);
+    const fresh = await (await fetch('/api/config')).json();
+    state.cfg = fresh.data;
+    $('#dirBadge').textContent = state.cfg.download_dir;
+    $('#hintNaming').textContent = '命名: ' + state.cfg.naming_template.replace(/\{(artist|title|album|source)\}/g,'$1') + '.ext';
+    closeDrawer();
+  } catch(err){ alert('保存失败: '+err.message); }
+};
+
+init().then(restoreTasks).catch(err => {
+  document.getElementById('searchStatus').innerHTML =
+    '<span class="fail">初始化失败: ' + esc(err.message) + ' —— 请确认服务已启动后刷新页面</span>';
+});
+</script>
+</body>
+</html>

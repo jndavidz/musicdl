@@ -1,0 +1,23 @@
+{
+  "download_dir": "/volume1/music/download",
+  "host": "127.0.0.1",
+  "port": 3004,
+  "concurrency": 3,
+  "search_timeout_s": 90,
+  "max_limit_per_source": 30,
+  "naming_template": "{artist} - {title} - {album}",
+  "quality_pref_default": "lossless_first",
+  "dedupe_default": true,
+  "save_lrc_sidecar": false,
+  "api_key": "",
+  "platform_defaults": {
+    "qq": 5,
+    "netease": 5,
+    "kugou": 5,
+    "kuwo": 5,
+    "migu": 5,
+    "qianqian": 5
+  },
+  "kwqq_api_base": "http://10.10.10.2:3003",
+  "kwqq_api_key": ""
+}

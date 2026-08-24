@@ -1,0 +1,121 @@
+# musicdl-webgui
+
+易用的 musicdl Web 下载界面（参考原作者 `examples/musicdlgui` PyQt5 版重新设计）。
+
+## 功能特性
+
+| 需求 | 实现 |
+|------|------|
+| 选择平台 | 18 个平台分四组：kwqq-API 六源 / 自有直连 / 聚合网关 / 扩展平台 |
+| 平台搜索结果数量 | 每个平台 chip 独立步进器（1–30），点击平台名启用/停用 |
+| 下载目录固定一个 | 所有平台的文件统一落盘到 `download_dir`，**无任何平台子目录、无 pkl** |
+| 文件命名易读 | 默认 `{artist} - {title} - {album}.ext`，缺失要素自动省略，重名自动 `(1)` |
+| 音质级别 | 无损优先 / 仅无损 / 320k / 128k / 不限；跨平台同曲按偏好自动择优 |
+| 单曲单文件 | 歌词 + 封面 + 标题/歌手/专辑标签全部嵌入音频文件（默认不生成 .lrc 外挂） |
+
+其他：SSE 实时进度（百分比/速度）、失败单条重试、整批取消、命名模板自定义、设置持久化。
+
+## 快速开始
+
+```bash
+cd /mnt/d/repos/musicdl
+uv run python examples/musicdlwebgui/app.py            # 默认 http://127.0.0.1:3004
+```
+
+常用参数：
+
+```bash
+--host 0.0.0.0 --port 3004          # 局域网访问（建议同时配置 api_key）
+--download-dir /mnt/d/MusicDL       # 覆盖并持久化下载目录
+```
+
+依赖已包含在仓库根 requirements（fastapi/uvicorn）；musicdl 本体以 editable 安装即可。
+
+## 混合架构：kwqq-API 六源 + 进程内库
+
+自 `api-server` 分支的 kw-qq-music-api（`docs/API-REFERENCE.md`）上线后，webgui 采用双后端：
+
+| 分组 | 平台 | 后端 | 特点 |
+|------|------|------|------|
+| kwqq-API 六源（自有账户态） | 酷我/QQ/千千/咪咕/**网易云·自有/酷狗·自有** | NAS `kwqq_api_base` 服务 | 元数据搜索(~0.3s) + 按 id 二段解析；网易走 MUSIC_U、酷狗走容器背书，可出**账户态无损**；带熔断与缓存 |
+| 直连匿名链 | 网易云·直连 / 酷狗·直连 | 进程内 musicdl 库匿名链 | 不依赖 NAS，自有版离线时的备份路径 |
+| 聚合网关 | TuneHub / GDStudio | 进程内库 | root_source 标注真实上游 |
+| 扩展平台 | B站/汽水/歌曲宝/音乐岛/小白/MyFreeMP3/JBSou/MP3Juice | 进程内库 | 稳定性不一 |
+
+工作方式：
+
+1. API 组搜索只取元数据（质量徽章显示「待解析」，ext/大小在下载时才确定）；
+2. 下载时二段式 `GET /{source}/song/url?id=&quality=` 出链 → 交给通用下载器落盘，
+   标签/歌词(`/{source}/lyric`)/封面(`/{source}/song/info`)嵌入逻辑与库源完全一致；
+3. 音质偏好映射：无损优先/仅无损→`flac`、320k→`320k`、128k→`128k`、不限→`auto`；
+   NAS 端 `ENABLE_LOSSLESS=false`(默认) 时 flac/hires 返回 403 → 自动回退 auto 并在队列标注；
+4. API 连通状态在平台区「● 在线/○ 离线」实时展示；离线时六源搜索失败，可改勾自有组。
+
+配置（`config.json`）：`"kwqq_api_base": "http://10.10.10.2:3003"`、`"kwqq_api_key": ""`
+（外网访问才需要 key，内网免）。
+
+## 下载目录指向群晖（/volume1/music/download）
+
+`config.json` 默认 `download_dir=/volume1/music/download`。WSL2 需先把群晖同路径挂载进来
+（挂载点与 NAS 路径一致，配置两端通用）：
+
+```bash
+# 前置: DSM 控制面板 → 共享文件夹 → music → 编辑 → NFS 权限 → 新增:
+#   网段 10.10.10.0/24 · 可读写 · Squash 无映射 · 允许子文件夹装载
+sudo bash examples/musicdlwebgui/scripts/mount-nas-music.sh        # NFS(推荐,免凭证)
+sudo bash examples/musicdlwebgui/scripts/mount-nas-music.sh --smb  # 或 SMB 回退
+```
+
+脚本会写 `/etc/fstab` + systemd automount（断网不阻塞启动、空闲自动卸载），并以运行用户验证
+`download/` 可写。
+
+## 配置
+
+首启自动生成 `examples/musicdlwebgui/config.json`（可用环境变量 `MUSICDL_WEBGUI_CONFIG` 改位置）：
+
+```jsonc
+{
+  "download_dir": "/mnt/d/MusicDL-Downloads",   // 固定下载目录
+  "naming_template": "{artist} - {title} - {album}",
+  "quality_pref_default": "lossless_first",     // lossless_first|lossless_only|320k|128k|any
+  "dedupe_default": true,                       // 跨平台同曲择优去重
+  "save_lrc_sidecar": false,                    // true 时额外保存 .lrc 文件
+  "concurrency": 3,                             // 同时下载并发数(重启生效)
+  "search_timeout_s": 45,                       // 单次搜索总超时
+  "max_limit_per_source": 30,
+  "api_key": "",                                // 非空时所有请求需 x-api-key 或 Basic Auth
+  "platform_defaults": {"qq": 5, "netease": 5}
+}
+```
+
+## API 一览
+
+| Method | Path | 说明 |
+|--------|------|------|
+| GET  | `/api/config` · PUT `/api/config` | 读取/更新配置 |
+| POST | `/api/search` | `{keyword, sources: {"qq": 5}}` → 合并结果（含质量档位/大小/时长/来源） |
+| POST | `/api/downloads` | `{keys, quality_pref, dedupe}` → 创建下载任务 |
+| GET  | `/api/tasks` · `/api/tasks/{id}` | 任务列表/快照 |
+| GET  | `/api/tasks/{id}/events` | SSE 实时进度流 |
+| POST | `/api/tasks/{id}/retry` · DELETE `/api/tasks/{id}` | 单条重试 / 整批取消 |
+| GET  | `/healthz` | 存活探针 |
+
+## 设计说明（零改动 musicdl 库）
+
+- **统一目录**：`search(persist_results=False)` 跳过库默认的 `<平台>/<时间 关键词>` 目录与 pkl；
+  下载前覆写 `SongInfo.work_dir/_save_path` 指向固定目录。
+- **单曲单文件**：patch `SongInfoUtils.savelrctofile`，歌词仅走 `embedlyrics` 嵌入
+  （MP3-USLT / FLAC-LYRICS / M4A-©lyr）；封面经 `embedcover` 嵌入；基础标签经 `embedbasictags` 写入。
+- **进度**：`ProgressStub` 以 duck-typing 替代 rich.Progress（覆盖 `_download` 与 HLS 分支的接口），
+  回调写入内存任务状态，SSE 每 600ms 推快照。
+- **音质档位**：按扩展名 + 大小/时长估算码率分级 hires/lossless/320k/128k/low/other，
+  用于结果徽章、"仅看无损"过滤与同曲择优。
+
+## 冒烟测试
+
+```bash
+XDG_STATE_HOME=$PWD/.state uv run python examples/musicdlwebgui/tests/test_smoke.py http://127.0.0.1:3004 尾戒
+```
+
+校验：搜索返回结构 → 创建任务 → SSE 进度收敛 → 文件位于 download_dir 根目录（无子目录/pkl/.lrc）→
+文件名符合三要素模板。
