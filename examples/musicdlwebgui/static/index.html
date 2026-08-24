@@ -137,6 +137,9 @@ tr.suspect .t-name::after{content:' ⚠ 疑似假质量';font-size:10.5px;color:
 .t-num{font-variant-numeric:tabular-nums;color:var(--tx2);white-space:nowrap}
 .src-tag{display:inline-block;padding:1px 8px;border-radius:6px;font-size:11px;background:var(--bg2);border:1px solid var(--line);color:var(--tx2);white-space:nowrap}
 .dup-note{font-size:11px;color:var(--tx3);margin-left:6px}
+th[data-sortkey]{cursor:pointer;user-select:none}
+th[data-sortkey]:hover{color:var(--acc2)}
+.sarr{color:var(--acc);font-size:10px}
 .empty-tip{padding:34px;text-align:center;color:var(--tx3);font-size:13px}
 
 /* ---------- queue ---------- */
@@ -255,9 +258,14 @@ footer{text-align:center;color:var(--tx3);font-size:11.5px;margin-top:26px}
     <div class="table-scroll">
       <table>
         <thead><tr>
-          <th class="c-check"></th><th style="width:74px">质量</th><th>歌曲</th>
-          <th>歌手</th><th class="hide-sm">专辑</th><th class="hide-sm" style="width:56px">时长</th>
-          <th style="width:76px">大小</th><th style="width:64px">来源</th>
+          <th class="c-check"></th>
+          <th style="width:86px" data-sortkey="tier">质量 <span class="sarr"></span></th>
+          <th data-sortkey="song_name">歌曲 <span class="sarr"></span></th>
+          <th data-sortkey="singers">歌手 <span class="sarr"></span></th>
+          <th class="hide-sm" data-sortkey="album">专辑 <span class="sarr"></span></th>
+          <th class="hide-sm" data-sortkey="duration_s" style="width:56px">时长 <span class="sarr"></span></th>
+          <th data-sortkey="file_size_bytes" style="width:76px">大小 <span class="sarr"></span></th>
+          <th style="width:64px">来源</th>
         </tr></thead>
         <tbody id="resultsBody"></tbody>
       </table>
@@ -343,6 +351,7 @@ const state = {
   items: [],              // search results
   selected: new Set(),
   onlyLossless: false,
+  sortKey: 'auto', sortDir: 1,
   currentTaskId: null,
   es: null,
   searching: false,
@@ -484,6 +493,9 @@ function doSearch(){
   state.items = []; state.selected.clear();
   state.chipStatus = {};
   Object.keys(sources).forEach(pid => state.chipStatus[pid] = {st:'searching'});
+  if ($('#qualitySel').value === 'lossless_only'){
+    state.onlyLossless = true; $('#btnOnlyLossless').classList.add('on');
+  }
   state.searching = true;
   $('#btnSearch').disabled = true;
   $('#btnSearchTxt').innerHTML = `<span class="spin"></span><span id="searchPct">0/${nSrc} · 0s</span>`;
@@ -535,7 +547,20 @@ function renderResults(){
   const card = $('#resultsCard');
   if (!state.items.length){ card.style.display='none'; return; }
   card.style.display='';
-  const shown = state.items.filter(it => !state.onlyLossless || ['hires','lossless'].includes(it.quality_tier));
+  const TIER_RANK = {master:0,hires:1,lossless:2,'320k':3,'128k':4,other:5,low:6,pending:-1};
+  let shown = visibleRows();
+  if (state.sortKey !== 'auto'){
+    const k = state.sortKey, d = state.sortDir;
+    shown = [...shown].sort((a,b) => {
+      const va = a[k] ?? '', vb = b[k] ?? '';
+      return (typeof va === 'number' && typeof vb === 'number' ? va-vb : String(va).localeCompare(String(vb),'zh')) * d;
+    });
+  } else {
+    shown = [...shown].sort((a,b) =>
+      (b.has_url - a.has_url) ||
+      ((TIER_RANK[a.quality_tier] ?? 9) - (TIER_RANK[b.quality_tier] ?? 9)) ||
+      ((b.file_size_bytes||0) - (a.file_size_bytes||0)));
+  }
   $('#resultsSub').textContent = `${shown.length}/${state.items.length} 条`;
   $('#resultsBody').innerHTML = shown.map(it => {
     const checked = state.selected.has(it.key);
@@ -587,7 +612,15 @@ function maybePrefetch(shown){
     .finally(() => keys.forEach(k => resolvingSet.delete(k)));
 }
 const srcName = id => state.platforms.find(p=>p.id===id)?.name || id;
-function visibleRows(){ return state.items.filter(it => !state.onlyLossless || ['hires','lossless'].includes(it.quality_tier)); }
+function visibleRows(){
+  const q = $('#qualitySel').value;
+  const losslessOnly = state.onlyLossless || q === 'lossless_only';
+  return state.items.filter(it => {
+    if (!losslessOnly) return true;
+    if (it.quality_tier === 'pending') return true;   // 待解析: 留观, 解析后归位
+    return ['master','hires','lossless'].includes(it.quality_tier);
+  });
+}
 function updateSelUI(){
   const n = state.selected.size;
   $('#selCount').textContent = `已选 ${n} 首`;
@@ -603,6 +636,17 @@ $('#resultsBody').addEventListener('click', e => {
   state.selected.has(key) ? state.selected.delete(key) : state.selected.add(key);
   renderResults();
 });
+$('#resultsCard thead').addEventListener('click', e => {
+  const th = e.target.closest('[data-sortkey]');
+  if (!th) return;
+  const key = th.dataset.sortkey;
+  if (state.sortKey === key) state.sortDir *= -1;
+  else { state.sortKey = key; state.sortDir = (['song_name','singers','album'].includes(key)) ? 1 : -1; }
+  document.querySelectorAll('#resultsCard th[data-sortkey]').forEach(x => {
+    x.querySelector('.sarr').textContent = x.dataset.sortkey === key ? (state.sortDir > 0 ? '▲' : '▼') : '';
+  });
+  renderResults();
+});
 $('#btnAll').onclick = () => { visibleRows().forEach(it => it.has_url && state.selected.add(it.key)); renderResults(); };
 $('#btnNone').onclick = () => { state.selected.clear(); renderResults(); };
 $('#btnOnlyLossless').onclick = () => {
@@ -612,7 +656,15 @@ $('#btnOnlyLossless').onclick = () => {
 };
 $('#btnSearch').onclick = doSearch;
 $('#kwInput').addEventListener('keydown', e => e.key==='Enter' && doSearch());
-$('#qualitySel').addEventListener('change', e => saveLS({qualityPref: e.target.value}));
+$('#qualitySel').addEventListener('change', e => {
+  saveLS({qualityPref: e.target.value});
+  if (e.target.value === 'lossless_only'){
+    state.onlyLossless = true;
+    $('#btnOnlyLossless').classList.add('on');
+    setStatus('已按「仅无损」过滤结果; 待解析条目解析完成后自动归位');
+  }
+  renderResults();
+});
 $('#dedupeChk').addEventListener('change', e => saveLS({dedupe: e.target.checked}));
 
 /* ---------- download ---------- */
