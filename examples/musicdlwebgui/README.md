@@ -54,6 +54,26 @@ uv run python examples/musicdlwebgui/app.py            # 默认 http://127.0.0.1
 配置（`config.json`）：`"kwqq_api_base": "http://10.10.10.2:3003"`、`"kwqq_api_key": ""`
 （外网访问才需要 key，内网免）。
 
+## 各源音质能力矩阵（2026-08 实测，邓丽君/周杰伦/周深多曲采样）
+
+| 渠道 | 请求的最高档 | 实测交付上限 (MB/min) | 高解析(17-42) | 母带(≥42) |
+|------|------------|---------------------|:---:|:---:|
+| 网易·自有 (88VIP 黑胶) | jymaster→hires 尝试链 + 灰色解灰(match→酷我镜像) | **jyeffect 21.5** / 灰色曲目解灰 flac 视镜像 | ✓ | ✗ 需SVIP |
+| QQ 音乐 (l1 SVIP 解析器组) | HR Hi-Res | **40.8**（贴母带线）| ✓ | ✗ 差一线 |
+| 酷我 (API 匿名) | 20000kflac 臻品母带 | ~12.5（CD 级，匿名被降级）| ✗ | ✗ 需VIP Cookie |
+| 酷狗·自有 (概念版VIP) | kugou-api flac | flac ~6.7（CD 级）| ✗ | ✗ |
+| 千千 | rate=3000 | flac 12.3（CD 级）| ✗ | ✗ |
+| 咪咕 | SQ/ZQ flag | 实际交付 mp3 HQ（标注与实物不符）| ✗ | ✗ |
+| TuneHub | flac24bit 仅限 kuwo/qq parse API；netease 子源走 meting ≤400kbps | kuwo 子源 ~12.5；qq parse 服务常无响应 | ✗ | ✗ |
+| GDStudio | br=999 压缩封顶 | 同曲直连 36-41 被压至 ≤19 | 边缘 | ✗ 设计性压缩 |
+| 小站群 LIVEPOO/TWOT58/GEQUHAI/MITU/JCPOO/FLMP3 | flac/wav 直链 | 6–10（CD 级）| ✗ | ✗ |
+
+要点：
+- **母带级 (≥42 MB/min) 当前全渠道不可得** —— 酷我/QQ 的母带档位需要对应平台 VIP 权益直连，
+  匿名与第三方解析链均会被降级；分级体系按实测体积如实标注，不信任上游档名。
+- 高解析的两个稳定来源：网易·自有(88VIP 在架曲目, 18-22) 与 QQ HR(38-40.8)。
+- 聚合网关(TuneHub/GDStudio)存在压缩陷阱：同曲直连 36-41 的源经它们只有 ≤19。
+
 ## 下载目录指向群晖（/volume1/music/download）
 
 `config.json` 默认 `download_dir=/volume1/music/download`。WSL2 需先把群晖同路径挂载进来
