@@ -651,21 +651,42 @@ class DownloadEngine:
         for k, info in stored.items():
             pid = info.source if info.source in PLATFORM_MAP else k.split(':', 1)[0]
             serialized[k] = {**serialize_item(k, info, pid), '_info': info}
-        # cross-platform duplicate folding: keep the best entry per normalized song
+        # cross-platform duplicate folding, two-level:
+        #   L1 same normalized song (title+version words+lead artist)
+        #   L2 same normalized album — different albums may be different masters /
+        #      remasters, so they are kept as independent candidates unless one side
+        #      has no album info at all.
+        def _album_norm(item) -> str:
+            a = re.sub(r'[（(【\[].*?[)）\]】]', '', str(item['_info'].album or ''))
+            return re.sub(r"[\s'+·～~!@#$%^&*_+=`,.?;:\"\u2018\u2019\u201c\u201d]+", '', a).lower()
+
         skipped_reason: dict[str, str] = {}
         if dedupe:
             groups: dict[str, list] = {}
             for k in keys: groups.setdefault(serialized[k]['dedupe_key'], []).append(k)
             for group in groups.values():
-                # two-level pick: quality-tier rank first, then larger payload
-                # (more data == higher real spec within the same tier), then stable id
-                best = min(group, key=lambda k: (
-                    self._rank(serialized[k], quality_pref),
-                    -(serialized[k]['file_size_bytes'] or 0),
-                    k))
+                # L2 split by album within the same-song cluster; entries without an
+                # album join the largest known-album cluster (no evidence to differ).
+                by_album: dict[str, list] = {}
                 for k in group:
-                    if k != best:
-                        skipped_reason[k] = f'同曲已有更优版本({serialized[best]["source"]})'
+                    by_album.setdefault(_album_norm(serialized[k]), []).append(k)
+                if len(by_album) > 1 and '' in by_album:
+                    blanks = by_album.pop('')
+                    if by_album:
+                        biggest = max(by_album.values(), key=len)
+                        biggest.extend(blanks)
+                    else:
+                        by_album[''] = blanks
+                for cluster in by_album.values():
+                    # two-level pick: quality-tier rank first, then larger payload
+                    # (more data == higher real spec within the same tier), then stable id
+                    best = min(cluster, key=lambda k: (
+                        self._rank(serialized[k], quality_pref),
+                        -(serialized[k]['file_size_bytes'] or 0),
+                        k))
+                    for k in cluster:
+                        if k != best:
+                            skipped_reason[k] = f'同曲同专辑已有更优版本({serialized[best]["source"]})'
         items = []
         for idx, k in enumerate(keys):
             s = serialized[k]
