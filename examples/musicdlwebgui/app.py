@@ -657,9 +657,15 @@ class DownloadEngine:
             groups: dict[str, list] = {}
             for k in keys: groups.setdefault(serialized[k]['dedupe_key'], []).append(k)
             for group in groups.values():
-                best = min(group, key=lambda k: (self._rank(serialized[k], quality_pref), k))
+                # two-level pick: quality-tier rank first, then larger payload
+                # (more data == higher real spec within the same tier), then stable id
+                best = min(group, key=lambda k: (
+                    self._rank(serialized[k], quality_pref),
+                    -(serialized[k]['file_size_bytes'] or 0),
+                    k))
                 for k in group:
-                    if k != best: skipped_reason[k] = '同曲已有更优版本'
+                    if k != best:
+                        skipped_reason[k] = f'同曲已有更优版本({serialized[best]["source"]})'
         items = []
         for idx, k in enumerate(keys):
             s = serialized[k]
