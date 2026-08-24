@@ -167,12 +167,19 @@
 
 ---
 
-## 9. 待验证池（新发现，未集成）
+## 9. 待验证池 —— 2026-08-24 全量实测完毕
 
-| 来源 | 端点/仓库 | 备注 |
-|------|-----------|------|
-| GitHub [mkr-0920/music-api-server](https://github.com/mkr-0920/music-api-server) | 网易+QQ 解析 API | 自托管方案备选 |
-| GitHub [ywain-zh/Netease_url](https://github.com/ywain-zh/Netease_url) | 网易云无损解析 | 待测 |
-| GitHub [hubhike/Music_Plugins](https://github.com/hubhike/Music_Plugins)、[flowsasa/MusicFreePlugins](https://github.com/flowsasa/MusicFreePlugins)、[ThomasBy2025/musicfree](https://github.com/ThomasBy2025/musicfree/tree/main/plugins)、[wkndjs/MusicFreePlugin](https://github.com/wkndjs/MusicFreePlugin)、[TZB679/USEFUL-MF-PLUG-INS](https://github.com/TZB679/USEFUL-MF-PLUG-INS/releases) | MusicFree 插件合集 | 端点挖掘富矿 |
-| 沙箱捕获 `zz123.com` / `gequbao.com` / `t.ijanz.cn/mt.php` | 网页型音源 | 需 HTML 解析层 |
-| homeproxy us/hk 组节点 | qobuz 可达性重测 | 需切节点实验 |
+| 待验证项 | 实测结论 |
+|----------|----------|
+| mkr-0920/music-api-server (GitHub) | 标准 EAPI 协议重实现（cloudsearch/detail/lyric/playlist），无新端点；ncm-api 已全覆盖 |
+| ywain-zh/Netease_url (GitHub) | 同上（自托管+扫码登录参考实现） |
+| hubhike/Music_Plugins「小X系列」(xiaogou/xiaomi/xiaoqiu/xiaowo/xiaoyun) | 各平台**官方接口聚合封装**（酷狗歌词/专辑/榜单、网易、QQ 歌词、咪咕搜索），端点已被 musicdl-api 容器/musicdl 全覆盖 |
+| flowsasa / ThomasBy2025 / wkndjs / TZB679 插件集合 | 索引解析后 94 个插件下载沙箱扫描：getMediaSource 层普遍依赖 userVariables 用户凭证或上游失效，**无新增可集成出链端点** |
+| 搜索层新捕获域名 | zz123.com（SPA）、gequbao.com（JS 渲染）、t.ijanz.cn（网易推荐接口，价值低）、api.tyhua.top（DNS 失效）、suno studio-api（401） |
+
+**结论**：两轮扫描（本地 23 + 网络 94 + 官方分析 23）合计 **130 个插件、100 个索引源**穷尽后，除已集成的六源与元力/haitangw/nxinxz 兜底外，**无新增有价值的独立音源端点**。当前六源架构已是该生态下的最优覆盖。
+
+后续增量维护建议：
+1. 监控 [Huibq/keep-alive](https://github.com/Huibq/keep-alive) 与元力公众号的端点更新
+2. 每季度重跑 `.state/probe_endpoints.py` 探测矩阵复核存活状态
+3. musicdl 上游更新时同步 hifi 分支解析链
