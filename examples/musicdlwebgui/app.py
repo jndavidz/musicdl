@@ -351,8 +351,14 @@ QUALITY_PREF_RANKS = {
 # 音质规格表 (每分钟体积 MB/min), 用于分级与假质量清洗:
 #   母带级 24bit/192kHz FLAC : 45-70 | 高解析 24bit/96kHz : 20-35
 #   CD 16bit/44.1kHz FLAC    : 5-10  | HQ 320kbps mp3 : ~2.34 | PQ 128kbps : ~0.9
-LOSSLESS_MBPM_FLOOR = 3.5      # flac below this is a transcode (320k->flac is 2.34)
-MASTER_MBPM = 40               # between hires ceiling(35) and master floor(45)
+# 音质规格表 v2 (每分钟体积 MB/min), calibrated against real downloads (2026-08,
+# 邓丽君《又见炊烟》2:52 across all sources):
+#   netease black-vip Hi-Res remasters land 29-38; qq third-party HR chain peaks
+#   at 40.8; aggregators compress the very same tracks down to <=19 (br<=999);
+#   plain CD sits at 5-10; 320k transcode is 2.34.
+LOSSLESS_MBPM_FLOOR = 4       # lossless below this is a transcode (320k->flac is 2.34)
+HIRES_MBPM = 17               # aggregator compression ceiling (~19) overlaps here
+MASTER_MBPM = 42              # true studio-master territory starts past qq-HR peak (40.8)
 
 
 def calc_mbpm(size_bytes, duration_s):
@@ -378,9 +384,9 @@ def quality_tier(ext, size_bytes=None, duration_s=None) -> str:
         m = calc_mbpm(size_bytes, duration_s)
         if m is None:
             # metadata incomplete -> base tier by ext; big files are likely hi-res
-            return 'hires' if (size_bytes or 0) >= 80 * 1024 * 1024 else 'lossless'
+            return 'hires' if (size_bytes or 0) >= 60 * 1024 * 1024 else 'lossless'
         if m >= MASTER_MBPM: return 'master'
-        if m >= 18: return 'hires'
+        if m >= HIRES_MBPM: return 'hires'
         return 'lossless'
     kbps = estimate_kbps(size_bytes, duration_s)
     if e == 'mp3':
