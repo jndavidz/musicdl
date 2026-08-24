@@ -238,4 +238,11 @@ server/tests/test_smoke.py <url> [--auth K:] # 冒烟 15 项
 | 日期 | 版本 | 变更 |
 |------|------|------|
 | 2026-08-12 | 1.0 | 六源中的四源上线（酷我/QQ/千千/咪咕）+ NAS 部署 + 外网验收 |
-| 2026-08-23 | 1.1 | 元力/haitangw 兜底通道；nmobi 主通道；服务层 API Key + 内网免 key；host 网络部署；网易云 MUSIC_U VIP 无损；酷狗容器背书出链；**通用透传层（全函数就绪）**；Deezer/Apple/TIDAL 等调研结论留档 |
+| 2026-08-23 | 1.1 | 元力/haitangw 兜底通道；nmobi 主通道；服务层 API Key + 内网免 key；host 网络部署；网易云 MUSIC_U VIP 无损；酷狗容器背书出链；**通用透传层（全函数就绪）**；Deezer/Apple/TIDAL 等调研结论留档 |> **GD音乐台（gdstudio）实验性未启用**：官方无签名 API 已验证可用（2026-08-23 全平台普查）：
+> - ✅ 存活通道：netease（真直链）、**joox（FLAC）**、bilibili（m4s 音视频流，B站曲库含大量 Hi-Res 翻唱/OST）
+> - ❌ 已下线：tencent / tidal / qobuz / apple / spotify / ytmusic（400 not supported，因连续封号收缩战线）
+> - ⚠️ kuwo 通道接口通但版权曲空 url
+> - ❌ 硬伤：新付费服务器国内连接超时率约 50%；限频 5min≤50 次
+> - adapter 代码已备（server/adapters/gdstudio.py），服务器稳定后加回 ADAPTER_CLASSES 即启用
+
+
