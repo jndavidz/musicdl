@@ -93,6 +93,76 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 
 单曲元数据 / LRC 歌词。migu 两端点同样需要 `copyright=`。netease lyric 需容器登录态才有完整翻译/罗马音。
 
+### 4.4 七源逐源详述
+
+#### kuwo 酷我
+
+| 项 | 说明 |
+|----|------|
+| id 格式 | 数字 rid（如 `228908`） |
+| 出链通道 | ① `nmobi.kuwo.cn` 明文直出（精确档位不降档 ~150ms）→ ② `mobi.kuwo.cn` 加密版（会静默降档，备胎）→ ③ 第三方链(nxinxz/nobb) → ④ haitangw `/music/kw.php` |
+| 音质上限 | 320k mp3 可靠；flac 需 `ENABLE_LOSSLESS=true`（nmobi br=2000kflac） |
+| 歌词 | newlyric DES 解密 ✅ / h5 lrclist 兜底 |
+
+#### qq QQ音乐
+
+| 项 | 说明 |
+|----|------|
+| id 格式 | songmid 字母数字（如 `0039MnYb0qxYhV`） |
+| 出链通道 | 第三方解析链 vkeys→xcvts→xingmian→317ak→xianyuw→nki→hk0cc→tang→cyapi→xunhuisi→lxmusic→yutangxiaowu→lpz（健康度冷却排序）→ 元力中转 → 3e0 兜底 |
+| 音质上限 | 热门曲 FLAC（vkeys）；冷门 m4a 降级 |
+| 已知边界 | 官方匿名 GetVkey 无 purl；xcvts/xingmian/317ak 已失效但仍在链中（冷却跳过）；元力实为酷我 CDN 换源可能匹配翻唱 |
+
+#### qianqian 千千音乐
+
+| 项 | 说明 |
+|----|------|
+| id 格式 | TSID（如 `T10065400429`） |
+| 出链通道 | `tracklink(TSID, rate)` MD5 签名官方 API；rate=3000(FLAC)→320→128 逐级尝试 |
+| 音质上限 | 真 FLAC（rate=3000） |
+| 已知边界 | 版权库覆盖有限（周杰伦等腾讯系热门曲常无资源）；歌词需从搜索结果的 lyricUrl 获取，by-id 不支持 |
+
+#### migu 咪咕音乐
+
+| 项 | 说明 |
+|----|------|
+| id 格式 | contentId 数字（如 `600902000006889366`） |
+| **by-id 必需** | search 返回的 `extra.copyrightId` 须以 `?copyright=` 回传到 song/url、song/info |
+| 出链通道 | `listen-url/h5/v2.4` 按 toneFlag 逐档尝试（HQ→SQ→ZQ），XOR 异或解密响应；失败回退 listenSong.do 模板 |
+| 音质上限 | HQ=320k mp3 可靠；SQ/ZQ flac URL 匿名可得（freetyst CDN） |
+| 歌词 | strategy/pc/listen 接口或 search_result.lyricUrl |
+
+#### netease 网易云音乐
+
+| 项 | 说明 |
+|----|------|
+| id 格式 | 数字 id（如 `108914`） |
+| 出链通道 | ncm-api 容器 `/song/url/v1?level=` + MUSIC_U cookie 注入 |
+| 音质上限 | exhigh=320k（黑胶 VIP）；lossless/hires 需 `ENABLE_LOSSLESS=true` |
+| 灰色曲目兜底 | 官方无资源时自动走 two-pass unblock mirror（kuwo CDN）+ qijieya 流 + oiapi |
+| 已知边界 | 腾讯系版权曲全量灰化（含周杰伦）；MUSIC_U 长期有效但非永久，失效后需重新获取并更新 NAS compose |
+
+#### kugou 酷狗音乐
+
+| 项 | 说明 |
+|----|------|
+| id 格式 | FileHash 32 位大写十六进制（如 `B3A52A7A958BF0AED0EBFBA2E9A818B7`） |
+| 出链通道 | kugou-api 容器 `/song/url?hash=&quality=&cookie=`（cookie 从 :3002/kugou 动态拉取自动续期） |
+| 音质上限 | quality=320 → 320k mp3；quality=flac → 真 FLAC（账户 VIP 权益，URL 含 us{userid} 标识） |
+| VIP 运维 | POST `/kugou/vip/day`（领畅听）、`POST /kugou/vip/upgrade`（升概念）、GET `/kugou/vip/status`（svip/tvip 到期时间+本月领取明细）——见 §5.2 |
+| 已知边界 | search 走匿名 songsearch（稳定）；VIP 曲目依赖账户权益有效期 |
+
+#### bilibili 哔哩哔哩
+
+| 项 | 说明 |
+|----|------|
+| id 格式 | BV 号（如 `BV15g411X7vj`） |
+| 出链通道 | DASH 提取：`playurl?fnval=16` → dash.audio/flac/dolby 按 quality 选轨 → bilivideo CDN 直链 |
+| 凭证 | finger/spi 动态 buvid3/4（免登录绕风控，进程缓存 7 天）；可选 `BILI_SESSDATA` 解锁 Hi-Res/Dolby |
+| 音质映射 | low→64k、standard→132k、auto/high/320k→192k AAC；super/flac/hires→Hi-Res/Dolby 声道（gated） |
+| **headers 必须** | CDN 校验 Referer：客户端须携带 `Referer: www.bilibili.com` + UA，否则 403 |
+| 已知边界 | 匿名音质封顶 192k AAC；UGC 内容库（翻唱/改编/现场），与版权曲库互补而非替代 |
+
 ---
 
 ## 5. 透传端点（酷狗/网易云全量能力）
