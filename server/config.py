@@ -59,11 +59,12 @@ class Settings:
     kugou_api_base: str = os.getenv('KUGOU_API_BASE', 'http://10.10.10.2:3001')
     kugou_cookie_url: str = os.getenv('KUGOU_COOKIE_URL', 'http://10.10.10.2:3002/kugou')
     netease_cookie: str = os.getenv('NETEASE_COOKIE', '').strip()
+    bili_sessdata: str = os.getenv('BILI_SESSDATA', '').strip()  # bilibili account cookie; unlocks Hi-Res/Dolby audio tracks
     cookie_refresh_s: int = int(os.getenv('COOKIE_REFRESH_S', '1800'))
 
 
 settings = Settings()
-SOURCES = ('kuwo', 'qq', 'qianqian', 'migu', 'netease', 'kugou')
+SOURCES = ('kuwo', 'qq', 'qianqian', 'migu', 'netease', 'kugou', 'bilibili')
 
 QUALITY_ALIASES = {
     'low': '128k', 'standard': '128k', 'high': '320k', 'super': '320k',

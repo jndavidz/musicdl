@@ -6,11 +6,13 @@ from .qianqian import QianqianAdapter
 from .migu import MiguAdapter
 from .netease import NeteaseAdapter
 from .kugou import KugouAdapter
+from .bilibili import BilibiliAdapter
 from .deezer import DeezerAdapter
 
 # deezer adapter kept as experimental: its third-party resolver sites are currently
 # unreachable (2026-08-23) and the official stream is encrypted — see docs/API-REFERENCE.md
 # To re-enable: add 'deezer': DeezerAdapter back and append 'deezer' to config.SOURCES.
-ADAPTER_CLASSES = {'kuwo': KuwoAdapter, 'qq': QQAdapter, 'qianqian': QianqianAdapter, 'migu': MiguAdapter, 'netease': NeteaseAdapter, 'kugou': KugouAdapter}
+ADAPTER_CLASSES = {'kuwo': KuwoAdapter, 'qq': QQAdapter, 'qianqian': QianqianAdapter, 'migu': MiguAdapter, 'netease': NeteaseAdapter, 'kugou': KugouAdapter,
+                                   'bilibili': BilibiliAdapter}
 
 __all__ = ['SourceAdapter', 'AdapterError', 'KuwoAdapter', 'QQAdapter', 'QianqianAdapter', 'MiguAdapter', 'DeezerAdapter', 'ADAPTER_CLASSES']
