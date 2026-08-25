@@ -62,9 +62,9 @@ X-API-Key: <API_KEY>
 
 ---
 
-## 4. 解析端点（六源）
+## 4. 解析端点（七源）
 
-`{source}` ∈ `kuwo` | `qq` | `qianqian` | `migu` | `netease` | `kugou`
+`{source}` ∈ `kuwo` | `qq` | `qianqian` | `migu` | `netease` | `kugou` | `bilibili`
 
 ### 4.1 GET /{source}/search — 搜索（仅元数据）
 
@@ -85,7 +85,8 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 | quality | — | auto/320k/128k/flac/hires（low/standard/high/super 自动归一化，封顶 320k） |
 | copyright | — | 仅 migu |
 
-成功 data 字段：`{url, ext, bitrate_kbps(如实), size_bytes, duration_s, verified, parser, elapsed_ms}`。
+成功 data 字段：`{url, ext, bitrate_kbps(如实), size_bytes, duration_s, verified, parser, elapsed_ms, headers}`。
+**bilibili 源的 `headers` 必须传给播放器**（CDN 校验 Referer，缺了 403）：`{"Referer": "www.bilibili.com", "User-Agent": "..."}`。其他源 headers 通常为空。
 **音质路由**：auto/320k 封顶 320kbps（netease 经 MUSIC_U 可出 exhigh=320k）；flac/hires 受 `ENABLE_LOSSLESS` 门控（默认 false→403）。各源通道：酷我 nmobi 直出→mobi.s→第三方链；QQ 第三方链(vkeys…)→元力→3e0；千千 tracklink；咪咕 listen-url(HQ/SQ)；网易 ncm-api(level)；酷狗 kugou-api(quality)。
 
 ### 4.3 GET /{source}/song/info · GET /{source}/lyric
@@ -238,6 +239,7 @@ server/tests/test_smoke.py <url> [--auth K:] # 冒烟 15 项
 | 日期 | 版本 | 变更 |
 |------|------|------|
 | 2026-08-12 | 1.0 | 六源中的四源上线（酷我/QQ/千千/咪咕）+ NAS 部署 + 外网验收 |
+| 2026-08-24 | 1.2 | +bilibili 第七源（DASH 提取，匿名 192k，SESSDATA 可解锁 Hi-Res）；+MUSIC_U VIP 无损；+VIP 运维端点；+全量透传层；+内网免 key |
 | 2026-08-23 | 1.1 | 元力/haitangw 兜底通道；nmobi 主通道；服务层 API Key + 内网免 key；host 网络部署；网易云 MUSIC_U VIP 无损；酷狗容器背书出链；**通用透传层（全函数就绪）**；Deezer/Apple/TIDAL 等调研结论留档 |> **GD音乐台（gdstudio）实验性未启用**：官方无签名 API 已验证可用（2026-08-23 全平台普查）：
 > - ✅ 存活通道：netease（真直链）、**joox（FLAC）**、bilibili（m4s 音视频流，B站曲库含大量 Hi-Res 翻唱/OST）
 > - ❌ 已下线：tencent / tidal / qobuz / apple / spotify / ytmusic（400 not supported，因连续封号收缩战线）
