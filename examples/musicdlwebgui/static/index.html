@@ -293,6 +293,11 @@ footer{text-align:center;color:var(--tx3);font-size:11.5px;margin-top:26px}
   <div class="drawer-hd">设置 <button class="icon-btn" id="btnCloseDrawer">✕</button></div>
   <div class="drawer-bd">
     <div class="f-group">
+      <span class="f-label">酷我 VIP Cookie（可选，启用 4000kflac 母带加密档 + 自动解密）</span>
+      <input class="f-input" id="cfgKwCookie" placeholder="kw_token=xxx; csrf=xxx（留空=关闭VIP路径）">
+      <div class="f-hint">填入后「酷我·直连」将优先请求 4000kflac 加密母带并自动 QMC 解密为 flac；清空即关闭。</div>
+    </div>
+    <div class="f-group">
       <span class="f-label">kwqq-API 服务（六源后端）</span>
       <div class="f-static" style="display:flex;align-items:center;gap:8px">
         <span id="apiDot" style="font-size:11px">…</span>
@@ -773,6 +778,7 @@ function openDrawer(){
   $('#cfgDir').textContent = c.download_dir;
   $('#cfgPath').textContent = c.config_path;
   $('#cfgApiBase').textContent = c.kwqq_api_base || '(未配置)';
+  $('#cfgKwCookie').value = c.kuwo_vip_cookie || '';
   $('#apiDot').innerHTML = c.kwqq_api_online
     ? '<span style="color:var(--ok)">● 在线</span>' : '<span style="color:var(--err)">○ 离线</span>';
   $('#cfgTemplate').value = c.naming_template;
@@ -800,6 +806,7 @@ $('#btnSaveCfg').onclick = async () => {
     naming_template: $('#cfgTemplate').value.trim(),
     save_lrc_sidecar: $('#cfgLrc').checked,
     quality_guard: $('#cfgGuard').checked,
+    kuwo_vip_cookie: $('#cfgKwCookie').value.trim(),
     concurrency: +$('#cfgConcurrency').value,
     platform_defaults: Object.fromEntries(state.platforms.filter(p=>p.on).map(p=>[p.id,p.limit])),
   };

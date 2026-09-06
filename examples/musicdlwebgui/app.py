@@ -55,6 +55,8 @@ DEFAULT_CONFIG = {
     'save_lrc_sidecar': False,
     'kwqq_api_base': 'http://10.10.10.2:3003',
     'kwqq_api_key': '',
+    # 酷我 VIP cookie (kw_token=xxx; csrf=xxx) — 启用 4000kflac 加密母带档 + QMC 解密
+    'kuwo_vip_cookie': '',
     # aggregator subsource selection, e.g. {"tunehub": ["netease", "qq"], "gdstudio": ["netease"]}
     'platform_subsources': {},
     'api_key': '',
@@ -211,6 +213,63 @@ def get_client(platform_id: str):
         _clients[platform_id] = client
         return client
 
+
+'''---------------- kuwo VIP encrypted-master path (cookie-gated + QMC decrypt) ----------------'''
+
+_qmc_decryptor_cls = None
+
+
+def _load_qmc_decryptor():
+    """lazy-load scripts/kuwo_qmc_decryptor.py (no package __init__ there)."""
+    global _qmc_decryptor_cls
+    if _qmc_decryptor_cls is None:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'kuwo_qmc_decryptor', _REPO_ROOT / 'scripts' / 'kuwo_qmc_decryptor.py')
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _qmc_decryptor_cls = mod.KuwoQmcDecryptor
+    return _qmc_decryptor_cls
+
+
+def kuwo_vip_enabled() -> bool:
+    return bool(SETTINGS.get('kuwo_vip_cookie'))
+
+
+def kuwo_vip_resolve(song_id: str):
+    """VIP cookie path: mobi.s convert_url2 @ 4000kflac -> encrypted mgg url + ekey."""
+    cookie = SETTINGS.get('kuwo_vip_cookie') or ''
+    if not cookie: return None
+    try:
+        from musicdl.modules.utils.kuwoutils import KuwoMusicClientUtils
+        client = get_client('kuwo_direct')
+        query = ('user=0&corp=kuwo&source=kwplayer_ar_5.1.0.0_B_jiakong_vh.apk'
+                 '&p2p=1&type=convert_url2&sig=0&br=4000kflac&format=4000kflac&rid=' + str(song_id))
+        resp = client.get(
+            'http://mobi.kuwo.cn/mobi.s?f=kuwo&q=' + KuwoMusicClientUtils.encryptquery(query),
+            headers={'user-agent': 'okhttp/3.10.0', 'Cookie': cookie}, timeout=20)
+        text = resp.text or ''
+        fields = {}
+        for kv in text.replace('\n', '&').split('&'):
+            if '=' in kv:
+                k, v = kv.split('=', 1)
+                fields[k.strip()] = v.strip()
+        url = fields.get('url') or ''
+        ekey = fields.get('ekey') or fields.get('kgekey') or ''
+        if url.startswith('http') and ekey:
+            return {'url': url, 'ekey': ekey}
+        return None
+    except Exception:
+        return None
+
+
+def qmc_decrypt_file(encrypted_path: str, ekey: str) -> str:
+    """decrypt in place next to the source file; returns the plaintext path (.flac)."""
+    src = Path(encrypted_path)
+    out = src.with_suffix('.flac')
+    _load_qmc_decryptor().decrypt(str(src), ekey, str(out))
+    src.unlink(missing_ok=True)
+    return str(out)
 
 '''---------------- kwqq-api client (six sources backed by the NAS service) ----------------'''
 
@@ -549,8 +608,9 @@ def serialize_item(key: str, info, platform_id: str) -> dict:
     size_bytes = info.file_size_bytes or parse_size_bytes(info.file_size)
     duration_s = info.duration_s or parse_duration_seconds(info.duration)
     ext_l = str(info.ext or '').lower().lstrip('.')
-    if ext_l in ENCRYPTED_EXTS:
-        info.with_valid_download_url = False   # unusable source -> shown as 失效 in UI
+    # DRM/encrypted containers are unusable once downloaded -> surfaced as 失效.
+    # computed (never assigned): SongInfo.with_valid_download_url is a read-only property.
+    usable = bool(info.with_valid_download_url) and ext_l not in ENCRYPTED_EXTS
     tier = quality_tier(ext_l, size_bytes, duration_s)
     is_api = PLATFORM_MAP.get(platform_id, {}).get('group') == 'api'
     # kwqq-api metadata search carries no ext/size; the real format is only known after
@@ -587,7 +647,7 @@ def serialize_item(key: str, info, platform_id: str) -> dict:
         'platform_tag': platform_tag,
         'suspect': suspect, 'suspect_reason': suspect_reason,
         'root_source': '' if is_api else str(getattr(info, 'root_source', '') or ''),
-        'has_url': bool(info.with_valid_download_url), 'dedupe_key': normkey(info),
+        'has_url': usable, 'dedupe_key': normkey(info),
     }
 
 
@@ -747,7 +807,19 @@ class DownloadEngine:
         try:
             info = copy.deepcopy(item.pop('_info'))
             is_api = getattr(info, 'api_id', None) is not None
+            vip_ekey = None
             if not is_api and not info.with_valid_download_url: raise RuntimeError('下载链接无效或已过期，请重新搜索')
+            # kuwo VIP: encrypted 4000kflac master tier (cookie-gated); falls back to
+            # the normal anonymous chain below when the VIP resolve yields nothing.
+            if getattr(info, 'source', '') == 'kuwo_direct' and kuwo_vip_enabled() and info.identifier:
+                # kuwo VIP: encrypted 4000kflac master tier; falls back to the normal
+                # anonymous chain below when the VIP resolve yields nothing.
+                vip = kuwo_vip_resolve(str(info.identifier))
+                if vip:
+                    info.download_url = vip['url']; info.ext = 'mgg'
+                    vip_ekey = vip['ekey']
+                    info.with_valid_download_url = True
+                    item['platform_tag'] = 'VIP·4000kflac'
             if is_api:
                 # two-stage: resolve a fresh direct url (quality per preference), then fetch via generic downloader
                 api_resolve_into(info, task['quality_pref'])
@@ -765,6 +837,10 @@ class DownloadEngine:
             downloaded = []
             client = get_lib_downloader() if is_api else get_client(pid)
             client._download(info, {}, downloaded, stub, progress_id, True)
+            if vip_ekey and downloaded:
+                decrypted = qmc_decrypt_file(str(downloaded[0].save_path), vip_ekey)
+                downloaded[0]._save_path = downloaded[0].save_path = decrypted
+                item['platform_tag'] = 'VIP·母带解密'
             if not downloaded: raise RuntimeError('下载失败（链接可能已过期），请重新搜索后再试')
             final = downloaded[0]
             real_spec = ''
@@ -928,6 +1004,7 @@ class ConfigBody(BaseModel):
     api_key: str | None = None
     platform_defaults: dict | None = None
     platform_subsources: dict | None = None
+    kuwo_vip_cookie: str | None = None
 
 
 @app.get('/healthz')
@@ -946,6 +1023,7 @@ async def get_config():
         'mp3_size_floors_mb': {'320k': 5, '128k': 2},
         'has_api_key': bool(SETTINGS.get('api_key')), 'config_path': str(CONFIG_PATH),
         'kwqq_api_base': SETTINGS['kwqq_api_base'], 'kwqq_api_online': api_online(),
+        'kuwo_vip_enabled': kuwo_vip_enabled(),
         'platform_defaults': dict(SETTINGS['platform_defaults']),
         'platform_subsources': dict(SETTINGS.get('platform_subsources') or {}),
         'platforms': [{**p, 'default_limit': SETTINGS['platform_defaults'].get(p['id'], 5)} for p in PLATFORMS],
@@ -975,6 +1053,8 @@ async def put_config(body: ConfigBody):
         SETTINGS['platform_defaults'] = {k: max(1, min(int(v), SETTINGS['max_limit_per_source']))
                                          for k, v in body.platform_defaults.items() if k in PLATFORM_MAP}
         changed.append('platform_defaults')
+    if body.kuwo_vip_cookie is not None:
+        SETTINGS['kuwo_vip_cookie'] = body.kuwo_vip_cookie.strip(); changed.append('kuwo_vip_cookie')
     if body.platform_subsources is not None:
         clean_subs = {}
         for pid, subs in (body.platform_subsources or {}).items():
