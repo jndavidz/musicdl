@@ -11,22 +11,20 @@ import re
 import copy
 import time
 import html
-import json
 import random
 import base64
 import warnings
 import requests
-from functools import reduce
 from bs4 import BeautifulSoup
 from contextlib import suppress
-from typing import TYPE_CHECKING
-from .base import BaseMusicClient
+from typing_extensions import Unpack
 from pathvalidate import sanitize_filepath
 from ..utils.hosts import KUWO_MUSIC_HOSTS
 from ..utils.kuwoutils import KuwoMusicClientUtils
 from urllib.parse import urlencode, urlparse, parse_qs
+from .base import BaseMusicClient, BaseMusicClientKwargs
 from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn, MofNCompleteColumn
-from ..utils import optionalimport, legalizestring, resp2json, usesearchheaderscookies, safeextractfromdict, useparseheaderscookies, obtainhostname, hostmatchessuffix, cleanlrc, SongInfo, AudioLinkTester, IOUtils, SongInfoUtils
+from ..utils import legalizestring, resp2json, usesearchheaderscookies, safeextractfromdict, useparseheaderscookies, obtainhostname, hostmatchessuffix, cleanlrc, SongInfo, AudioLinkTester, IOUtils, SongInfoUtils
 warnings.filterwarnings('ignore')
 
 
@@ -35,7 +33,7 @@ class KuwoMusicClient(BaseMusicClient):
     source = 'KuwoMusicClient'
     MUSIC_QUALITIES = [(22000, 'flac'), (320, 'mp3')] # playable flac and mp3 formats
     ENC_MUSIC_QUALITIES = [(4000, '4000kflac'), (2000, '2000kflac'), (320, '320kmp3'), (192, '192kmp3'), (128, '128kmp3')] # encrypted mgg format
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Unpack[BaseMusicClientKwargs]):
         super(KuwoMusicClient, self).__init__(**kwargs)
         self.default_search_headers = {'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'}
         self.default_download_headers = {'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36'}
@@ -56,36 +54,18 @@ class KuwoMusicClient(BaseMusicClient):
             count += page_size
         # return
         return search_urls
-    '''_parsewithcggapi'''
-    def _parsewithcggapi(self, search_result: dict, request_overrides: dict = None):
-        # init
-        curl_cffi, request_overrides, song_id, song_info = optionalimport('curl_cffi'), request_overrides or {}, str(search_result.get('MUSICRID') or search_result.get('musicrid')).removeprefix('MUSIC_'), SongInfo(source=self.source)
-        if TYPE_CHECKING and curl_cffi is not None: import curl_cffi as curl_cffi
-        headers = {"user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",}
-        # parse
-        with suppress(Exception): (resp := curl_cffi.requests.get(f"https://kw-api.cenguigui.cn/?id={song_id}&type=song&level=lossless&format=json", timeout=10, impersonate="chrome131", verify=False, **request_overrides)).raise_for_status()
-        if not locals().get('resp') or not hasattr(locals().get('resp'), 'text'): (resp := requests.get(f"https://kw-api.cenguigui.cn/?id={song_id}&type=song&level=lossless&format=json", timeout=10, headers=headers, verify=False, **request_overrides)).raise_for_status()
-        if not (download_url := safeextractfromdict((download_result := resp2json(resp=resp)), ['data', 'url'], '')) or not str(download_url).startswith('http'): return song_info
-        duration_in_secs = int(float(safeextractfromdict(download_result, ['data', 'duration'], 0) or 0))
-        download_url_status: dict = self.audio_link_tester.test(url=download_url, request_overrides=request_overrides, renew_session=True)
-        song_info = SongInfo(
-            raw_data={'search': search_result, 'download': download_result, 'lyric': {}}, source=self.source, song_name=legalizestring(safeextractfromdict(download_result, ['data', 'name'], None)), singers=legalizestring(safeextractfromdict(download_result, ['data', 'artist'], None)), album=legalizestring(safeextractfromdict(download_result, ['data', 'album'], None)), ext=download_url_status['ext'], file_size_bytes=download_url_status['file_size_bytes'], 
-            file_size=download_url_status['file_size'], identifier=song_id, duration_s=duration_in_secs, duration=SongInfoUtils.seconds2hms(duration_in_secs), lyric=cleanlrc(safeextractfromdict(download_result, ['data', 'lyric'], '')), cover_url=safeextractfromdict(download_result, ['data', 'pic'], None), download_url=download_url_status['download_url'], download_url_status=download_url_status, 
-        )
-        # return
-        return song_info
     '''_parsewithccwuapi'''
     def _parsewithccwuapi(self, search_result: dict, request_overrides: dict = None):
         # init
         request_overrides, song_id, song_info = request_overrides or {}, str(search_result.get('MUSICRID') or search_result.get('musicrid')).removeprefix('MUSIC_'), SongInfo(source=self.source)
-        if not (search_result.get('SONGNAME') or search_result.get('name') or search_result.get('songName')): search_result.update(self._getsongmetainfo(song_id=song_id, request_overrides=request_overrides))
         # parse
-        download_url = f'http://kw.006lp.ccwu.cc:7119/api/song?id={song_id}&level=jymaster&stream=1'
-        duration_in_secs = int(float(search_result.get('DURATION') or search_result.get('duration') or 0))
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36", 'Cookie': 'techaro.lol-anubis-auth-e2249c5d=eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhY3Rpb24iOiJDSEFMTEVOR0UiLCJjaGFsbGVuZ2UiOiIwMWEwNThkMS00MGQwLTcyZTctOTNiYi1iMjBiMGM0ODljZGMiLCJleHAiOjE3ODg4MDEzMDcsImlhdCI6MTc4ODE5NjUwNywibWV0aG9kIjoiZmFzdCIsIm5iZiI6MTc4ODE5NjQ0NywicG9saWN5UnVsZSI6ImY4OTkwNTM3ZWFlM2NiMzQiLCJyZXN0cmljdGlvbiI6IjUzNWY2ZTEyMTY4MDc2NDE2MDY0M2I1ZmQxZWE5MTVmMTQ5ZDZkNDIyZWRiZjkwOTgxMDEwZThlYTM3ODFmZTcifQ.WXfJ8LP6AGuye5FBGlIgszz52VK0ypLKu_34EtYu61l04XADvXC62iuR-asSuKhWiSY_HXjitpC0TpIu3SfvDQ'}
+        (resp := requests.get(f'http://kw.006lp.ccwu.cc:7119/api/song?id={song_id}&level=lossless&stream=0', timeout=10, headers=headers, verify=False, **request_overrides)).raise_for_status()
+        download_url = safeextractfromdict((download_result := resp2json(resp=resp)), ['data', 'url'], None)
         download_url_status: dict = self.audio_link_tester.test(url=download_url, request_overrides=request_overrides, renew_session=True)
         song_info = SongInfo(
-            raw_data={'search': search_result, 'download': {}, 'lyric': {}}, source=self.source, song_name=legalizestring(search_result.get('SONGNAME') or search_result.get('name') or search_result.get('songName')), singers=legalizestring(search_result.get('ARTIST') or search_result.get('artist')), album=legalizestring(search_result.get('ALBUM') or search_result.get('album')), ext=download_url_status['ext'], 
-            file_size_bytes=download_url_status['file_size_bytes'], file_size=download_url_status['file_size'], identifier=song_id, duration_s=duration_in_secs, duration=SongInfoUtils.seconds2hms(duration_in_secs), lyric=None, cover_url=search_result.get('hts_MVPIC') or search_result.get('albumpic') or search_result.get('pic'), download_url=download_url_status['download_url'], download_url_status=download_url_status, 
+            raw_data={'search': search_result, 'download': download_result, 'lyric': {}}, source=self.source, song_name=legalizestring(safeextractfromdict(download_result, ['data', 'name'], None)), singers=legalizestring(safeextractfromdict(download_result, ['data', 'artist'], None)), album=legalizestring(safeextractfromdict(download_result, ['data', 'album'], None)), ext=download_url_status['ext'], file_size_bytes=download_url_status['file_size_bytes'], file_size=download_url_status['file_size'], 
+            identifier=song_id, duration_s=safeextractfromdict(download_result, ['data', 'duration'], None), duration=SongInfoUtils.seconds2hms(safeextractfromdict(download_result, ['data', 'duration'], None)), lyric=cleanlrc(safeextractfromdict(download_result, ['data', 'lyrics'], None) or 'NULL'), cover_url=safeextractfromdict(download_result, ['data', 'pic'], None), download_url=download_url_status['download_url'], download_url_status=download_url_status, 
         )
         # return
         return song_info
@@ -111,24 +91,6 @@ class KuwoMusicClient(BaseMusicClient):
         song_info = SongInfo(source=self.source, raw_data={'search': search_result, 'download': download_result, 'lyric': {}}) if (song_info.file_size_bytes * 8 < 320000 * song_info.duration_s) else song_info
         # return
         return song_info
-    '''_parsewithguyueiapi'''
-    def _parsewithguyueiapi(self, search_result: dict, request_overrides: dict = None):
-        # init
-        request_overrides, song_id = request_overrides or {}, str(search_result.get('MUSICRID') or search_result.get('musicrid')).removeprefix('MUSIC_')
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36'}
-        decrypt_final_url_func = lambda encrypted_str, key=b"nsh": (lambda dec_bytes: "http" + "".join(chr(dec_bytes[i] ^ key[(i - 1) % len(key)]) for i in range(1, len(dec_bytes))).rstrip("\x00"))(base64.b64decode((lambda s: s + "=" * ((4 - len(s) % 4) % 4))("A" + encrypted_str[9:])))
-        if not (search_result.get('SONGNAME') or search_result.get('name') or search_result.get('songName')): search_result.update(self._getsongmetainfo(song_id=song_id, request_overrides=request_overrides))
-        # parse
-        (resp := requests.get(f'https://www.guyuei.com/music/kw.php?', params={'url': f'https://www.kuwo.cn/play_detail/{song_id}', 'yinzhi': 'hns'}, headers=headers, timeout=10, **request_overrides)).raise_for_status()
-        if not (download_url := (download_result := resp2json(resp=resp))['url']) or not str(download_url := decrypt_final_url_func(download_url)).startswith('http'): return SongInfo(source=self.source)
-        duration_in_secs = int(float(search_result.get('DURATION') or search_result.get('duration') or 0))
-        download_url_status: dict = self.audio_link_tester.test(url=download_url, request_overrides=request_overrides, renew_session=True)
-        song_info = SongInfo(
-            raw_data={'search': search_result, 'download': download_result, 'lyric': {}}, source=self.source, song_name=legalizestring(search_result.get('SONGNAME') or search_result.get('name') or search_result.get('songName')), singers=legalizestring(search_result.get('ARTIST') or search_result.get('artist')), album=legalizestring(search_result.get('ALBUM') or search_result.get('album')), ext=download_url_status['ext'], 
-            file_size_bytes=download_url_status['file_size_bytes'], file_size=download_url_status['file_size'], identifier=song_id, duration_s=duration_in_secs, duration=SongInfoUtils.seconds2hms(duration_in_secs), lyric=None, cover_url=search_result.get('hts_MVPIC') or search_result.get('albumpic') or search_result.get('pic'), download_url=download_url_status['download_url'], download_url_status=download_url_status, 
-        )
-        # return
-        return song_info
     '''_parsewithlxmusicapi'''
     def _parsewithlxmusicapi(self, search_result: dict, request_overrides: dict = None):
         # init
@@ -137,6 +99,23 @@ class KuwoMusicClient(BaseMusicClient):
         if not (search_result.get('SONGNAME') or search_result.get('name') or search_result.get('songName')): search_result.update(self._getsongmetainfo(song_id=song_id, request_overrides=request_overrides))
         # parse
         (resp := requests.get(f"https://lxmusicapi.onrender.com/url/kw/{song_id}/flac", headers=headers, timeout=10, **request_overrides)).raise_for_status()
+        if not (download_url := (download_result := resp2json(resp=resp))['url']) or not str(download_url).startswith('http'): return SongInfo(source=self.source)
+        duration_in_secs = int(float(search_result.get('DURATION') or search_result.get('duration') or 0))
+        download_url_status: dict = self.audio_link_tester.test(url=download_url, request_overrides=request_overrides, renew_session=True)
+        song_info = SongInfo(
+            raw_data={'search': search_result, 'download': download_result, 'lyric': {}}, source=self.source, song_name=legalizestring(search_result.get('SONGNAME') or search_result.get('name') or search_result.get('songName')), singers=legalizestring(search_result.get('ARTIST') or search_result.get('artist')), album=legalizestring(search_result.get('ALBUM') or search_result.get('album')), ext=download_url_status['ext'], 
+            file_size_bytes=download_url_status['file_size_bytes'], file_size=download_url_status['file_size'], identifier=song_id, duration_s=duration_in_secs, duration=SongInfoUtils.seconds2hms(duration_in_secs), lyric=None, cover_url=search_result.get('hts_MVPIC') or search_result.get('albumpic') or search_result.get('pic'), download_url=download_url_status['download_url'], download_url_status=download_url_status, 
+        )
+        # return
+        return song_info
+    '''_parsewithxcloudvapi'''
+    def _parsewithxcloudvapi(self, search_result: dict, request_overrides: dict = None):
+        # init
+        request_overrides, song_id = request_overrides or {}, str(search_result.get('MUSICRID') or search_result.get('musicrid')).removeprefix('MUSIC_')
+        headers = {'Origin': 'https://music.xcloudv.top', 'Referer': 'https://music.xcloudv.top/', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36'}
+        if not (search_result.get('SONGNAME') or search_result.get('name') or search_result.get('songName')): search_result.update(self._getsongmetainfo(song_id=song_id, request_overrides=request_overrides))
+        # parse
+        (resp := requests.post("https://music.xcloudv.top/php/kuwo_backup_source.php", data={"action": "url", "songid": song_id, "yz": "5"}, headers=headers, timeout=10, **request_overrides)).raise_for_status()
         if not (download_url := (download_result := resp2json(resp=resp))['url']) or not str(download_url).startswith('http'): return SongInfo(source=self.source)
         duration_in_secs = int(float(search_result.get('DURATION') or search_result.get('duration') or 0))
         download_url_status: dict = self.audio_link_tester.test(url=download_url, request_overrides=request_overrides, renew_session=True)
@@ -229,29 +208,12 @@ class KuwoMusicClient(BaseMusicClient):
         )
         # return
         return song_info
-    '''_parsewithnobbapi'''
-    def _parsewithnobbapi(self, search_result: dict, request_overrides: dict = None):
-        # init
-        request_overrides, song_id = request_overrides or {}, str(search_result.get('MUSICRID') or search_result.get('musicrid')).removeprefix('MUSIC_')
-        if not (search_result.get('SONGNAME') or search_result.get('name') or search_result.get('songName')): search_result.update(self._getsongmetainfo(song_id=song_id, request_overrides=request_overrides))
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36",}
-        # parse
-        (resp := requests.get(f"https://api.nobb.cc/kuwo.music/index.php?id={song_id}", headers=headers, timeout=10, **request_overrides)).raise_for_status()
-        if not (download_url := (download_result := resp2json(resp=resp))['url']) or not str(download_url).startswith('http'): return SongInfo(source=self.source)
-        duration_in_secs = int(float(search_result.get('DURATION') or search_result.get('duration') or 0))
-        download_url_status: dict = self.audio_link_tester.test(url=download_url, request_overrides=request_overrides, renew_session=True)
-        song_info = SongInfo(
-            raw_data={'search': search_result, 'download': download_result, 'lyric': {}}, source=self.source, song_name=legalizestring(search_result.get('SONGNAME') or search_result.get('name') or search_result.get('songName')), singers=legalizestring(search_result.get('ARTIST') or search_result.get('artist')), album=legalizestring(search_result.get('ALBUM') or search_result.get('album')), ext=download_url_status['ext'], 
-            file_size_bytes=download_url_status['file_size_bytes'], file_size=download_url_status['file_size'], identifier=song_id, duration_s=duration_in_secs, duration=SongInfoUtils.seconds2hms(duration_in_secs), lyric=None, cover_url=search_result.get('hts_MVPIC') or search_result.get('albumpic') or search_result.get('pic'), download_url=download_url_status['download_url'], download_url_status=download_url_status, 
-        )
-        # return
-        return song_info
     '''_parsewiththirdpartapis'''
     def _parsewiththirdpartapis(self, search_result: dict, request_overrides: dict = None):
         if self.default_cookies or request_overrides.get('cookies'): return SongInfo(source=self.source)
-        l1_parser_funcs = [self._parsewithliuyunidcapi, self._parsewithccwuapi, ][:1] # svip
-        l2_parser_funcs = [self._parsewithcggapi, self._parsewithlxmusicapi, self._parsewithnxinxzapi, self._parsewithhaitangwapi, self._parsewithnobbapi, ] # vip
-        l3_parser_funcs = [self._parsewithguyueiapi, self._parsewithyyy001api, self._parsewithgdstudioapi, ][:0] # invalid or unstable accounts
+        l1_parser_funcs = [self._parsewithccwuapi, ][:0] # svip
+        l2_parser_funcs = [self._parsewithnxinxzapi, self._parsewithhaitangwapi, self._parsewithxcloudvapi, ] # vip
+        l3_parser_funcs = [self._parsewithlxmusicapi, self._parsewithyyy001api, self._parsewithgdstudioapi, ][:0] # invalid or unstable accounts
         for parser_func in (l1_parser_funcs + l2_parser_funcs + l3_parser_funcs):
             song_info_flac = SongInfo(source=self.source, raw_data={'search': search_result, 'download': {}, 'lyric': {}})
             with suppress(Exception): song_info_flac = parser_func(search_result, request_overrides)
