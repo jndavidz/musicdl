@@ -3,7 +3,9 @@ services:
     build: ./src
     image: musicdl-api:latest
     container_name: musicdl-api
-    network_mode: host            # real client IPs for LAN api-key bypass; binds 3003 directly
+    network_mode: host
+    volumes:
+      - /volume2/dev/data/api-secrets/musicAPI:/app/secrets:ro            # real client IPs for LAN api-key bypass; binds 3003 directly
     restart: unless-stopped
     environment:
       - KWQQ_PORT=3003

@@ -57,8 +57,8 @@ class Settings:
     # sibling api containers on the NAS (their long-lived logins power netease/kugou resolution)
     ncm_api_base: str = os.getenv('NCM_API_BASE', 'http://10.10.10.2:3000')
     kugou_api_base: str = os.getenv('KUGOU_API_BASE', 'http://10.10.10.2:3001')
-    kugou_cookie_url: str = os.getenv('KUGOU_COOKIE_URL', 'http://10.10.10.2:3002/kugou')
-    netease_cookie: str = os.getenv('NETEASE_COOKIE', '').strip()
+    kugou_token_file: str = os.getenv('KUGOU_TOKEN_FILE', '/app/secrets/kugou_token.json')
+    netease_cookie_file: str = os.getenv('NETEASE_COOKIE_FILE', '/app/secrets/netease_cookie.txt')
     bili_sessdata: str = os.getenv('BILI_SESSDATA', '').strip()  # bilibili account cookie; unlocks Hi-Res/Dolby audio tracks
     cookie_refresh_s: int = int(os.getenv('COOKIE_REFRESH_S', '1800'))
 

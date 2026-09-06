@@ -5,6 +5,7 @@ Function:
     the cookie-server (http://10.10.10.2:3002/kugou, refreshed by kugou_refresh.sh).
 '''
 import time
+import json
 import urllib.request
 import urllib.parse
 import gzip
@@ -44,13 +45,16 @@ class KugouAdapter(SourceAdapter):
         return KugouMusicClient(search_size_per_source=self.settings.search_size_max,
                                 disable_print=True, work_dir='/tmp/kwqq-kugou', max_retries=2)
 
-    '''account cookie with TTL cache (cookie-server value is rotated by kugou_refresh.sh)'''
+    '''account cookie assembled from kugou_token.json (TTL cached, file re-read on expiry)'''
     def _get_cookie(self) -> str:
         cache = getattr(self, '_cookie_cache', None)
         if cache is None:
             self._cookie_cache = {'v': '', 'at': 0}
         if not self._cookie_cache['v'] or time.time() - self._cookie_cache['at'] > self.settings.cookie_refresh_s:
-            self._cookie_cache.update({'v': raw_get(self.settings.kugou_cookie_url).strip(), 'at': time.time()})
+            with open(self.settings.kugou_token_file) as fp:
+                tok = json.load(fp)
+            ck = f"token={tok.get('token','')};userid={tok.get('userid','')};dfid={tok.get('dfid','')}"
+            self._cookie_cache.update({'v': ck, 'at': time.time()})
         return self._cookie_cache['v']
 
     '''raw GET against the sibling kugou-api container with cookie attached'''
