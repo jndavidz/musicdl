@@ -111,7 +111,7 @@
 
 | 凭证 | 值摘要 | 续期 | 存放 |
 |------|--------|------|------|
-| **概念版账户 cookie** | `token=1abab2e2...;userid=1835587518;dfid=3MJbO42lMtze40ZaEp3LNfQW;t1=d202ad20...` | kugou_refresh.sh cron 自动刷新 | cookie-server(:3002/kugou) + `/volume2/dev/data/api-secrets/kugou_token.json` |
+| **概念版账户 cookie** | `token=1abab2e2...;userid=1835587518;dfid=3MJbO42lMtze40ZaEp3LNfQW;t1=d202ad20...` | kugou_refresh.sh cron 自动刷新 | cookie-server(:3002/kugou) + `/volume2/dev/data/api-secrets/musicAPI/kugou_token.json` |
 
 ---
 
@@ -141,7 +141,7 @@
 | # | 凭证 | 类型 | 值摘要 | 有效期 | 存放 | 备注 |
 |---|------|------|--------|--------|------|------|
 | 1 | **API_KEY** | 服务认证 | `B2oyLl83BvhminZF_8eKEYaOdFm12vDn` | 长期 | NAS compose `API_KEY`；插件侧 Basic base64(key:) | 与 kugou.js/netease.js 插件同一把 |
-| 2 | **MUSIC_U**（网易云黑胶） | 账户 cookie | `000AB7821244...A10F9346...B78CE`（完整值存 compose NETEASE_COOKIE） | 长期（账号「皮皮熙熙_jn」vipType=110） | NAS compose；⚠️ 已入会话记录建议轮换 | 网易云 VIP 无损的关键 |
+| 2 | **MUSIC_U**（网易云黑胶） | 账户 cookie | `000AB7821244...A10F9346...B78CE`（完整值存 compose NETEASE_COOKIE） | 长期（账号「皮皮熙熙_jn」vipType=110） | NAS compose 已弃用 → 现为 `musicAPI/netease_cookie.txt`（volume 挂载直读）；⚠️ 已入会话记录建议轮换 | 网易云 VIP 无损的关键 |
 | 3 | **酷狗概念版 cookie** | 账户 cookie 三项+ t1 | `token=1abab2e2...;userid=1835587518;dfid=3MJbO42l...;t1=...` | 自动续期 | cookie-server(:3002/kugou) ← kugou_refresh.sh ← kugou_token.json | musicdl-api 动态拉取 |
 | 4 | Lucky WebUI | 管理员 | zxsadmin / Ll_296302 | ⚠️ 已入会话记录建议改密 | 路由器 WebUI | kwqq 反代规则重建时需要 |
 | 5 | lx-music 签名对 | SCRIPT_MD5+SECRET_KEY | `1888f986...` / `JaJ?a7...` | ❌ v4 协议已弃（服务端强制 v5） | ETC 文档留档 | 不可用 |

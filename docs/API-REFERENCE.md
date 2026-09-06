@@ -233,8 +233,8 @@ GET `/kugou/vip/status` 响应 data 结构：
 | `TRUSTED_NETWORKS` | `127/8,10.10.10.0/24,172.16/12,192.168/16` | 内网免 key 来源 |
 | `UNTRUSTED_HOSTS` | `10.10.10.1` | 强制要求 key（Lucky 入口） |
 | `ENABLE_LOSSLESS` | false | flac/hires 档总开关 |
-| `NETEASE_COOKIE` | 空 | `MUSIC_U=xxx`，网易云 VIP 凭证 |
-| `KUGOU_COOKIE_URL` | `http://10.10.10.2:3002/kugou` | 酷狗账户 cookie 动态源 |
+| `NETEASE_COOKIE_FILE` | `/volume2/dev/data/api-secrets/musicAPI/netease_cookie.txt` | 网易云 MUSIC_U 凭证文件（volume 挂载直读，更新文件即生效） |
+| `KUGOU_TOKEN_FILE` | `/volume2/dev/data/api-secrets/musicAPI/kugou_token.json` | 酷狗账户 token 文件（volume 挂载直读） |
 | `NCM_API_BASE` / `KUGOU_API_BASE` | `:3000` / `:3001` | 两个兄弟容器地址 |
 | `COOKIE_REFRESH_S` | 1800 | 酷狗 cookie 本地缓存时长 |
 | `HARD_TIMEOUT_S` | 35 | 默认硬超时（deezer 类慢通道单独 150s） |
