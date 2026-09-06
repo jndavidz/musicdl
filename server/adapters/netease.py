@@ -107,7 +107,15 @@ class NeteaseAdapter(SourceAdapter):
         if result is None:
             result = await _run_pass(unblock=True)   # pass 2: grey-track unblock mirrors
         if result is None:
-            raise AdapterError(404, f'no playable url at levels={levels} (official + unblock exhausted)')
+            # pass 3: ffapi 128k last-resort (official CDN, anonymous — survives VIP expiry)
+            ff = await self.run(self._via_ffapi, song_id)
+            if ff and ff.get('url'):
+                return {'id': str(song_id), 'source': self.source_key, 'quality': q,
+                        'url': ff['url'], 'ext': 'mp3', 'size_bytes': None, 'bitrate_kbps': 128,
+                        'duration_s': None, 'cover': None, 'verified': False, 'headers': {},
+                        'parser': 'ffapi.relay',
+                        'elapsed_ms': round((time.perf_counter() - t0) * 1000), 'cached': False}
+            raise AdapterError(404, f'no playable url at levels={levels} (official + unblock + ffapi exhausted)')
         return result
 
     async def song_info(self, song_id: str) -> dict:
@@ -120,6 +128,16 @@ class NeteaseAdapter(SourceAdapter):
                 'album': (s.get('al') or {}).get('name'),
                 'duration_s': int(float(s.get('dt') or 0)) // 1000 or None,
                 'cover': (s.get('al') or {}).get('picUrl'), 'raw': {}}
+
+    '''ffapi 128k last-resort (official CDN, anonymous, works after VIP expiry)'''
+    def _via_ffapi(self, song_id: str) -> dict:
+        import requests as _rq
+        r = _rq.get(f'https://ffapi.cn/int/v1/netease_url?id={song_id}&level=standard',
+                    headers={'User-Agent': 'Mozilla/5.0 Chrome/131'}, timeout=12)
+        d = r.json()
+        url = (d.get('data') or d).get('url') or ''
+        if not str(url).startswith('http'): return None
+        return {'url': url, 'parser': 'ffapi.relay'}
 
     async def lyric(self, song_id: str) -> str:
         data = await self.run(self._api_get, '/lyric', {'id': str(song_id)})

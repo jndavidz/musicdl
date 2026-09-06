@@ -110,6 +110,22 @@ class KuwoAdapter(SourceAdapter):
             'cached': False,
         }
 
+    '''xcloudv relay (upstream v2.13.10 new source, POST protocol, verified FLAC 2000k)'''
+    def _via_xcloudv(self, song_id: str):
+        import requests as _rq
+        try:
+            r = _rq.post('https://music.xcloudv.top/php/kuwo_backup_source.php',
+                         data={'action': 'url', 'songid': song_id, 'yz': '5'},
+                         headers={'User-Agent': 'Mozilla/5.0 Chrome/131'}, timeout=15)
+            d = r.json()
+            url = d.get('raw') or ''
+            if not (d.get('success') and str(url).startswith('http')): return None
+            status = self.client.audio_link_tester.test(url)
+            if not status.get('ok'): return None
+            return {'url': status.get('download_url') or url, 'ext': status.get('ext')}
+        except Exception:
+            return None
+
     '''quality routing per plan §3.4 (revised by stage-0 spike + 2026-08-12 endpoint probe):
        - flac/hires: nmobi 2000kflac first (ENABLE_LOSSLESS gate), then third-party chain
        - auto/320k/128k: nmobi plain API first (no silent downgrade), then mobi.s encrypted
@@ -166,6 +182,15 @@ class KuwoAdapter(SourceAdapter):
                     'headers': {}, 'parser': 'haitangw.relay',
                     'elapsed_ms': round((time.perf_counter() - t0) * 1000), 'cached': False,
                 }
+        # tier-2c: xcloudv relay (upstream v2.13.10 new source, flac-capable)
+        xcv = await self.run(self._via_xcloudv, song_id)
+        if xcv:
+            return {'id': str(song_id), 'source': self.source_key, 'quality': q,
+                    'url': xcv['url'], 'ext': xcv.get('ext') or 'flac',
+                    'size_bytes': None, 'bitrate_kbps': 2000 if 'flac' in str(xcv.get('url', '')).lower() else 320,
+                    'duration_s': None, 'cover': None, 'verified': True, 'headers': {},
+                    'parser': 'xcloudv.relay',
+                    'elapsed_ms': round((time.perf_counter() - t0) * 1000), 'cached': False}
         if best_direct:
             parser = 'nmobi.degraded' if best_direct is direct else 'mobi.s.degraded'
             return await self._finalize_direct(song_id, q, best_direct, t0, parser)
