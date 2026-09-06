@@ -130,7 +130,7 @@ PLATFORMS = [
     {'id': 'fivesong', 'client': 'FiveSongMusicClient',  'name': '5Song无损音乐', 'short': '5Song',  'group': 'other'},
     {'id': 'buguyy',   'client': 'BuguyyMusicClient',    'name': '布谷音乐',      'short': '布谷',   'group': 'other'},
     {'id': 'htqyy',    'client': 'HTQYYMusicClient',     'name': '好听轻音乐网',  'short': '好听',   'group': 'other'},
-    {'id': 'zhuolin',  'client': 'ZhuolinMusicClient',   'name': '音乐解析下载网','short': '解析网', 'group': 'other'},
+    {'id': 'yinyueku', 'client': 'YinyuekuMusicClient',  'name': '音乐库网',      'short': '音乐库', 'group': 'other'},
     {'id': 'itingwa',  'client': 'ITingWaMusicClient',   'name': '听蛙纯音乐网',  'short': '听蛙',   'group': 'other'},
     {'id': 'liziyy',   'client': 'LiziYYMusicClient',    'name': '梨子音乐',      'short': '梨子',   'group': 'other'},
     {'id': 'mgmp3',    'client': 'MGMP3MusicClient',     'name': '木瓜音乐',      'short': '木瓜',   'group': 'other'},
