@@ -38,7 +38,8 @@ def blocked_segment(source: str, path: str):
 
 def fetch(source: str, method: str, path: str, query: dict = None,
           body: bytes = None, content_type: str = 'application/json',
-          kugou_cookie_fn=None, timeout: int = 30) -> tuple:
+          kugou_cookie_fn=None, timeout: int = 30,
+          netease_cookie: str = '') -> tuple:
     '''returns (upstream_status, content_type, body_bytes) verbatim.
        Never raises on HTTP errors — upstream 4xx/5xx are passed through.'''
     bad = blocked_segment(source, path)
@@ -55,9 +56,10 @@ def fetch(source: str, method: str, path: str, query: dict = None,
     if cfg['kugou_cookie'] and kugou_cookie_fn:
         sep = '&' if '?' in url else '?'
         url += f"{sep}cookie={urllib.parse.quote(kugou_cookie_fn())}"
-    elif cfg['netease_cookie'] and settings.netease_cookie:
+    elif cfg['netease_cookie'] and (netease_cookie or settings.netease_cookie):
+        mu = netease_cookie or settings.netease_cookie
         sep = '&' if '?' in url else '?'
-        url += f"{sep}cookie={urllib.parse.quote(settings.netease_cookie)}"
+        url += f'{sep}cookie={urllib.parse.quote(mu)}'
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
