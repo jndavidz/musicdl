@@ -483,6 +483,22 @@ QUALITY_PREF_RANKS = {
 #   at 40.8; aggregators compress the very same tracks down to <=19 (br<=999);
 #   plain CD sits at 5-10; 320k transcode is 2.34.
 LOSSLESS_MBPM_FLOOR = 4       # lossless below this is a transcode (320k->flac is 2.34)
+
+# 显式档位映射（QUALITY-MATRIX §2 可信标注 -> tier）：kuwo br 档 / kugou quality /
+# netease granted level 均已实测与交付规格一致。咪咕 toneFlag(SQ/ZQ) 实测假无损、
+# 千千 rate 逐曲不定 —— 两者的标注不可信，不进此表，走 MB/min 推算。
+PLATFORM_TAG_TIER = {
+    # kuwo (nmobi br 档, 匿名直出)
+    '20900kmflac': 'master', 'master': 'master',
+    'surround51': 'surround51', '20501kmflac': 'surround51',
+    '2000kflac': 'lossless', 'flac': 'lossless',
+    '320kmp3': '320k', '320': '320k', '128kmp3': '128k', '128': '128k',
+    # kugou (quality 档, 概念版 cookie)
+    'high': 'hires',
+    # netease (granted level, 88VIP)
+    'jymaster': 'master', 'jyeffect': 'hires', 'sky': 'hires', 'dolby': 'hires',
+    'hires': 'hires', 'lossless': 'lossless', 'exhigh': '320k', 'standard': '128k',
+}
 HIRES_MBPM = 17               # aggregator compression ceiling (~19) overlaps here
 MASTER_MBPM = 42              # true studio-master territory starts past qq-HR peak (40.8)
 
@@ -623,8 +639,11 @@ def serialize_item(key: str, info, platform_id: str) -> dict:
     duration_s = info.duration_s or parse_duration_seconds(info.duration)
     ext_l = str(info.ext or '').lower().lstrip('.')
     # DRM/encrypted containers are unusable once downloaded -> surfaced as 失效.
+    # Exception: kuwo zhenpin mflac/mgg ships with ekey and auto-decrypts on download.
     # computed (never assigned): SongInfo.with_valid_download_url is a read-only property.
-    usable = bool(info.with_valid_download_url) and ext_l not in ENCRYPTED_EXTS
+    has_ekey = bool((getattr(info, 'api_extra', {}) or {}).get('ekey'))
+    decryptable = ext_l in {'mflac', 'mgg'} and has_ekey
+    usable = bool(info.with_valid_download_url) and (ext_l not in ENCRYPTED_EXTS or decryptable)
     tier = quality_tier(ext_l, size_bytes, duration_s)
     is_api = PLATFORM_MAP.get(platform_id, {}).get('group') == 'api'
     # kwqq-api metadata search carries no ext/size; the real format is only known after
@@ -636,6 +655,12 @@ def serialize_item(key: str, info, platform_id: str) -> dict:
         size_bytes = int(getattr(info, 'stock_size_bytes', 0) or 0) or None
     platform_tag = str(getattr(info, 'platform_tag', '') or '')
     api_src = str(getattr(info, 'api_source', '') or '')
+    # 显式档位优先（QUALITY-MATRIX §2）：kuwo/kugou/netease 的标注已实测与交付规格
+    # 一致（含酷我加密档——解密后规格由显式档位声明，下载钩子自动 QMC 解密）。
+    # MB/min 推算仅作无显式标注时的兜底；标注与体积矛盾时以 tooltip 提示。
+    explicit_tier = PLATFORM_TAG_TIER.get(platform_tag) if is_api else None
+    if explicit_tier:
+        tier = explicit_tier
     suspect, suspect_reason = False, ''
     if tier != 'pending':
         # (1) 平台标注前置: 可信源的有损档标注 + 无损文件 = 转码铁证, 先于体积推算
@@ -860,7 +885,12 @@ class DownloadEngine:
             if vip_ekey and downloaded:
                 decrypted = qmc_decrypt_file(str(downloaded[0].save_path), vip_ekey)
                 downloaded[0]._save_path = downloaded[0].save_path = decrypted
-                item['platform_tag'] = ('VIP·母带解密' if 'VIP' in str(item.get('platform_tag') or '') else '臻品·已解密')
+                was_tag = str(item.get('platform_tag') or '')
+                item['platform_tag'] = ('VIP·母带解密' if 'VIP' in was_tag else '臻品·已解密')
+                # 解密后按通道定档: zhenpin 匿名 20900kmflac=master(192k/24bit 实测)、
+                # 20501kmflac=surround51(6ch)；VIP cookie 4000kflac 采样率未实测, 保守 hires
+                item['quality_tier'] = ('hires' if 'VIP' in was_tag else
+                                        ('surround51' if 'surround51' in was_tag else 'master'))
             if not downloaded: raise RuntimeError('下载失败（链接可能已过期），请重新搜索后再试')
             final = downloaded[0]
             real_spec = ''
