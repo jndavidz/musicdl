@@ -60,7 +60,7 @@ uv run python examples/musicdlwebgui/app.py            # 默认 http://127.0.0.1
    musicdl 的镜像解析器以 cookie 身份做门控 —— netease 带非默认 cookie 会整段跳过镜像解析、
    酷我带任意 cookie 会禁用第三方链。直连通道的准母带产出(37.8)正是靠零 cookie 的镜像 API。
 2. **不要把库内公共 MUSIC_U 提取进 ncm-api 的 NETEASE_COOKIE**：该共享号已失效(实测 profile=None)，
-   写入只会把 ncm-api 从你的 88VIP(jyeffect 21.4 + 灰色解灰) 降级为匿名 320k。88VIP cookie
+   写入只会把 ncm-api 从你的 88VIP(jyeffect 21.4 + 官方在架高解析) 降级为匿名 320k。88VIP cookie
    应始终保留在 compose 的 `NETEASE_COOKIE`。
 3. **不要给 kwqq-api 容器关闭 `ENABLE_LOSSLESS` 后仍期待无损**：webgui 会自动回退 320k 并标注，
    但想要真无损请保持 `true`。
@@ -98,7 +98,7 @@ uv run python examples/musicdlwebgui/app.py            # 默认 http://127.0.0.1
 |------|------------|---------------------|:---:|:---:|
 | **网易云·直连** (库内置公共 MUSIC_U) | 库八级档 jymaster→standard | **37.8**（《晴天》175.8MB flac）| ✓ 准母带 | ✗ 未命中 |
 | QQ 音乐 (l1 SVIP 解析器组) | HR Hi-Res | **40.8**（《又见炊烟》104MB）| ✓ 贴母带线 | ✗ 差一线 |
-| 网易云·自有 (88VIP 黑胶, ncm-api) | jymaster→hires 尝试链 + 灰色解灰(match→酷我镜像) | **jyeffect 21.4** / 灰色曲目解灰 flac 视镜像 | ✓ | ✗ 需SVIP |
+| 网易云·自有 (88VIP 黑胶, ncm-api) | jymaster→hires 官方尝试链 + ffapi 128k 保底（解灰镜像按策略移除）| **jyeffect 21.4** / 灰色曲目 ffapi 128k | ✓ | ✗ 需SVIP |
 | 酷我 (API 匿名) | **master=20900kmflac**（2026-09-07 匿名打通）| **~39.8-41.7（192k/24bit 母带实下）**| ✓ | ✅ 母带实命中（按规格即母带）|
 | 酷狗·自有 (概念版非VIP) | quality=**high** | flac ~11.8（16bit CD）；**high 实测 24bit/44.1k FLAC**（2026-09-07 头字节确认）；viper 三档 status=2（需超级VIP） | ✓（24bit 入门）| ✗ viper 需超级VIP+付费包+解密器 |
 | **酷狗·直连** (库第三方API含蝰蛇档) | viper_tape/viper_clear/flac | flac 7.3（蝰蛇系上游未交付可用文件）| ✗ | ✗ |

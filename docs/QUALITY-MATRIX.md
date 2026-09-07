@@ -257,6 +257,54 @@
 
 ---
 
+## 6. webgui 徽章映射（分档命名 → 各平台实际产出）
+
+webgui 的质量徽章按本册口径显示。判定优先级：
+
+1. **显式档位标注优先**：`PLATFORM_TAG_TIER`（kuwo br 档 / kugou quality / 网易 granted level，
+   均已实测与交付规格一致）→ 直接定档；
+2. **MB/min 推算兜底**：无可信标注时（直连源/不可信标注源）；
+3. 标注与体积矛盾 → tooltip 提示，不静默。
+
+### 6.1 徽章命名总表
+
+| 徽章 | tier | 判定含义 |
+|---|---|---|
+| 母带·24b | `master` | 24bit 且 ≥96kHz（酷我臻品音质实测 192k/24bit）|
+| 全景声·5.1 | `surround51` | 6ch FLAC（酷我 zpga501，独立于三档）|
+| 高解析 | `hires` | 位深 24bit 级（酷狗 `high` 24bit/44.1k、网易 jyeffect 21.4 MB/min）|
+| CD·FLAC | `lossless` | 16bit/44.1k 无损 |
+| HQ·320K / PQ·128K | `320k` / `128k` | 有损 |
+| 待解析·SQ/HR | `pending` | QQ/网易搜索期库存标注（预解析后归位）|
+
+### 6.2 平台产出 → 徽章对照（当前实际行为）
+
+| 平台 | 无损产出 | 落入徽章 | 判定依据 |
+|---|---|---|---|
+| 酷我(API) | 20900kmflac 解密 → 192k/24bit | **母带·24b** | 显式 br 档 ✓ |
+| 酷我(API) | 20501kmflac 解密 → 6ch | **全景声·5.1** | 显式 br 档 ✓ |
+| 酷我(API) | 2000kflac → 44.1k/16bit | CD·FLAC | 显式 br 档 ✓ |
+| 网易·自有 | jymaster 命中（守卫 ≥17 MB/min） | **母带·24b** | 授予 level ✓ |
+| 网易·自有 | jyeffect（88VIP 权益顶点 95.9MB） | **高解析** | 授予 level ✓ |
+| 网易·自有 灰色曲目 | ffapi 128k 保底（解灰镜像已按策略移除） | PQ·128K | 实测 ext |
+| 酷狗·自有 | `high` → 24bit/44.1k | **高解析** | 显式 quality ✓ |
+| 酷狗·自有 | `flac` → 16bit/44.1k | CD·FLAC | 显式 quality ✓ |
+| QQ(API) | 第三方链 HR（178MB/39.8） | **高解析** | MB/min（无显式标注）|
+| 千千(API) | rate=3000 真 FLAC | CD·FLAC | 保守（标注不可信、逐曲不定）|
+| 咪咕(API) | SQ 请求实际交付 | **HQ·320K**（假无损降档，如实标注）| ext 实测 |
+| 网易云·直连 | 镜像 API flac（翻唱/重制长尾）| CD·FLAC / 高解析 | MB/min（无标注保守）|
+| 酷狗/酷我·直连 | 库链 flac | CD·FLAC | MB/min |
+| QQ·直连 | 库链 HR | **高解析** | MB/min |
+
+> 直连源（库链）无显式标注，一律 MB/min 保守判级 —— 同规格文件可能比带标注的
+> API 源低一档显示（信息缺失下的保守选择），文件本体规格以实下为准（坑位 10）。
+
+### 6.3 加密交付物豁免
+
+酷我 master/surround51 的交付形态是 **mflac/mgg + ekey**（加密容器）——序列化层对
+带 ekey 的加密格式**豁免「失效」标注**（它们是可解密交付物，下载钩子自动 QMC 解密），
+队列完成后按通道重定档（master / surround51；VIP cookie 4000kflac 采样率未实测，保守 hires）。
+
 ## 5. 变更记录
 
 | 日期 | 变更 |
