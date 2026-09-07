@@ -57,8 +57,9 @@
 
 | 端点 | 音质 | 鉴权 | 状态 | 集成 |
 |------|------|------|------|------|
-| **`nmobi.kuwo.cn/mobi.s?f=web&type=convert_url_with_sign&rid=&br=`** | 精确档位（320kmp3→真320；2000kflac→无损） | 无 | ✅ 主力直出 ~120ms 不降档 | 🟢 |
+| **`nmobi.kuwo.cn/mobi.s?f=web&type=convert_url_with_sign&rid=&br=`** | 精确档位（320kmp3→真320；2000kflac→无损；**20900kmflac→192k/24bit母带+ekey**；**20501kmflac→44.1k/16bit/6ch全景声+ekey**） | 无 | ✅ 主力直出 ~120ms 不降档；臻品档 2026-09-07 探明（详见 `KUWO-ZHENPIN-PROBE.md`） | 🟢 |
 | `mobi.kuwo.cn/mobi.s?f=kuwo&q=<des加密>`（convert_url2） | 会静默降档 | 无（内置密钥 ylzsxkwm） | ✅ 备胎 | 🟢 |
+| `musicpay.kuwo.cn/music.pay?newver=3&op=query&action=play&ids=` | 臻品档位元数据（N_MINFO/audio[]/token） | 无 | ✅ 2026-09-07 探明：匿名报价单，op 必须 `query`、id 参数必须 `ids` | 🟢 |
 | `music.nxinxz.com/kw.php?id=&level=` | lossless/exhigh/standard | 无 | ✅ 稳定 | 🟢 第三方链 |
 | **`music.haitangw.cc/music/kw.php?id=&level=`**（⚠️ 插件内置 /music1/ 为死路径） | lossless=FLAC / exhigh=320k | 无 | ✅ 2026-08-23 修正路径后可用 | 🟢 兜底 |
 | `kw-api.cenguigui.cn/?id=&level=` | lossless | 无 | ⚠️ 连接失败（间歇） | 🟢 musicdl l2 |
@@ -69,6 +70,23 @@
 ### 2.2 酷我官方匿名说明
 
 `mobi.s convert_url2` 密钥 `SECRET_KEY_SONG=b"ylzsxkwm"` 为防爬非认证；歌词双通道（newlyric DES / openapi）均匿名可用。
+
+### 2.3 臻品（ZhenPin）匿名直出与鉴权结论
+
+2026-09-07 全量探测（详见 `KUWO-ZHENPIN-PROBE.md`）：
+
+| br 参数 | 规格 | ekey | 可用 |
+|---|---|---|---|
+| `20900kmflac` | FLAC 192kHz/24bit/2ch（母带） | ✓ | ✅ |
+| `20501kmflac` | FLAC 44.1kHz/16bit/6ch（5.1 全景声） | ✓ | ✅ |
+| `20201kmflac` | FLAC 44.1kHz/16bit/2ch | ✓ | ✅（与 2000kflac 同级，未单列）|
+| `24000kmgg` | Ogg Vorbis 12ch（7.1.4） | ✓ | ⚠️ 可下但 12ch Ogg |
+| `192kmp3`/`22000kmgg`/`23000kflac`/`25000kmmp4`/`10000kflac` | — | — | ❌ 降档/无效 |
+
+- **鉴权三层结论**：①客户端 UI 闸门（LSPosed hook 的打击面）②music.pay 报价接口（匿名可查，`policy=vip/st=102` 只是标记）③**nmobi 直链下发不做身份校验** —— musicdl 直打第③层，`user=0` 全档通过，无需会员/Cookie/APK
+- **命名陷阱**：臻品档必须带 `m` 前缀（`20900kflac` 漏 m 会静默降 128k）
+- **URL 时效**：数分钟级，必须现取现下（二段式天然契合）
+- 落地：`server/adapters/kuwo.py` `ZHENPIN_BR` + `parser=nmobi.zhenpin`；响应新增 `ekey` 字段，下载侧 `KuwoQmcDecryptor` 解密为 flac
 
 ---
 
@@ -102,16 +120,22 @@
 
 | 通道 | 音质 | 鉴权 | 状态 | 集成 |
 |------|------|------|------|------|
-| **kugou-api 容器 `/song/url?hash=&quality=`**（cookie-server 自动注入） | quality=flac → 真 FLAC（URL 含 us1835587518 账户标识 = VIP 权益） | 🔐 cookie-server | ✅ 实测 flac | 🟢 主通道 |
+| **kugou-api 容器 `/song/url?hash=&quality=`**（cookie-server 自动注入） | quality=flac/high → 真 FLAC（URL 含 us1835587518 账户标识）；**viper_tape/viper_clear/viper_atmos 返回 status=2 priv=0 auth_through=[]（vip_type=0 非会员被挡）** | 🔐 cookie-server | ✅ 实测 flac/high；❌ viper 需 VIP | 🟢 主通道（仅 flac/high/320/128） |
+| kugou-api `/song/url?quality=viper_*` 实测（2026-09-07，真实概念版 cookie） | 三档蝰蛇均 `status=2` 无 URL；`priv_status=0`；**蝰蛇音质需超级VIP**（酷狗会员中心明示），伪装 vip_type=1/vip_token 无效（服务端校验） | 🔐 超级VIP | ❌ 当前账户非VIP | 不可达 |
 | kugou-api `/search`（需 cookie，error_code 152=无 cookie） | — | cookie-server | ✅ | 🟢 |
 | haitangw `/kgqq/kg.php?type=json&id={FileHash}&level=hires\|lossless\|exhigh` | 多档 | 无 | ✅（musicdl l1） | 🟢 musicdl 链 |
+| **咸鱼 API 开放平台**（`_parsewithxianyuwapi`，上游 v2.13.10 新增） | **FLAC 真无损**（周杰伦《晴天》52.83MB 实测） | 无 | ✅ musicdl 酷狗无损主力 | 🟢 musicdl 链 |
+| tom / jbsou / 90svip | 128/320 mp3 | 无 | ✅ | 🟢 musicdl 链 |
+| 317ak / haitangw（UnboundLocalError） | — | — | ⚠️ 上游代码缺陷，特定响应触发 | 🟢 musicdl 链 |
+| baka.plus (br=2000) / cocodownloader | 超时/失败 | — | ⚠️ 不稳定 | 🟢 musicdl 链 |
+| 官方 /v5/url（蝰蛇 viper_tape/clear/atmos + flac） | 蝰蛇三档 | 🔐 需蝰蛇母带权益 + 完整登录态 | ❌ 当前凭证 status=2 付费墙（musicdl data 空；kugou-api 容器同拒） | — |
 | cocodownloader / baka.plus / 317ak / xuanluoge / tom / jbsou / 90svip | — | 各异 | 🧪 musicdl 链内 | 🟢 musicdl 链 |
 
 ### 4.1 酷狗凭证登记
 
 | 凭证 | 值摘要 | 续期 | 存放 |
 |------|--------|------|------|
-| **概念版账户 cookie** | `token=1abab2e2...;userid=1835587518;dfid=3MJbO42lMtze40ZaEp3LNfQW;t1=d202ad20...` | kugou_refresh.sh cron 自动刷新 | cookie-server(:3002/kugou) + `/volume2/dev/data/api-secrets/musicAPI/kugou_token.json` |
+| **概念版账户 cookie** | `token=1abab2e2...;userid=1835587518;dfid=3MJbO42lMtze40ZaEp3LNfQW;t1=d202ad20...;vip_token=;vip_type=0`（2026-09-07 实测：cookie-server 返回 `vip_type=0` = 非VIP，故 viper 三档不可达） | kugou_refresh.sh cron 自动刷新 | cookie-server(:3002/kugou) + `/volume2/dev/data/api-secrets/musicAPI/kugou_token.json` |
 
 ---
 
@@ -142,7 +166,7 @@
 |---|------|------|--------|--------|------|------|
 | 1 | **API_KEY** | 服务认证 | `B2oyLl83BvhminZF_8eKEYaOdFm12vDn` | 长期 | NAS compose `API_KEY`；插件侧 Basic base64(key:) | 与 kugou.js/netease.js 插件同一把 |
 | 2 | **MUSIC_U**（网易云黑胶） | 账户 cookie | `000AB7821244...A10F9346...B78CE`（完整值存 compose NETEASE_COOKIE） | 长期（账号「皮皮熙熙_jn」vipType=110） | NAS compose 已弃用 → 现为 `musicAPI/netease_cookie.txt`（volume 挂载直读）；⚠️ 已入会话记录建议轮换 | 网易云 VIP 无损的关键 |
-| 3 | **酷狗概念版 cookie** | 账户 cookie 三项+ t1 | `token=1abab2e2...;userid=1835587518;dfid=3MJbO42l...;t1=...` | 自动续期 | cookie-server(:3002/kugou) ← kugou_refresh.sh ← kugou_token.json | musicdl-api 动态拉取 |
+| 3 | **酷狗概念版 cookie** | 账户 cookie 三项+ t1（实测 `vip_type=0` 非VIP） | `token=1abab2e2...;userid=1835587518;dfid=3MJbO42l...;t1=...` | 自动续期 | cookie-server(:3002/kugou) ← kugou_refresh.sh ← kugou_token.json | musicdl-api 动态拉取；**viper 蝰蛇档需超级VIP，当前不可达** |
 | 4 | Lucky WebUI | 管理员 | zxsadmin / Ll_296302 | ⚠️ 已入会话记录建议改密 | 路由器 WebUI | kwqq 反代规则重建时需要 |
 | 5 | lx-music 签名对 | SCRIPT_MD5+SECRET_KEY | `1888f986...` / `JaJ?a7...` | ❌ v4 协议已弃（服务端强制 v5） | ETC 文档留档 | 不可用 |
 | 6 | musicdl 内置免费账户池 | antrahoshi 等 base64 账号 | 见 deezer.py/qobuz.py 源码 | 未知 | musicdl 源码 | Deezer/Qobuz 启用时相关 |
