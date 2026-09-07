@@ -11,7 +11,7 @@ from .kugou import requests_get
 
 class NeteaseAdapter(SourceAdapter):
     source_key = 'netease'
-    LEVELS = {'128k': 'standard', '320k': 'exhigh', 'auto': 'exhigh',
+    LEVELS = {'128k': 'standard', '192k': 'higher', '320k': 'exhigh', 'auto': 'exhigh',
               'flac': 'lossless', 'hires': 'hires'}
 
     def _build_client(self):
@@ -60,7 +60,7 @@ class NeteaseAdapter(SourceAdapter):
                 'cover': (raw.get('al') or {}).get('picUrl'), 'source': 'netease'}
 
     async def song_url(self, song_id: str, quality: str) -> dict:
-        q = quality if quality in {'auto', '320k', '128k', 'flac', 'hires'} else 'auto'
+        q = quality if quality in {'auto', '320k', '192k', '128k', 'flac', 'hires'} else 'auto'
         t0 = time.perf_counter()
         # single-pass: official catalog ladder only (no cross-platform unblock
         # mirrors — per policy, netease songs must come from netease CDNs).

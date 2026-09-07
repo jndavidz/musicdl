@@ -47,14 +47,14 @@ Makefile 的 `install`/`publish` 是上游 PyPI 发布遗留；本仓库的发�
 
 违反以下任何一条会静默破坏解析链或行为契约：
 
-- **免 Cookie**：server 路径下酷我/QQ 客户端零 Cookie 构造——客户端一旦带上 Cookie，第三方解析链 `_parsewiththirdpartapis` 直接返回空结果。设计缘由见 PLAN §2.2。
+- **Cookie 与第三方解析链互斥（事实）**：musicdl 源客户端一旦带上 Cookie，第三方解析链 `_parsewiththirdpartapis` 直接返回空结果——因此酷我/QQ 走**零 Cookie** 官方匿名端点；而酷狗是**反向**：`kugou-api` 容器必须自带概念版账户 Cookie（cookie-server 注入）才出得来链接。设计缘由见 PLAN §2.2。
 - **二段式**：API 搜索只发单次元数据请求（走 `SourceAdapter.search_items`）；直链解析只发生在按 id 调 `/song/url` 时。整条 API 路径绕开 `client.search()`——它会给每条候选逐一解析直链。
 - **音质封顶且如实**：无损档默认关闭（`ENABLE_LOSSLESS=false`，插件场景封顶 320k）；响应永远返回实测的 `ext` / `bitrate_kbps` / `size_bytes`，降级了就报降级值。
 - **并发模型**：阻塞调用一律经 `asyncio.to_thread` + 每源信号量 + 硬超时（即 `SourceAdapter.run`）；进程内 TTL 缓存的一致性依赖 `workers=1`。
 
 ## 新增一个解析源（adapter）
 
-1. 写 `server/adapters/<key>.py`：继承 `SourceAdapter`，实现 `_build_client()`（优先复用 `musicdl/modules/sources/` 里现成的客户端类，零 Cookie）、`_search_raw()`、`item_from_raw()`、`song_url()`。
+1. 写 `server/adapters/<key>.py`：继承 `SourceAdapter`，实现 `_build_client()`（优先复用 `musicdl/modules/sources/` 里现成的客户端类；走第三方链的源须零 Cookie）、`_search_raw()`、`item_from_raw()`、`song_url()`。
 2. 注册两处：`server/adapters/__init__.py` 的 `ADAPTER_CLASSES` + `server/config.py` 的 `SOURCES` 元组。
 3. 给 `server/tests/test_smoke.py` 补该源的检查项。
 4. 文档三处：`docs/API-REFERENCE.md` 补源与接口说明；新引入的上游端点登记进 `docs/MUSIC-SOURCES-REGISTRY.md` 台账；有取舍决策时记入 PLAN。
@@ -65,5 +65,6 @@ Makefile 的 `install`/`publish` 是上游 PyPI 发布遗留；本仓库的发�
 - `server/README.md` — 端点表、环境变量表、架构图、NAS 部署与验收命令。**改配置或部署前读它**（本文件的命令只覆盖最短开发环）。
 - `docs/API-REFERENCE.md` — 对外接口契约：认证双层模型、响应包裹语义（业务未命中 = HTTP 200 + code 403/404，上游故障 = 502/504）、各源能力。**改任何路由语义前读它**。
 - `docs/MUSIC-SOURCES-REGISTRY.md` — 全部解析端点/凭证的存活台账（含失效条目，供考古与恢复）。**每次探测端点后更新其状态列**，新端点追加登记。
+- `docs/QUALITY-MATRIX.md` — 四平台（网易/酷狗/酷我/QQ）音质档位总册：官方命名、私有参数、adapter 映射、横向对照。**改任何 QUALITY 映射或新增档位前读它**，改完同步更新。
 - `docs/KUWO-QQ-API-SERVER-PLAN.md` — 设计决策记录。**想知道某处为什么这么设计时读它**，而不是重新发明方案。
 - `examples/musicdlwebgui/README.md` — webgui 功能矩阵与双后端（kwqq-API 六源 + 进程内库）分工说明。

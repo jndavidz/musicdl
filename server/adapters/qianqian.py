@@ -43,7 +43,8 @@ class QianqianAdapter(SourceAdapter):
 
     '''quality routing: auto/320k/128k capped at 320; flac/hires gated by ENABLE_LOSSLESS'''
     async def song_url(self, song_id: str, quality: str) -> dict:
-        q = quality if quality in {'auto', '320k', '128k', 'flac', 'hires'} else 'auto'
+        q = quality if quality in {'auto', '320k', '192k', '128k', 'flac', 'hires'} else 'auto'
+        if q == '192k': q = '320k'  # no native 192k tier — snap up to 320k
         t0 = __import__('time').perf_counter()
         import time
         elapsed = lambda: round((time.perf_counter() - t0) * 1000)

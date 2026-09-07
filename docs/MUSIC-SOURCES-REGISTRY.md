@@ -143,8 +143,8 @@
 
 | 平台 | 通道 | 鉴权 | 音质 | 状态 |
 |------|------|------|------|------|
-| 咪咕 | `search_all.do` + `listen-url/h5/v2.4`（XOR 解密 MAGIC abcd01）+ listenSong.do 模板 | 匿名 | HQ 320k 可靠；SQ/ZQ URL 匿名可得（freetyst CDN） | ✅ 已集成 |
-| 千千 | `91q.com/v1/search` + `/v1/song/tracklink`（MD5 签名 appid） | 匿名 | rate=3000 真 FLAC（版权库有限） | ✅ 已集成 |
+| 咪咕 | `search_all.do` + `listen-url/h5/v2.4`（XOR 解密 MAGIC abcd01）+ listenSong.do 模板 | 匿名 | HQ 320k 可靠；**匿名 SQ/ZQ 为假无损（实下 3.9MB MP3，真无损需会员 Cookie）**——规格详见 QUALITY-MATRIX.md §2.5 | ✅ 已集成（无损档仅名义） |
+| 千千 | `91q.com/v1/search` + `/v1/song/tracklink`（MD5 签名 appid） | 匿名 | rate=3000 真 FLAC（48k/24bit 入门 Hi-Res 与 44.1k/16bit CD 逐曲不定；**无母带能力**；周杰伦/邓紫棋等热门曲整缺）——规格详见 QUALITY-MATRIX.md §2.6 | ✅ 已集成 |
 
 ---
 

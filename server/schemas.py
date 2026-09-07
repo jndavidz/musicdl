@@ -54,6 +54,7 @@ class SongUrlData(BaseModel):
     headers: dict = {}
     parser: Optional[str] = None
     platform_tag: Optional[str] = None   # upstream native quality tag (2000kflac/lossless/SQ/HQ...)
+    ekey: Optional[str] = None           # kuwo zhenpin: QMC key to decrypt mflac/mgg -> flac/ogg
     elapsed_ms: int = 0
     cached: bool = False
 

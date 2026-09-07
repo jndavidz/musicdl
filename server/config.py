@@ -67,6 +67,9 @@ settings = Settings()
 SOURCES = ('kuwo', 'qq', 'qianqian', 'migu', 'netease', 'kugou', 'bilibili')
 
 QUALITY_ALIASES = {
-    'low': '128k', 'standard': '128k', 'high': '320k', 'super': '320k',
-    'auto': 'auto', '320k': '320k', '128k': '128k', 'flac': 'flac', 'hires': 'hires',
+    # MusicFree 四档定义: low=128kbps / standard=192kbps / high=320kbps / super 封顶 320kbps
+    # (无 192k 通道的源由各 adapter 内部回落: 192k→128k 或 320k, 见各 song_url)
+    'low': '128k', 'standard': '192k', 'high': '320k', 'super': '320k',
+    'auto': 'auto', '320k': '320k', '128k': '128k', '192k': '192k', 'flac': 'flac', 'hires': 'hires',
+    'master': 'master', 'surround51': 'surround51', 'surround5.1': 'surround51', '5.1': 'surround51',
 }

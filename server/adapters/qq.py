@@ -92,7 +92,8 @@ class QQAdapter(SourceAdapter):
 
     '''quality param is advisory for QQ (chain returns the best it can); flac/hires gated likewise'''
     async def song_url(self, song_id: str, quality: str) -> dict:
-        q = quality if quality in {'auto', '320k', '128k', 'flac', 'hires'} else 'auto'
+        q = quality if quality in {'auto', '320k', '192k', '128k', 'flac', 'hires'} else 'auto'
+        if q == '192k': q = '320k'  # no native 192k tier — snap up to 320k
         if q in {'flac', 'hires'} and not self.settings.enable_lossless:
             raise AdapterError(403, 'lossless tier disabled on this server (ENABLE_LOSSLESS=false)')
         t0 = time.perf_counter()

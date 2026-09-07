@@ -359,6 +359,7 @@ def api_search_sync(platform_id: str, keyword: str, limit: int) -> list:
 
 
 _API_QUALITY_MAP = {'hires_first': 'hires', 'lossless_first': 'flac', 'lossless_only': 'flac',
+                    'master_only': 'master', 'surround51_only': 'surround51',
                     '320k': '320k', '128k': '128k', 'any': 'auto'}
 
 
@@ -392,6 +393,10 @@ def api_resolve_into(info: ApiSongInfo, quality_pref: str):
     if not url: raise RuntimeError('API 未返回可用直链')
     info.download_url = url
     info.platform_tag = str(data.get('platform_tag') or '')
+    # kuwo zhenpin: encrypted container + QMC key -> download hook decrypts to flac/ogg
+    if data.get('ekey'):
+        info.api_extra = {**(info.api_extra or {}), 'ekey': data['ekey']}
+        info.ext = 'mflac' if 'mflac' in str(data.get('platform_tag') or '') else 'mgg'
     # unblock/mirror links (e.g. netease match -> kuwo CDN) require anti-hotlink headers
     resp_headers = data.get('headers') or {}
     if isinstance(resp_headers, dict) and resp_headers:
@@ -455,11 +460,13 @@ def search_platform_sync(platform_id: str, keyword: str, limit: int) -> list:
 '''---------------- helpers: quality tiers / readable naming / dedupe ----------------'''
 
 LOSSLESS_EXTS = {'flac', 'wav', 'alac', 'ape', 'wv', 'tta', 'dsf', 'dff'}
-QUALITY_ORDER = {'master': 0, 'hires': 1, 'lossless': 2, '320k': 3, '128k': 4, 'other': 5, 'low': 6, 'pending': -1}
+QUALITY_ORDER = {'master': 0, 'surround51': 1, 'hires': 2, 'lossless': 3, '320k': 4, '128k': 5, 'other': 6, 'low': 7, 'pending': -1}
 QUALITY_PREF_RANKS = {
     'hires_first': ['master', 'hires', 'lossless', '320k', '128k', 'other', 'low'],
     'lossless_first': ['master', 'hires', 'lossless', '320k', '128k', 'other', 'low'],
     'lossless_only': ['master', 'hires', 'lossless'],
+    'master_only': ['master'],       # kuwo 20900kmflac only (192k/24bit/2ch, anonymous)
+    'surround51_only': ['surround51', 'master', 'hires', 'lossless'],  # kuwo 20501kmflac, fall back to 2ch
     '320k': ['320k', 'master', 'hires', 'lossless', '128k', 'low', 'other'],
     '128k': ['128k', '320k', 'low', 'other', 'master', 'hires', 'lossless'],
     'any': ['master', 'hires', 'lossless', '320k', '128k', 'other', 'low'],
@@ -467,6 +474,9 @@ QUALITY_PREF_RANKS = {
 # 音质规格表 (每分钟体积 MB/min), 用于分级与假质量清洗:
 #   母带级 24bit/192kHz FLAC : 45-70 | 高解析 24bit/96kHz : 20-35
 #   CD 16bit/44.1kHz FLAC    : 5-10  | HQ 320kbps mp3 : ~2.34 | PQ 128kbps : ~0.9
+#   档位定性基准（2026-09-07 docs/QUALITY-MATRIX.md）: 母带 = 24bit & ≥96kHz；
+#   24bit/48kHz 仅入门级 Hi-Res（千千 rate=3000 上限即此），酷我 master(20900kmflac)
+#   实测 192k/24bit ~39.8-41.7 MB/min 落在本表 42 阈之下，webgui 判级由显式档位/channels 修正。
 # 音质规格表 v2 (每分钟体积 MB/min), calibrated against real downloads (2026-08,
 # 邓丽君《又见炊烟》2:52 across all sources):
 #   netease black-vip Hi-Res remasters land 29-38; qq third-party HR chain peaks
@@ -494,9 +504,13 @@ def estimate_kbps(size_bytes, duration_s):
     except Exception: return None
 
 
-def quality_tier(ext, size_bytes=None, duration_s=None) -> str:
+def quality_tier(ext, size_bytes=None, duration_s=None, channels=None) -> str:
+    '''ext of an already-DECRYPTED file + real size/duration -> display tier.
+       `channels` (kuwo surround51 = 6ch) short-circuits the MB/min ladder:
+       16bit/6ch lands ~17.1 MB/min, right at the hires floor, so classify by layout.'''
     e = str(ext or '').lower().lstrip('.') or 'unknown'
     if e in LOSSLESS_EXTS:
+        if channels == 6: return 'surround51'
         m = calc_mbpm(size_bytes, duration_s)
         if m is None:
             # metadata incomplete -> base tier by ext; big files are likely hi-res
@@ -516,7 +530,7 @@ def is_suspect_quality(tier: str, size_bytes, duration_s=None) -> bool:
     '''fake-quality guard: lossless judged by MB/min floor (user spec table),
        mp3 tiers by absolute size floors. Missing data never flags.'''
     if not SETTINGS.get('quality_guard', True): return False
-    if tier in {'master', 'hires', 'lossless'}:
+    if tier in {'master', 'surround51', 'hires', 'lossless'}:
         m = calc_mbpm(size_bytes, duration_s)
         return m is not None and m < LOSSLESS_MBPM_FLOOR
     floor_mb = {'320k': 5, '128k': 2}.get(tier)
@@ -631,7 +645,7 @@ def serialize_item(key: str, info, platform_id: str) -> dict:
         # (2) 体积推算兜底 (规格表 MB/分钟)
         elif is_suspect_quality(tier, size_bytes, duration_s):
             m = calc_mbpm(size_bytes, duration_s)
-            if tier in {'master', 'hires', 'lossless'} and m is not None:
+            if tier in {'master', 'surround51', 'hires', 'lossless'} and m is not None:
                 conflict = f'（与平台标注「{platform_tag}」矛盾）' if platform_tag else ''
                 suspect_reason = f'疑似假无损({m}MB/分钟 < {LOSSLESS_MBPM_FLOOR}){conflict}'
             else:
@@ -757,12 +771,12 @@ class DownloadEngine:
             s = serialized[k]
             if k in skipped_reason: status, error = 'skipped', skipped_reason[k]
             elif s['suspect']:
-                if s['quality_tier'] in {'master', 'hires', 'lossless'}:
+                if s['quality_tier'] in {'master', 'surround51', 'hires', 'lossless'}:
                     reason = f"疑似假无损({s.get('mbpm')}MB/分钟 < {LOSSLESS_MBPM_FLOOR})"
                 else:
                     reason = f"疑似假质量({fmt_mb(s['file_size_bytes'])} 低于{s['quality_tier']}下限)"
                 status, error = 'skipped', reason
-            elif quality_pref == 'lossless_only' and s['quality_tier'] not in {'master', 'hires', 'lossless'}:
+            elif quality_pref == 'lossless_only' and s['quality_tier'] not in {'master', 'surround51', 'hires', 'lossless'}:
                 status, error = 'skipped', '音质偏好为仅无损'
             else: status, error = 'queued', ''
             items.append({
@@ -823,6 +837,12 @@ class DownloadEngine:
             if is_api:
                 # two-stage: resolve a fresh direct url (quality per preference), then fetch via generic downloader
                 api_resolve_into(info, task['quality_pref'])
+                # kuwo zhenpin (anonymous master/surround51): resolve already fetched url+ekey
+                if not vip_ekey and (info.api_extra or {}).get('ekey') and info.download_url:
+                    vip_ekey = info.api_extra['ekey']
+                    native = str(getattr(info, 'platform_tag', '') or '')
+                    info.ext = 'mflac' if 'mflac' in native else 'mgg'
+                    item['platform_tag'] = '臻品·加密'
                 if getattr(info, 'api_fallback_note', None): item['api_note'] = info.api_fallback_note
                 item['platform_tag'] = info.platform_tag   # surface the granted tier in the queue view
                 info.with_valid_download_url = True
@@ -840,7 +860,7 @@ class DownloadEngine:
             if vip_ekey and downloaded:
                 decrypted = qmc_decrypt_file(str(downloaded[0].save_path), vip_ekey)
                 downloaded[0]._save_path = downloaded[0].save_path = decrypted
-                item['platform_tag'] = 'VIP·母带解密'
+                item['platform_tag'] = ('VIP·母带解密' if 'VIP' in str(item.get('platform_tag') or '') else '臻品·已解密')
             if not downloaded: raise RuntimeError('下载失败（链接可能已过期），请重新搜索后再试')
             final = downloaded[0]
             real_spec = ''

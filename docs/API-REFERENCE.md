@@ -82,12 +82,13 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 | 参数 | 必填 | 说明 |
 |------|------|------|
 | id | ✅ | 歌曲 id |
-| quality | — | auto/320k/128k/flac/hires（low/standard/high/super 自动归一化，封顶 320k） |
+| quality | — | auto/320k/128k/flac/hires/**master/surround51**（MusicFree 四档归一：low=128k、standard=192k、high=320k、super 封顶 320k；5.1→surround51；无损档仅对 musicdl 下载有效） |
 | copyright | — | 仅 migu |
 
-成功 data 字段：`{url, ext, bitrate_kbps(如实), size_bytes, duration_s, verified, parser, elapsed_ms, headers}`。
+成功 data 字段：`{url, ext, bitrate_kbps(如实), size_bytes, duration_s, verified, parser, elapsed_ms, headers, ekey}`。
 **bilibili 源的 `headers` 必须传给播放器**（CDN 校验 Referer，缺了 403）：`{"Referer": "www.bilibili.com", "User-Agent": "..."}`。其他源 headers 通常为空。
-**音质路由**：auto/320k 封顶 320kbps（netease 经 MUSIC_U 可出 exhigh=320k）；flac/hires 受 `ENABLE_LOSSLESS` 门控（默认 false→403）。各源通道：酷我 nmobi 直出→mobi.s→第三方链；QQ 第三方链(vkeys…)→元力→3e0；千千 tracklink；咪咕 listen-url(HQ/SQ)；网易 ncm-api(level)；酷狗 kugou-api(quality)。
+**音质路由**：MusicFree 四档：low→128k 全源；standard→192k（网易 level=higher 实测 192kbps；其余源无原生 192k 档回落 320k——酷我 192kmp3 为假档实测降 128 故向上就近）；high→320k 全源；super 封顶 320k（QQ 第三方链尽力而为，若上游给 flac 则响应 quality 如实标注）。auto/320k 封顶 320kbps（netease 经 MUSIC_U 可出 exhigh=320k）；flac/hires/master/surround51 受 `ENABLE_LOSSLESS` 门控（默认 false→403）。各源通道：酷我 nmobi 直出（320k/flac/**master=20900kmflac 匿名 192k/24bit**）→mobi.s→第三方链；QQ 第三方链(vkeys…)→元力→3e0；千千 tracklink（rate=3000 实测真 FLAC：48k/24bit 入门 Hi-Res 与 44.1k/16bit CD 逐曲不定，无母带）；咪咕 listen-url(HQ/SQ)（**匿名 SQ/ZQ 实测为假无损**——URL 200 可下但实为降档 MP3）；网易 ncm-api(level)；酷狗 kugou-api(quality)（**酷狗无 hires 参数**，high=24bit/44.1k 即高解析位阶；viper 三档需超级VIP，当前不可达）。各平台规格详见 docs/QUALITY-MATRIX.md。
+**酷我 master/surround51 专属**：`ext=mflac` 且携带 `ekey`（QMC 密钥）——`url` 指向**加密**容器，消费方须用 `KuwoQmcDecryptor`（`scripts/kuwo_qmc_decryptor.py`）解密得到明文 flac（192k/24bit 或 44.1k/16bit/6ch）；明文档位无 `ekey` 字段。仅酷我源支持这两档，其他源按各自能力回落。
 
 ### 4.3 GET /{source}/song/info · GET /{source}/lyric
 
@@ -101,7 +102,7 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 |----|------|
 | id 格式 | 数字 rid（如 `228908`） |
 | 出链通道 | ① `nmobi.kuwo.cn` 明文直出（精确档位不降档 ~150ms）→ ② `mobi.kuwo.cn` 加密版（会静默降档，备胎）→ ③ 第三方链(nxinxz/nobb) → ④ haitangw `/music/kw.php` |
-| 音质上限 | 320k mp3 可靠；flac 需 `ENABLE_LOSSLESS=true`（nmobi br=2000kflac） |
+| 音质上限 | master=20900kmflac（**匿名 192kHz/24bit/2ch**，mflac+ekey 需 QMC 解密）/ surround51=20501kmflac（匿名 44.1k/16bit/6ch）；flac 需 `ENABLE_LOSSLESS=true`（br=2000kflac 实测 ~1647kbps CD 抓轨）；320k mp3 可靠 |
 | 歌词 | newlyric DES 解密 ✅ / h5 lrclist 兜底 |
 
 #### qq QQ音乐
@@ -119,8 +120,8 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 |----|------|
 | id 格式 | TSID（如 `T10065400429`） |
 | 出链通道 | `tracklink(TSID, rate)` MD5 签名官方 API；rate=3000(FLAC)→320→128 逐级尝试 |
-| 音质上限 | 真 FLAC（rate=3000） |
-| 已知边界 | 版权库覆盖有限（周杰伦等腾讯系热门曲常无资源）；歌词需从搜索结果的 lyricUrl 获取，by-id 不支持 |
+| 音质上限 | 真 FLAC（rate=3000）：**48kHz/24bit（入门级 Hi-Res，非母带——母带门槛 ≥96kHz）或 44.1kHz/16bit（CD）逐曲不定**；rate=999 与 3000 同文件 |
+| 已知边界 | 版权库覆盖有限（周杰伦/邓紫棋热门曲实测整缺；部分曲标注大文件实下 MP3）；规格逐曲不定必须以实下文件头为准；歌词需从搜索结果的 lyricUrl 获取，by-id 不支持 |
 
 #### migu 咪咕音乐
 
@@ -129,7 +130,7 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 | id 格式 | contentId 数字（如 `600902000006889366`） |
 | **by-id 必需** | search 返回的 `extra.copyrightId` 须以 `?copyright=` 回传到 song/url、song/info |
 | 出链通道 | `listen-url/h5/v2.4` 按 toneFlag 逐档尝试（HQ→SQ→ZQ），XOR 异或解密响应；失败回退 listenSong.do 模板 |
-| 音质上限 | HQ=320k mp3 可靠；SQ/ZQ flac URL 匿名可得（freetyst CDN） |
+| 音质上限 | HQ=320k mp3 可靠；**匿名 SQ/ZQ 为假无损**（URL 可下但实测 3.9MB audio/mpeg=MP3，元数据标注 28.6MB 不透出；URL 段替换 FLAC 路径 404）——真无损需会员 Cookie |
 | 歌词 | strategy/pc/listen 接口或 search_result.lyricUrl |
 
 #### netease 网易云音乐
@@ -148,7 +149,7 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 |----|------|
 | id 格式 | FileHash 32 位大写十六进制（如 `B3A52A7A958BF0AED0EBFBA2E9A818B7`） |
 | 出链通道 | kugou-api 容器 `/song/url?hash=&quality=&cookie=`（cookie 从 :3002/kugou 动态拉取自动续期） |
-| 音质上限 | quality=320 → 320k mp3；quality=flac → 真 FLAC（账户 VIP 权益，URL 含 us{userid} 标识） |
+| 音质上限 | quality=flac → 真 FLAC 16bit/44.1k；quality=high → **24bit/44.1k FLAC（高解析位阶，酷狗无 `hires` 参数）**；quality=320 → 320k mp3；viper_tape/clear/atmos → 需超级VIP（当前 cookie vip_type=0 被拒 status=2）；`hires` 参数无效（status=0） |
 | VIP 运维 | POST `/kugou/vip/day`（领畅听）、`POST /kugou/vip/upgrade`（升概念）、GET `/kugou/vip/status`（svip/tvip 到期时间+本月领取明细）——见 §5.2 |
 | 已知边界 | search 走匿名 songsearch（稳定）；VIP 曲目依赖账户权益有效期 |
 

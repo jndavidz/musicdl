@@ -71,8 +71,8 @@ uv run python examples/musicdlwebgui/app.py            # 默认 http://127.0.0.1
 
 | webgui 偏好 | kuwo(API) | netease(API·自有) | kugou(API) | migu(API) | qq/qianqian(API) | 直连/聚合源 |
 |------------|-----------|-------------------|------------|-----------|------------------|------------|
-| 母带优先 | `20000kflac` | jymaster→dolby→sky→jyeffect→hires 尝试链 | `high`(54.9MB级) | SQ/ZQ | HR/3000 | 内置恒为最高档序 |
-| 无损优先 | `2000kflac` | lossless | `flac` | SQ | SQ/3000 | 同上 |
+| 母带优先 | `master`（20900kmflac 匿名 192k/24bit，mflac+ekey 自动解密） | jymaster→dolby→sky→jyeffect→hires 尝试链 | `high`（实测 24bit/44.1k FLAC） | SQ/ZQ（匿名假无损，实下 MP3） | HR/3000（48k/24bit 入门 Hi-Res） | 内置恒为最高档序 |
+| 无损优先 | `2000kflac`（~1647kbps CD 抓轨） | lossless | `flac`（16bit/44.1k） | SQ（假无损） | SQ/3000 | 同上 |
 | 仅无损 | 同无损优先，交付非FLAC即跳过 | 同左 | — | — | — | 同上 |
 | 320k / 128k | 对应码率档 | standard/exhigh | 320/128 | HQ/PQ | 320/128 | 同上 |
 | 不限 | auto | exhigh(320k) | 320(=auto) | HQ | 320 | 同上 |
@@ -83,7 +83,7 @@ uv run python examples/musicdlwebgui/app.py            # 默认 http://127.0.0.1
 |--------|--------------------|
 | 网易云·直连 | `jymaster → jyeffect → sky → hires → lossless → dolby → exhigh → standard`（八级 Eapi，实测峰值 37.8 MB/min 准母带）|
 | 酷狗·直连 | 第三方 API 组：`viper_tape/viper_clear/viper_atmos/flac/high/320/128` 与 `hires/lossless/exhigh`（蝰蛇系上游未交付可用文件，实测上限 CD 7.3）|
-| 酷我·直连 | nmobi `master/atmos_plus/atmos/flac` + 2000kflac/20000kflac 系（匿名上限 CD 12.5）|
+| 酷我·直连 | nmobi `master(20900kmflac 匿名 192k/24bit)/surround51(20501kmflac 6ch)/flac(2000kflac)` + 20000kflac 系（kv：webgui master 偏好已接 ZHENPIN_BR）|
 | QQ·直连(l1组) | vkeys `[7,9,10,8,6,5]` · xingmian `flac24bit/hires/flac/320k` · xcvts/lxmusic `[999…]`（HR 实测 40.8）|
 | TuneHub | parse API `flac24bit→flac→320k→128k`(kuwo/qq) + meting `400/380/320/128`(netease) |
 | GDStudio | br=`999/740/320/192/128` |
@@ -92,29 +92,30 @@ uv run python examples/musicdlwebgui/app.py            # 默认 http://127.0.0.1
 > 说明：webgui 的音质偏好下拉**仅对 kwqq-API 六源生效**（下发 quality 参数）；直连与聚合源
 > 由 musicdl 库固定按最高→最低档序解析，偏好只影响结果排序与择优。
 
-### 实测能力矩阵 v3（2026-08，邓丽君/周杰伦/周深多曲采样）
+### 实测能力矩阵 v4（2026-08 采样 + 2026-09-07 四平台无损参数实测，详见 docs/QUALITY-MATRIX.md）
 
 | 渠道 | 请求的最高档 | 实测交付上限 (MB/min) | 高解析(17-42) | 母带(≥42) |
 |------|------------|---------------------|:---:|:---:|
 | **网易云·直连** (库内置公共 MUSIC_U) | 库八级档 jymaster→standard | **37.8**（《晴天》175.8MB flac）| ✓ 准母带 | ✗ 未命中 |
 | QQ 音乐 (l1 SVIP 解析器组) | HR Hi-Res | **40.8**（《又见炊烟》104MB）| ✓ 贴母带线 | ✗ 差一线 |
 | 网易云·自有 (88VIP 黑胶, ncm-api) | jymaster→hires 尝试链 + 灰色解灰(match→酷我镜像) | **jyeffect 21.4** / 灰色曲目解灰 flac 视镜像 | ✓ | ✗ 需SVIP |
-| 酷我 (API 匿名) | 20000kflac 臻品母带 | ~12.5（CD 级，匿名被降级）| ✗ | ✗ 需VIP Cookie |
-| 酷狗·自有 (概念版VIP) | quality=**high**（真发）| flac ~11.8（CD 上限级）；部分回退 128k 如实标注 | ✗ | ✗ viper_tape 需转码未实现 |
+| 酷我 (API 匿名) | **master=20900kmflac**（2026-09-07 匿名打通）| **~39.8-41.7（192k/24bit 母带实下）**| ✓ | ✅ 母带实命中（按规格即母带）|
+| 酷狗·自有 (概念版非VIP) | quality=**high** | flac ~11.8（16bit CD）；**high 实测 24bit/44.1k FLAC**（2026-09-07 头字节确认）；viper 三档 status=2（需超级VIP） | ✓（24bit 入门）| ✗ viper 需超级VIP+付费包+解密器 |
 | **酷狗·直连** (库第三方API含蝰蛇档) | viper_tape/viper_clear/flac | flac 7.3（蝰蛇系上游未交付可用文件）| ✗ | ✗ |
-| 千千 | rate=3000 | flac 12.3（CD 级）| ✗ | ✗ |
-| 咪咕 | SQ/ZQ flag | 实际交付 mp3 HQ（标注与实物不符）| ✗ | ✗ |
+| 千千 | rate=3000 | flac 12.3-13.8（CD 级；部分曲 48k/24bit 入门 Hi-Res，**非母带**）；版权库窄 | ✓（仅 48k/24bit 曲）| ✗ |
+| 咪咕 | SQ/ZQ flag | **假无损（实下 3.9MB MP3，2026-09-07 实测）；真无损需会员 Cookie** | ✗ | ✗ |
 | TuneHub | flac24bit 仅限 kuwo/qq parse API；netease 子源走 meting ≤400kbps | kuwo 子源 ~12.5；qq parse 服务常无响应 | ✗ | ✗ |
 | GDStudio | br=999 压缩封顶 | 同曲直连 36-41 被压至 ≤19 | 边缘 | ✗ 设计性压缩 |
 | 小站群 LIVEPOO/TWOT58/GEQUHAI/MITU/JCPOO/FLMP3 | flac/wav 直链 | 6–10（CD 级）| ✗ | ✗ |
 
 要点：
-- **严格母带(≥42) 当前全渠道未实测命中**，但「网易云·直连」37.8 与「QQ HR」40.8 已是
-  准母带级（24bit 转制规格）。分级体系按实测体积如实标注，不信任上游档名。
+- **严格母带已实测命中：酷我 master（20900kmflac，2026-09-07 匿名直出 192k/24bit）**。
+  「网易云·直连」37.8 与「QQ HR」40.8 仍为按规格推定的准母带（24bit 转制）。
+  分级体系按实测体积如实标注，不信任上游档名（见 docs/QUALITY-MATRIX.md）。
   ⚠️ 注意：直连通道的高 mbpm 样本多为翻唱/重制版本；同曲严格对照证实 QQ 双通道
   字节级一致、网易官方在架曲目仅「自有」可解（直连搜索不含官方版权版本）。
-- 高解析的稳定来源：网易·自有(88VIP 在架曲目 jyeffect 18-22)、QQ HR(38-40.8)、
-  网易云·直连(翻唱/重制长尾, 视上传而定)。
+- 高解析的稳定来源：**酷狗 high（24bit/44.1k，概念版 Cookie 免 VIP，2026-09-07 实测）**、
+  网易·自有(88VIP 在架曲目 jyeffect 18-22)、QQ HR(38-40.8)、网易云·直连(翻唱/重制长尾, 视上传而定)。
 - 聚合网关(TuneHub/GDStudio)存在压缩陷阱：同曲直连 36-41 的源经它们只有 ≤19。
 - 库内置公共 cookie 权益可能随上游变动 —— 「直连」通道规格以实际 resolve 为准。
 

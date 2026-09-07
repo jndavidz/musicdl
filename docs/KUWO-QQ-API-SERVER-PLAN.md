@@ -129,7 +129,7 @@ musicdl 核心改动保持最小侵入（见 §4）。
 | Method | Path | 参数 | musicdl 对应能力 |
 |--------|------|------|------------------|
 | GET | `/{source}/search` | `keywords`必填, `page`=1, `limit`=20, `type`=song | `client.search()`（限页大小，关 pkl） |
-| GET | `/{source}/song/url` | `id`必填, `quality`∈auto/flac/hires/320k/128k（默认 auto=320k，见 §3.4） | by-id 快路径（§2.2）＋音质路由（§3.4） |
+| GET | `/{source}/song/url` | `id`必填, `quality`∈auto/flac/hires/320k/128k/master/surround51（默认 auto=320k，见 §3.4；master/surround51 仅酷我） | by-id 快路径（§2.2）＋音质路由（§3.4） |
 | GET | `/{source}/song/info` | `id` | `_getsongmetainfo`（封面/专辑/时长，供 getMusicInfo） |
 | GET | `/{source}/lyric` | `id` | QQ base64 歌词端点 / 酷我 newlyric+h5 双路 |
 | GET | `/{source}/playlist` | `id`, `page`=1, `limit`=100 | `parseplaylist` 轻量改造（仅曲目列表，逐轨解析放二阶段） |
@@ -416,7 +416,7 @@ Music Assistant(NAS待部署): 统一控制 Squeezelite/DLNA/AirPlay 端；可�
 
 ### 端点（{source} = kuwo | qq）
 - GET /{source}/search?keywords=&page=&limit=   搜索（仅元数据，~200ms）
-- GET /{source}/song/url?id=&quality=auto|320k|128k|flac|hires   播放直链（酷我 nmobi 直出 ~120ms；QQ 第三方链 1-11s）
+- GET /{source}/song/url?id=&quality=auto|320k|128k|flac|hires|master|surround51   播放直链（酷我 nmobi 直出 ~120ms 含匿名母带 20900kmflac；QQ 第三方链 1-11s）
 - GET /{source}/song/info?id=   单曲元数据
 - GET /{source}/lyric?id=   LRC 歌词
 - GET /healthz /status   探针 / parser 健康度+缓存统计

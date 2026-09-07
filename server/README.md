@@ -10,7 +10,7 @@
 | Method | Path | 参数 | 说明 |
 |--------|------|------|------|
 | GET | `/{source}/search` | `keywords`*、`page`=1、`limit`=20(≤50) | 元数据搜索（单上游请求，无解析链，~200ms） |
-| GET | `/{source}/song/url` | `id`*、`quality`=auto\|320k\|128k\|flac\|hires | 播放直链（酷我 nmobi 直出 ~120ms；QQ 第三方链 1–11s，长尾由健康度冷却收敛） |
+| GET | `/{source}/song/url` | `id`*、`quality`=auto\|320k\|192k\|128k\|flac\|hires\|master\|surround51（MusicFree 四档：low=128k/standard=192k/high=320k/super 封顶 320k；后两档仅酷我，无损档仅下载有效） | 播放直链（酷我 nmobi 直出 ~120ms；QQ 第三方链 1–11s，长尾由健康度冷却收敛） |
 | GET | `/{source}/song/info` | `id`* | 单曲元数据（封面/专辑/时长） |
 | GET | `/{source}/lyric` | `id`* | LRC 歌词 |
 | GET | `/healthz` | — | 存活探针 |
@@ -24,7 +24,7 @@
 |---------|------|-----|
 | auto/320k | nmobi 直出（真 320kbps，码率不足回退 mobi.s → 第三方链） | 第三方解析链（vkeys 优先） |
 | 128k | nmobi 128kmp3 | 同上 |
-| flac/hires | 默认 403（`ENABLE_LOSSLESS=false`）；开启后 nmobi 2000k/20000kflac → 第三方链 | 默认 403；开启后走链取最优 |
+| flac/hires/master/surround51 | 默认 403（`ENABLE_LOSSLESS=false`）；开启后酷我 nmobi 2000kflac（flac）/ 20900kmflac（master，192k/24bit，mflac+ekey 需 QMC 解密）/ 20501kmflac（surround51，6ch）→ 第三方链 | 默认 403；开启后走链取最优 |
 
 响应永远如实返回实际 `ext` / `bitrate_kbps` / `size_bytes`。
 

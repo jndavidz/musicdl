@@ -39,7 +39,9 @@ class KuwoAdapter(SourceAdapter):
         return {'url': m.group(0), 'bitrate': bitrate}
 
     '''official anonymous direct link via nmobi plain-text API (structured JSON, no silent downgrade).
-       Verified live 2026-08-12: br=320kmp3 -> bitrate 320 exactly; br=2000kflac -> flac 2000.'''
+       Verified live 2026-08-12: br=320kmp3 -> bitrate 320 exactly; br=2000kflac -> flac 2000.
+       Zhenpin tiers (2026-09-07 probe, docs/KUWO-ZHENPIN-PROBE.md): anonymous, no cookie;
+       br=20900kmflac -> 192k/24bit/2ch mflac+ekey; br=20501kmflac -> 44.1k/16bit/6ch mflac+ekey.'''
     def _nmobi_direct(self, song_id: str, br: str):
         import json as _json
         url = f"http://nmobi.kuwo.cn/mobi.s?f=web&source=kwplayerhd_ar_4.3.0.8_tianbao_T1A_qirui.apk&user=0&type=convert_url_with_sign&rid={song_id}&br={br}"
@@ -51,7 +53,17 @@ class KuwoAdapter(SourceAdapter):
         try: bitrate = int(data.get('bitrate') or 0)
         except Exception: bitrate = 0
         return {'url': cdn, 'bitrate': bitrate, 'duration_s': int(data['duration']) if data.get('duration') else None,
-                'format': data.get('format')}
+                'format': data.get('format'), 'ekey': data.get('ekey') or None}
+
+    '''zhenpin (臻品) tier table — anonymous, verified 2026-09-07, see docs/KUWO-ZHENPIN-PROBE.md.
+       master=192k/24bit/2ch · flac=CD 44.1k/16bit/2ch · surround51=44.1k/16bit/6ch.
+       NOTE the `m` prefix: `20900kflac` (no m) silently downgrades to 128k mp3.'''
+    ZHENPIN_BR = {
+        'master': '20900kmflac',       # flac 192kHz/24bit/2ch after QMC decrypt (~5560kbps real)
+        'surround51': '20501kmflac',   # flac 44.1kHz/16bit/6ch after QMC decrypt (~2392kbps real)
+        'flac': '2000kflac',           # flac 44.1kHz/16bit/2ch plaintext (~1647kbps real)
+    }
+    ZHENPIN_EXTS = {'mflac': 'flac', 'mgg': 'ogg'}  # post-decrypt container per native format
 
     '''third-party parse chain by minimal search_result dict'''
     def _via_thirdparty(self, song_id: str):
@@ -97,15 +109,23 @@ class KuwoAdapter(SourceAdapter):
                 'album': raw.get('ALBUM') or raw.get('album'), 'ext': None, 'size_bytes': None,
                 'duration_s': duration or None, 'cover': raw.get('hts_MVPIC') or raw.get('albumpic') or raw.get('pic'), 'source': 'kuwo'}
 
-    '''HEAD-probe a direct link and build the response dict'''
+    '''HEAD-probe a direct link and build the response dict.
+       Zhenpin tiers carry `ekey`: the returned url serves ENCRYPTED audio; the consumer must
+       decrypt with KuwoQmcDecryptor -> plaintext flac/ogg (see webgui download hook).'''
     async def _finalize_direct(self, song_id: str, q: str, direct: dict, t0: float, parser: str, platform_tag: str = '') -> dict:
         status = await self.run(self.client.audio_link_tester.test, direct['url'])
+        ext = status.get('ext')
+        if direct.get('ekey'):
+            # encrypted container: report the POST-DECRYPT container, not the raw mflac/mgg
+            native = (platform_tag or direct.get('format') or '').lower()
+            ext = 'mflac' if 'mflac' in native else ('mgg' if 'mgg' in native else (ext or 'mflac'))
         return {
             'id': str(song_id), 'source': self.source_key, 'quality': q,
-            'url': status.get('download_url') or direct['url'], 'ext': status.get('ext') or 'mp3',
+            'url': status.get('download_url') or direct['url'], 'ext': ext or 'mp3',
             'size_bytes': status.get('file_size_bytes'), 'bitrate_kbps': direct['bitrate'] or None,
             'duration_s': direct.get('duration_s'), 'cover': None, 'verified': bool(status.get('ok')),
             'headers': {}, 'parser': parser, 'platform_tag': platform_tag or direct.get('format'),
+            'ekey': direct.get('ekey') or None,
             'elapsed_ms': round((time.perf_counter() - t0) * 1000),
             'cached': False,
         }
@@ -126,13 +146,30 @@ class KuwoAdapter(SourceAdapter):
         except Exception:
             return None
 
-    '''quality routing per plan §3.4 (revised by stage-0 spike + 2026-08-12 endpoint probe):
+    '''quality routing per plan §3.4 (revised by stage-0 spike + 2026-08-12 endpoint probe;
+       + zhenpin tiers 2026-09-07, docs/KUWO-ZHENPIN-PROBE.md):
+       - master/surround51: nmobi zhenpin br (anonymous, mflac+ekey) -> decrypt to flac
        - flac/hires: nmobi 2000kflac first (ENABLE_LOSSLESS gate), then third-party chain
        - auto/320k/128k: nmobi plain API first (no silent downgrade), then mobi.s encrypted
          sibling, then third-party chain; keep whichever candidate has more bandwidth.'''
     async def song_url(self, song_id: str, quality: str) -> dict:
-        q = quality if quality in {'auto', '320k', '128k', 'flac', 'hires'} else 'auto'
+        q = quality if quality in {'auto', '320k', '192k', '128k', 'flac', 'hires', 'master', 'surround51'} else 'auto'
+        if q == '192k': q = '320k'  # kuwo 192kmp3 is a fake tier (silently downgrades to 128) — snap up to 320k
         t0 = time.perf_counter()
+        if q in self.ZHENPIN_BR:
+            if not self.settings.enable_lossless:
+                raise AdapterError(403, 'lossless tier disabled on this server (ENABLE_LOSSLESS=false)')
+            br = self.ZHENPIN_BR[q]
+            direct = await self.run(self._nmobi_direct, song_id, br)
+            if direct and direct.get('ekey'):
+                return await self._finalize_direct(song_id, q, direct, t0, 'nmobi.zhenpin', platform_tag=br)
+            if direct and direct['bitrate'] >= 900:  # plaintext fallback (no ekey = already unencrypted)
+                return await self._finalize_direct(song_id, q, direct, t0, 'nmobi.zhenpin.plain', platform_tag=br)
+            info = await self.run(self._via_thirdparty, song_id)
+            if not (info.with_valid_download_url and info.ext in LOSSLESS_EXTS): raise AdapterError(404, f'no {q} source found')
+            return self.urldata_from_songinfo(song_id, q, info, round((time.perf_counter() - t0) * 1000),
+                                              platform_tag='第三方链无损')
+
         if q in {'flac', 'hires'}:
             if not self.settings.enable_lossless:
                 raise AdapterError(403, 'lossless tier disabled on this server (ENABLE_LOSSLESS=false)')

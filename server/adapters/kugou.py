@@ -92,7 +92,8 @@ class KugouAdapter(SourceAdapter):
         return str(v or '')
 
     async def song_url(self, song_id: str, quality: str) -> dict:
-        q = quality if quality in {'auto', '320k', '128k', 'flac', 'hires'} else 'auto'
+        q = quality if quality in {'auto', '320k', '192k', '128k', 'flac', 'hires'} else 'auto'
+        if q == '192k': q = '320k'  # no native 192k tier — snap up to 320k
         t0 = time.perf_counter()
         data = await self.run(self._api_get, '/song/url', {'hash': str(song_id), 'quality': self.QUALITY[q]})
         url = self._first_url(data.get('url')) or self._first_url(data.get('backupUrl'))
