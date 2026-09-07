@@ -209,6 +209,7 @@
 | 高品 | `320` | 320k MP3 | ✅ |
 
 - **获取参数**：`music.91q.com/v1/song/tracklink?TSID=&appid=16073360&rate=3000`（MD5 签名 `_addsignandtstoparams`，secret `0b50b02fd0d73a9c4c8c3a781c30845f`，匿名可用）
+- **tracklink 响应自带文件属性（2026-09-07 接入）**：`size`（精确字节）、`format`、`bits`（16/24）、`rate`（实际码率）——adapter 已透出：`size_bytes` 直接取声明值（不再依赖 CDN HEAD），`platform_tag` 携带 `3000kbps·16bit` 式实测属性；webgui 按 `bits` 精确判档（24bit→高解析、16bit→CD），解决"逐曲不定"的判定难题
 - **⚠️ 版权库窄（实测）**：周杰伦《晴天》《七里香》、邓紫棋《泡沫》《光年之外》**搜索直接无结果**（整缺）；赵雷《成都》标注 30.6MB 实下 MP3（版权个案）。**每曲规格不定，必须以解密/解析头后的实际文件为准**
 - **adapter 映射**：`server/adapters/qianqian.py rates = {'flac': ['3000'], 'hires': ['3000']}`
 

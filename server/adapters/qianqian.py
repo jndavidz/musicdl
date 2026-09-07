@@ -39,7 +39,10 @@ class QianqianAdapter(SourceAdapter):
         resp = self.client.get('https://music.91q.com/v1/song/tracklink', params=params)
         data = (resp.json() or {}).get('data') or {}
         path = data.get('path') or (data.get('trail_audio_info') or {}).get('path') or ''
-        return {'path': path if str(path).startswith('http') else '', **{k: data.get(k) for k in ('title', 'duration')}}
+        # size/format/bits/rate are the server-declared file attributes of THIS link —
+        # exact payload size and bit depth, far more reliable than any tier promise.
+        return {'path': path if str(path).startswith('http') else '',
+                **{k: data.get(k) for k in ('title', 'duration', 'size', 'format', 'bits', 'rate')}}
 
     '''quality routing: auto/320k/128k capped at 320; flac/hires gated by ENABLE_LOSSLESS'''
     async def song_url(self, song_id: str, quality: str) -> dict:
@@ -57,12 +60,16 @@ class QianqianAdapter(SourceAdapter):
             if not link['path']: continue
             status = await self.run(self.client.audio_link_tester.test, link['path'])
             if not status.get('ok'): continue
+            link_size = int(float(link.get('size') or 0)) or None
+            bits = str(link.get('bits') or '')
+            platform_tag = f'{rate}kbps' + (f'·{bits}bit' if bits else '')
             return {'id': str(song_id), 'source': self.source_key, 'quality': q,
                     'url': status.get('download_url') or link['path'], 'ext': status.get('ext'),
-                    'size_bytes': status.get('file_size_bytes'), 'bitrate_kbps': int(rate) if rate.isdigit() else None,
+                    'size_bytes': status.get('file_size_bytes') or link_size,
+                    'bitrate_kbps': int(rate) if rate.isdigit() else None,
                     'duration_s': int(float(link.get('duration') or 0)) or None,
                     'cover': None, 'verified': True, 'headers': {}, 'parser': f'tracklink.{rate}',
-                    'platform_tag': f'{rate}kbps',
+                    'platform_tag': platform_tag,
                     'elapsed_ms': elapsed(), 'cached': False}
         raise AdapterError(404, f'no playable url resolved (rates tried: {rates})')
 
@@ -73,6 +80,7 @@ class QianqianAdapter(SourceAdapter):
             if link['path'] or link.get('title'):
                 return {'id': str(song_id), 'source': self.source_key, 'name': link.get('title'),
                         'singer': None, 'album': None,
+                        'size_bytes': int(float(link.get('size') or 0)) or None,
                         'duration_s': int(float(link.get('duration') or 0)) or None, 'cover': None,
                         'raw': {'qqy_note': 'full artist/album available in search items'}}
         raise AdapterError(404, 'song not found')

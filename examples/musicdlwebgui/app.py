@@ -661,6 +661,8 @@ def serialize_item(key: str, info, platform_id: str) -> dict:
     # 一致（含酷我加密档——解密后规格由显式档位声明，下载钩子自动 QMC 解密）。
     # MB/min 推算仅作无显式标注时的兜底；标注与体积矛盾时以 tooltip 提示。
     explicit_tier = PLATFORM_TAG_TIER.get(platform_tag) if is_api else None
+    if explicit_tier is None and is_api and '24bit' in platform_tag:
+        explicit_tier = 'hires'   # qianqian tracklink bits=24 (server-declared file attribute)
     if explicit_tier:
         tier = explicit_tier
     suspect, suspect_reason = False, ''
