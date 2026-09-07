@@ -78,7 +78,7 @@ class BilibiliAdapter(SourceAdapter):
 
     '''resolve DASH audio track by quality tier'''
     async def song_url(self, song_id: str, quality: str) -> dict:
-        q = quality if quality in {'auto', '320k', '128k', 'low', 'super'} else 'auto'
+        q = quality if quality in {'auto', '320k', '128k', 'flac', 'hires'} else 'auto'
         t0 = time.perf_counter()
         sessdata = getattr(self.settings, 'bili_sessdata', '')
         cookie = self._get_buvid() + (f'; SESSDATA={sessdata}' if sessdata else '')
@@ -95,7 +95,7 @@ class BilibiliAdapter(SourceAdapter):
 
         def _playurl():
             from urllib.request import urlopen, Request
-            req = Request(f'https://api.bilibili.com/x/player/playurl?fnval=16&bvid={song_id}&cid={cid}',
+            req = Request(f'https://api.bilibili.com/x/player/playurl?fnval=208&bvid={song_id}&cid={cid}',
                           headers={'User-Agent': self.UA, 'Cookie': cookie})
             return _json.loads(urlopen(req, timeout=15).read())
         p = await self.run(_playurl)
@@ -106,9 +106,8 @@ class BilibiliAdapter(SourceAdapter):
                 u = a.get('baseUrl') or a.get('base_url')
                 if u and str(u).startswith('http'): return a
             return None
-        tiers = {'low': [30216, 30232, 30280], 'standard': [30232, 30280],
-                 'auto': [30280, 30251, 30250, 30232], 'high': [30280, 30251],
-                 '320k': [30280, 30251], 'super': [30251, 30250, 30280]}
+        tiers = {'128k': [30232, 30280], '320k': [30280, 30251, 30250, 30232],
+                 'auto': [30280, 30251, 30250, 30232]}
         want_ids = {'flac': [30251], 'hires': [30251]}[q] if q in {'flac', 'hires'} else tiers[q]
         if q in {'flac', 'hires'} and not sessdata:
             raise AdapterError(403, 'Hi-Res/Dolby needs BILI_SESSDATA (bilibili account)')
