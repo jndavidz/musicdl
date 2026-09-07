@@ -55,7 +55,9 @@ DEFAULT_CONFIG = {
     'save_lrc_sidecar': False,
     'kwqq_api_base': 'http://10.10.10.2:3003',
     'kwqq_api_key': '',
-    # 酷我 VIP cookie (kw_token=xxx; csrf=xxx) — 启用 4000kflac 加密母带档 + QMC 解密
+    # 酷我 VIP cookie (kw_token=xxx; csrf=xxx) — 4000kflac 加密档 + QMC 解密。
+    # ⚠️ deprecated: 已被匿名 master 通道(20900kmflac, 192k/24bit, 无 Cookie)覆盖,
+    # 保留作为匿名通道失效时的备份路径 (加密档常量与解密器均为 musicdl 内置资源)
     'kuwo_vip_cookie': '',
     # aggregator subsource selection, e.g. {"tunehub": ["netease", "qq"], "gdstudio": ["netease"]}
     'platform_subsources': {},
