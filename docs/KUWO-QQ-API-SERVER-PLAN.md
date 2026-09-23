@@ -406,7 +406,7 @@ Music Assistant(NAS待部署): 统一控制 Squeezelite/DLNA/AirPlay 端；可�
 - 内网地址: http://10.10.10.2:3003
 - 外网地址: https://kwqq-api.pegbiotec.com:4433（Lucky 反代 + DNS 待配置后生效）
 - Docker 容器: musicdl-api (镜像 musicdl-api:latest)
-- 源码位置: NAS /volume2/docker/musicdl-api/src（本机 D:\repos\musicdl api-server 分支，已推 GitHub origin/api-server）
+- 源码位置: NAS /volume2/docker/musicdl-api/src（本机 D:\_work\repos\musicdl api-server 分支，已推 GitHub origin/api-server）
 - git 分支: api-server（公共底座在 hifi 分支 7b93e47）
 - docker-compose.yml: /volume2/docker/musicdl-api/docker-compose.yml（build ./src）
 

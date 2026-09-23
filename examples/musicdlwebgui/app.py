@@ -12,7 +12,7 @@ Design notes (zero modification to the musicdl library):
     * SongInfoUtils.savelrctofile patched -> no .lrc sidecar unless enabled in config,
       so lyrics/cover/tags stay embedded inside the ONE audio file
 Run:
-    cd /mnt/d/repos/musicdl && uv run python examples/musicdlwebgui/app.py --port 3004
+    cd /mnt/d/_work/repos/musicdl && uv run python examples/musicdlwebgui/app.py --port 3004
 '''
 import os
 import re

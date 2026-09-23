@@ -18,7 +18,7 @@
 ## 快速开始
 
 ```bash
-cd /mnt/d/repos/musicdl
+cd /mnt/d/_work/repos/musicdl
 uv run python examples/musicdlwebgui/app.py            # 默认 http://127.0.0.1:3004
 ```
 

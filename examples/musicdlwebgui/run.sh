@@ -4,7 +4,7 @@
 #   musicdl --host 0.0.0.0  LAN access
 #   musicdl-mount           mount Synology /volume1/music into WSL (sudo, first time only)
 set -euo pipefail
-REPO=/mnt/d/repos/musicdl
+REPO=/mnt/d/_work/repos/musicdl
 case "${1:-start}" in
   start|"")
     shift || true
