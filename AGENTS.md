@@ -68,3 +68,13 @@ Makefile 的 `install`/`publish` 是上游 PyPI 发布遗留；本仓库的发�
 - `docs/QUALITY-MATRIX.md` — 四平台（网易/酷狗/酷我/QQ）音质档位总册：官方命名、私有参数、adapter 映射、横向对照。**改任何 QUALITY 映射或新增档位前读它**，改完同步更新。
 - `docs/KUWO-QQ-API-SERVER-PLAN.md` — 设计决策记录。**想知道某处为什么这么设计时读它**，而不是重新发明方案。
 - `examples/musicdlwebgui/README.md` — webgui 功能矩阵与双后端（kwqq-API 六源 + 进程内库）分工说明。
+
+## Agent skills
+
+### Issue tracker
+
+Issues are local markdown files under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` at repo root + `docs/adr/`. See `docs/agents/domain.md`.
