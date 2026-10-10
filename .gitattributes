@@ -1,0 +1,34 @@
+# 行尾与二进制规则（2026-10-11 补）
+#
+# 本仓是 musicdl（音乐下载工具，Python 为主，含文档站与少量二进制资源）。
+# 现有 0 个 CRLF 文件。
+#
+# 注意：21 个二进制资源（TTF/CFF/GIF/ICO/JPG/MP4/PNG/PKL/WVD）必须禁止转换。
+
+# ---- 源码/文档：LF ----
+*.py    text eol=lf
+*.sh    text eol=lf
+*.md    text eol=lf
+*.rst   text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.json  text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.txt   text eol=lf
+*.gitignore text eol=lf
+*.dockerignore text eol=lf
+
+# ---- Windows 侧执行：必须 CRLF（AGENTS.md §2 第 3 条）----
+*.bat   text eol=crlf
+
+# ---- 二进制资源与加密数据 ----
+*.ttf   binary
+*.cff   binary
+*.gif   binary
+*.ico   binary
+*.jpg   binary
+*.png   binary
+*.mp4   binary
+*.pkl   binary
+*.wvd   binary
