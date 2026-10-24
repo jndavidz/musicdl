@@ -4,6 +4,7 @@
 > 维护方式：每次探测后更新「状态」列；新增端点追加到对应平台章节
 > 实测方法：真实歌曲 id 直调（QQ mid=0039MnYb0qxYhV《晴天》/ 酷我 rid=228908《晴天》/ 网易 id=108914《江南》/ 网易灰曲 id=186016《晴天》）
 > 最后全量探测：2026-08-24 · 标注 ✅=可用 ⚠️=不稳定 ❌=失效 🔐=需凭证
+> ⬆️ **上游同步基线：musicdl v2.14.2**（merge `74c6ac1`，2026-10-24）。标 ⬆️ 的条目取自上游源码 diff，**本轮未复测**，其存活状态以下一轮探测为准
 
 ---
 
@@ -33,6 +34,9 @@
 | `deemixer.com` | 按 bitrate | 无 | 🧪 未验证 | — |
 | `musicfab.io/api/deezer` | mp3 | 无 | 🧪 未验证 | — |
 | `deezdownloaders.com` | 128 | 无 | 🧪 未验证 | — |
+| ⬆️ `https://qqovo.top/api/session/bootstrap`（POST `{"deviceId"}` → `apiSignKey`） | — | 会话内签密钥 | 🧪 v2.14.2 引入，未复测 | 🟢 qq / 酷狗 / 汽水 l2 |
+| ⬆️ `https://qqovo.top/api/meting?server=tencent&type=url&id={mid}&quality=lossless` | lossless 声明 | HMAC-SHA256 自签 | 🧪 未复测 | 🟢 qq l2 |
+| ⬆️ `https://meting.mikus.ink/api?server=tencent&type=url&id={mid}` | 服务端定档 | 无 | 🧪 未复测 | 🟢 qq l3 |
 
 ### 1.2 官方端点
 
@@ -48,6 +52,21 @@
 |------|---------|------|
 | musicfab/deezdownloaders 等 | 见 ETC 分析 §4.2 | 部分 key 明文有效 |
 | QQ 登录 Cookie（uin/qm_keyst） | 用户自有 | 🔐 未配置 |
+
+### 1.4 解析链与签名协议（⬆️ v2.14.2）
+
+**QQovo 签名协议**（qq / 酷狗 / 汽水三端共用一套实现）：bootstrap 取回 `apiSignKey` 后，每个请求带 `X-OM-Ts`、`X-OM-Nonce`、`X-OM-Sign`，其中签名 = `base64url(HMAC-SHA256(signKey, payload))` 去尾 `=`，payload = `"GET\n" + path + "\n" + 排序后的 query + "\n\n" + ts + "\n" + nonce`。Referer 固定 `https://qqovo.top/room/4SVWQK`，Origin `https://qqovo.top`。
+
+**QQ 解析链位次变化**：
+
+| 层级 | v2.13.10 | ⬆️ v2.14.2 | 影响 |
+|------|----------|------------|------|
+| l1（svip 直取） | vkeys · 317ak · xingmian · chksz · xcvts（5 项全跑） | 重排为 vkeys · xcvts · 317ak · xingmian **且截断 `[:2]`** → 实际只跑 vkeys + xcvts | xcvts 密钥已失效（见 §9），**l1 实际只剩 vkeys 单点**；317ak / xingmian 被挤出主链，chksz 下移 l2 |
+| l2（vip） | nki · tang · hk0cc | chksz · **qqovo** · nki · tang · hk0cc | chksz 从 l1 上移入；qqovo 插到第 2 位 |
+| l3（vip，仅 mp3/m4a） | cy · lzmhhh · xunhuisi | cy · lzmhhh · xunhuisi · **mikus** | 新增 mikus 兜底 |
+| l4（失效池） | xianyuw · yutangxiaowu · lxmusic · lpz | 不变 | — |
+
+⚠️ 风险：l1 重排后截到 `[:2]` = vkeys + xcvts，而 xcvts 密钥已失效（见 §9），**QQ 无损实际单点依赖 vkeys**。若 vkeys 挂掉，冷启动直接落到 l2 的 chksz——比 v2.13.10 的 5 项 l1 池脆弱得多。
 
 ---
 
@@ -103,6 +122,8 @@
 | `api.chksz.top/api/163_music?id=`（Referer: cp.chksz.top） | FLAC 61MB | 无 | 💰 2026-08-24 复测 404 | 💀 |
 | gdstudio (source=netease) | — | 无 | 🧪 待复测 | — |
 
+**⬆️ v2.14.2 库层变化**：无新端点，仅解析链重排（`bugpk` / `xunjinlu` / `xingmian` 从 l1 下移到 l2；`jfjt` 从 l3 上移到 l1），以及 `REQUEST_KEYS` 轮换并新增第二把 base64 key。对 kwqq-api 无影响——我们走 ncm-api 容器主通道，不经这条链。
+
 ### 3.2 网易云凭证登记
 
 | 凭证 | 值摘要 | 有效期 | 存放 |
@@ -123,15 +144,30 @@
 | **kugou-api 容器 `/song/url?hash=&quality=`**（cookie-server 自动注入） | quality=flac/high → 真 FLAC（URL 含 us1835587518 账户标识）；**viper_tape/viper_clear/viper_atmos 返回 status=2 priv=0 auth_through=[]（vip_type=0 非会员被挡）** | 🔐 cookie-server | ✅ 实测 flac/high；❌ viper 需 VIP | 🟢 主通道（仅 flac/high/320/128） |
 | kugou-api `/song/url?quality=viper_*` 实测（2026-09-07，真实概念版 cookie） | 三档蝰蛇均 `status=2` 无 URL；`priv_status=0`；**蝰蛇音质需超级VIP**（酷狗会员中心明示），伪装 vip_type=1/vip_token 无效（服务端校验） | 🔐 超级VIP | ❌ 当前账户非VIP | 不可达 |
 | kugou-api `/search`（需 cookie，error_code 152=无 cookie） | — | cookie-server | ✅ | 🟢 |
-| haitangw `/kgqq/kg.php?type=json&id={FileHash}&level=hires\|lossless\|exhigh` | 多档 | 无 | ✅（musicdl l1） | 🟢 musicdl 链 |
-| **咸鱼 API 开放平台**（`_parsewithxianyuwapi`，上游 v2.13.10 新增） | **FLAC 真无损**（周杰伦《晴天》52.83MB 实测） | 无 | ✅ musicdl 酷狗无损主力 | 🟢 musicdl 链 |
+| haitangw `/kgqq/kg.php?type=json&id={FileHash}&level=hires\|lossless\|exhigh` | 多档 | 无 | ✅ 可用；⚠️ 勘误：实际处于 musicdl **l3**（v2.13.10 与 v2.14.2 均在 l3），旧记「l1」为笔误 | 🟢 musicdl 链 |
+| ⬆️ QQovo `/api/meting?server=kugou&type=url&id={hash}&quality=lossless`（bootstrap + HMAC-SHA256 自签） | lossless 声明 | 会话内签密钥 | 🧪 v2.14.2 新增并置于 l2 首位，未复测 | 🟢 musicdl 链 |
+| **咸鱼 API 开放平台**（`_parsewithxianyuwapi`，上游 v2.13.10 新增） | **FLAC 真无损**（周杰伦《晴天》52.83MB 实测） | 无 | ✅ 2026-08-24 实测无损；⬆️ v2.14.2 已从 l1 下移至 l2 末位 | 🟢 musicdl 链 |
 | tom / jbsou / 90svip | 128/320 mp3 | 无 | ✅ | 🟢 musicdl 链 |
 | 317ak / haitangw（UnboundLocalError） | — | — | ⚠️ 上游代码缺陷，特定响应触发 | 🟢 musicdl 链 |
 | baka.plus (br=2000) / cocodownloader | 超时/失败 | — | ⚠️ 不稳定 | 🟢 musicdl 链 |
 | 官方 /v5/url（蝰蛇 viper_tape/clear/atmos + flac） | 蝰蛇三档 | 🔐 需蝰蛇母带权益 + 完整登录态 | ❌ 当前凭证 status=2 付费墙（musicdl data 空；kugou-api 容器同拒） | — |
 | cocodownloader / baka.plus / 317ak / xuanluoge / tom / jbsou / 90svip | — | 各异 | 🧪 musicdl 链内 | 🟢 musicdl 链 |
 
-### 4.1 酷狗凭证登记
+### 4.1 解析链与歌词端点（⬆️ v2.14.2）
+
+**解析链位次重排**（对 kwqq-api 无影响：我们走 kugou-api 容器主通道，不消费这条链；仅影响 `musicdl` 库直用）：
+
+| 层级 | v2.13.10 | ⬆️ v2.14.2 |
+|------|----------|------------|
+| l1 | 317ak · xianyuw | **baka** |
+| l2 | lzmhhh · 90svip · tom · jbsou | **qqovo** · lzmhhh · 90svip · tom · jbsou · xianyuw |
+| l3 | chksz · baka · cocodownloader · haitangw | 317ak · chksz · cocodownloader · haitangw |
+
+**歌词端点迁移**：`http://lyrics.kugou.com/search` → **`https://krcs.kugou.com/search`**，并新增参数 `ver=1`、`man=yes`、`client=mobi`；下载端点 `https://lyrics.kugou.com/download?...` 不变。这是上游修「fix lyric fetch error」的实质改动——旧端点整域换主。
+
+另：`REQUEST_KEYS`（base64 前缀 `charlespikachu` 的会话密钥）已整体轮换。
+
+### 4.2 酷狗凭证登记
 
 | 凭证 | 值摘要 | 续期 | 存放 |
 |------|--------|------|------|
@@ -139,7 +175,46 @@
 
 ---
 
-## 5. 咪咕 / 千千
+## 5. 汽水 / Deezer / Qobuz 库层链（⬆️ v2.14.2）
+
+这三个平台不在 kwqq-api 六源内，以下仅为上游库层链路留档——若日后要接入需从零建 adapter。
+
+### 5.1 汽水（SoDa / 七雪）
+
+| 端点 | 变化 | 状态 |
+|------|------|------|
+| 搜索 `https://api.qishui.com/luna/search/track?` | ⬆️ 由 `https://api.qishui.com/luna/pc/search/track?` 迁移；UA 由 `LunaPC/3.5.1(408871041)` 降为 `LunaPC/3.4.0(388267242)`；新增 `X-Luna-Background-Type: foreground`、`X-Luna-Is-Background-Req: 0`、`X-Luna-Is-Local-User: 1` 三个头 | 🧪 未复测 |
+| 解析 `https://qiuyu520.fun/qishuiParse/api/track_v2?_={纳秒时间戳}` | ⬆️ 由 `http://qiuyu520.fun/qishuiParse/api/track/v2` 迁移（http→https、`track/v2`→`track_v2`、加随机参数），载荷从明文 `{"track_id": id}` 改为 **AES-256-GCM 加密** `{"d": b64(nonce ‖ ciphertext)}`，32 字节密钥硬编码在源码（nonce 12 字节随机生成） | 🧪 未复测 |
+| 新增 `_parsewithqqovoapi`（`server=qishui`，`quality=exhigh`） | ⬆️ 走 §1.4 QQovo 签名协议 | 🧪 未复测 |
+| ⛔ 旧链 `api.qishui.com/luna/pc/search/track`、`http://qiuyu520.fun/.../track/v2` | 已弃 | 见 §9 |
+
+### 5.2 Deezer / Qobuz
+
+| 端点 | 变化 | 状态 |
+|------|------|------|
+| `https://antra.hoshi.cfd/api/jobs` + `/api/resolve` | ⬆️ 无损格式 `lossless-24` → **`lossless-16`**（降规格换可用性） | 🧪 未复测 |
+| `https://api.dezalty.com/auth/telegram/guest` → `/download/qobuz/stream?quality_str=Normal` | ⬆️ 全新通道：先拿 Telegram guest token，再解析流；同时被 `deezer.py` 与 `qobuz.py` 复用 | 🧪 未复测 |
+| `https://clashflac.kanjijewels.com/api/qobuz/resolve` + `/api/qobuz/download`（`quality: UHD`） | ⬆️ 全新通道；请求 Origin 头为 `https://clashflac.pages.dev`（前端页与 API 不同域） | 🧪 未复测 |
+| `https://open.qobuz.com/track/{id}` | 保留（元数据） | — |
+| ⛔ `https://qobuz-tidal-eclipse.cyrusna29.workers.dev/generate` + `/u/{token}/stream/{id}` | 整段移除 | 见 §9 |
+| ⛔ `https://flacdownloader.com/prepare` + `/asset` | 整段移除（原为 X-Dl-Token 动态取链） | 见 §9 |
+
+### 5.3 库层网页源（thirdpartysites）变动
+
+| 模块 | 站点 | 状态 | 凭证门槛 |
+|------|------|------|----------|
+| 💀 `LivePOOMusicClient` | `www.livepoo.cn` | 整模块删除 | — |
+| 💀 `LiziYYMusicClient` | `liziyy.top` | 整模块删除（上游称搜索已废） | — |
+| 💀 `ITingWaMusicClient` | 听蛙 `itingwa` | 整模块删除 | — |
+| 🧪 `LeedodoMusicClient` | `music.leedodo.com`（轻音乐/纯音乐，承接听蛙） | 新增；端点 `https://music.leedodo.com/wp-admin/admin-ajax.php`（WordPress 主题后端） | 匿名 |
+| 🧪 `HeishanMusicClient` | `www.163cn.cc`（承接 livepoo） | 新增；`/search.html?` + `/download/{id}.html?t=0|1`，站内链接指向 `https://pan.quark.cn/s/` 夸克网盘 | 🔐 **硬门槛**：无 `quark_parser_config.cookies` 直接 `assert` 抛错，模块无法实例化 |
+| 🧪 `GequkeMusicClient` | `www.gequke.com`（承接 liziyy） | 新增；`/search?s=` + POST `/api/music`，返回 MP3 + 歌词 | 🔐 无 quark cookie 仅能下 MP3，仅 **warning** 不阻断（比 heishan 软） |
+
+> 注：以上三者均只在 **musicdl 库直用**（`MusicClientBuilder`）路径可达，kwqq-api 的六源 adapter 不经过 `thirdpartysites` 模块，故对服务出链无影响。已同步修正 [examples/musicdlwebgui/app.py:129](../examples/musicdlwebgui/app.py#L129) 的源清单（提交 `3c3720b`）。
+
+---
+
+## 6. 咪咕 / 千千
 
 | 平台 | 通道 | 鉴权 | 音质 | 状态 |
 |------|------|------|------|------|
@@ -148,7 +223,7 @@
 
 ---
 
-## 6. 聚合/通用端点
+## 7. 聚合/通用端点
 
 | 端点 | 覆盖 | 音质 | 状态 | 用途 |
 |------|------|------|------|------|
@@ -157,10 +232,15 @@
 | `api.qijieya.cn/meting/` | netease 为主 | br=999000 真 FLAC（VIP 曲禁） | ✅ | 网易灰曲兜底候选 |
 | `oiapi.net/api/Music_163` / `api/Kuwo?msg=歌名` | netease / kuwo | 320k | ✅ | 备选 |
 | `zz123.com` / `gequbao.com` / `t.ijanz.cn` | 网页爬取类 | — | 沙箱捕获到搜索请求 | 潜在补充源（需 HTML 解析） |
+| ⬆️ `https://music.gdstudio.org/api.php` + `/time`（与 `.xyz` 双域可选） | 十平台（embeat 新增；spotify 已移除） | 至 999 | 🧪 v2.14.2：VERSION `2026.08.01 → 2026.09.25`、**POST → GET**、加解密白名单末两项常量微调（`0xFCEFA3F8→0xFCFEA3F8`、`0x8D2A4D8A→0x8D2A4C8A`）；可传 `host=` 选域 | 备选观察（大陆用户可用 `.org`） |
+| ⬆️ `https://qqovo.top/api/meting?server={tencent\|kugou\|qishui}` | 三平台 | 声明档 | 🧪 跨源复用同一签名协议（见 §1.4） | 跨源出链候选 |
+| ⬆️ `https://meting.mikus.ink/api?server=tencent` | QQ | 服务端定档 | 🧪 未复测 | QQ l3 兜底 |
+| ⬆️ `https://mp3juice.sc/`（页面内 `var apiKey='...'` 动态取） + `https://theta.thetacloud.org/api/v1/auth?api_key=` | 通用转换 | mp3 | ⬆️ 上游修复：**apiKey 已变为必填**，须先从首页 JS 抓取；下载 URL 追加 `&v={id}&f=mp3&r=mp3juice.sc` | 库层（非 kwqq-api） |
+| ⬆️ `https://www.jbsou.cn/` | 酷狗 | 128/320 | ⬆️ 上游修复：搜索前须先 GET 首页并从 JS 提取 `mk_visit` cookie 写入会话（旧直调已失效） | 库层 |
 
 ---
 
-## 7. 凭证与密钥总登记
+## 8. 凭证与密钥总登记
 
 | # | 凭证 | 类型 | 值摘要 | 有效期 | 存放 | 备注 |
 |---|------|------|--------|--------|------|------|
@@ -173,7 +253,7 @@
 
 ---
 
-## 8. 死亡考古名单（勿再尝试）
+## 9. 死亡考古名单（勿再尝试）
 
 | 端点 | 死亡方式 | 确认日期 |
 |------|----------|----------|
@@ -188,10 +268,19 @@
 | `api.chksz.top`（网易 FLAC） | 404 | 2026-08-24 |
 | xcvts / xingmian / 317ak（QQ l1 池） | 密钥失效/接口异常 | 2026-08-12 Spike |
 | `music.90svip.cn` | 404 | 2026-08-24 |
+| ⬆️ `www.livepoo.cn`（LivePOOMusicClient） | 整模块被上游删除，替换为 `www.163cn.cc`（HeishanMusicClient） | 2026-10（v2.14.1 `a6d1a2b`） |
+| ⬆️ `liziyy.top`（LiziYYMusicClient） | 整模块被上游删除（上游称「搜索功能已废」），替换为 `www.gequke.com` | 2026-10（v2.14.1 `be2023c`） |
+| ⬆️ 听蛙 itingwa（ITingWaMusicClient） | 整模块被上游删除，替换为 `music.leedodo.com` | 2026-10（v2.14.1 `9cc907d`） |
+| ⬆️ `https://qobuz-tidal-eclipse.cyrusna29.workers.dev/generate` + `/u/{token}/stream/{id}` | 上游整段移除，替换为 clashflac / dezalty | 2026-10（v2.14.0 `c5a44b1`） |
+| ⬆️ `https://flacdownloader.com/prepare` + `/asset`（X-Dl-Token 取链） | 上游整段移除，替换为 antra `lossless-16` | 2026-10（v2.14.0 `a81b123`） |
+| ⬆️ `https://api.qishui.com/luna/pc/search/track?` | 端点整体迁移到 `/luna/search/track?`，PC UA 弃用 | 2026-10（v2.14.0 `d0bc7e1`） |
+| ⬆️ `http://qiuyu520.fun/qishuiParse/api/track/v2` | 改 https + 路径 `track_v2` + AES-256-GCM 加密载荷 | 2026-10（v2.14.0 `d0bc7e1`） |
+| ⬆️ `http://lyrics.kugou.com/search` | 迁移到 `https://krcs.kugou.com/search`（新增 `ver`/`man`/`client` 参数） | 2026-10（`ac3a4f3`） |
+| ⬆️ `antra.hoshi.cfd` `lossless-24` 格式 | 降规格为 `lossless-16` | 2026-10（v2.14.0 `a81b123`） |
 
 ---
 
-## 9. 待验证池 —— 2026-08-24 全量实测完毕
+## 10. 待验证池 —— 2026-08-24 全量实测完毕
 
 | 待验证项 | 实测结论 |
 |----------|----------|
@@ -203,7 +292,21 @@
 
 **结论**：两轮扫描（本地 23 + 网络 94 + 官方分析 23）合计 **130 个插件、100 个索引源**穷尽后，除已集成的六源与元力/haitangw/nxinxz 兜底外，**无新增有价值的独立音源端点**。当前六源架构已是该生态下的最优覆盖。
 
+**⬆️ 2026-10-24 上游同步新增待验证项**（均为 v2.14.2 引入，本轮未复测）：
+
+| 待验证项 | 建议验证方式 |
+|----------|--------------|
+| `qqovo.top` bootstrap + HMAC-SHA256 签名（qq/酷狗/汽水三端） | 直调 bootstrap 验签名头可通；再用真实 mid/hash 验 lossless 是否真无损 |
+| `meting.mikus.ink` | 直接 audio_link_tester 测档 |
+| `api.dezalty.com`（Telegram guest auth） | 验 guest token 能否取到 stream |
+| `clashflac.kanjijewels.com`（qobuz UHD） | 验 resolve + download 两段 |
+| `qiuyu520.fun/.../track_v2` AES-GCM 新协议 | 用汽水真实 track_id 验解包 |
+| `krcs.kugou.com/search`（歌词新端点） | 带 hash 验 candidates 返回 |
+| `music.gdstudio.org`（大陆域） | 对比 `.org` / `.xyz` 双域与 v2026.09.25 GET 协议 |
+| `mp3juice.sc` 动态 apiKey / `jbsou.cn` `mk_visit` cookie | 库层自校验 |
+| QQ l1 截断后无损命中率 | 专挑 QQ 无损批量冒烟，观察是否大面积落 l2 |
+
 后续增量维护建议：
 1. 监控 [Huibq/keep-alive](https://github.com/Huibq/keep-alive) 与元力公众号的端点更新
 2. 每季度重跑 `.state/probe_endpoints.py` 探测矩阵复核存活状态
-3. musicdl 上游更新时同步 hifi 分支解析链
+3. ⚠️ **勘误（2026-10-24）**：原第 3 条「musicdl 上游更新时同步 hifi 分支解析链」已失效——`archive/hifi` tag 已于 2026-09-06 归档并入本分支，单分支治理后**上游同步只发生在 `api-server`**（fetch `upstream` 后直接 merge `upstream/master`）。每次合并后须按本台账口径复核库层解析链变动（即本文所有 ⬆️ 条目的来源）。
