@@ -8,12 +8,12 @@ from .xmfwav import XMFWAVMusicClient
 from .twot58 import TwoT58MusicClient
 from .fangpi import FangpiMusicClient
 from .buguyy import BuguyyMusicClient
-from .liziyy import LiziYYMusicClient
+from .gequke import GequkeMusicClient
 from .xiageba import XiagebaMusicClient
-from .itingwa import ITingWaMusicClient
+from .leedodo import LeedodoMusicClient
 from .gequbao import GequbaoMusicClient
 from .gequhai import GequhaiMusicClient
-from .livepoo import LivePOOMusicClient
+from .heishan import HeishanMusicClient
 from .yinyueku import YinyuekuMusicClient
 from .fivesong import FiveSongMusicClient
 from .yinyuedao import YinyuedaoMusicClient

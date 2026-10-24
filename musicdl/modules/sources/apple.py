@@ -11,19 +11,20 @@ import copy
 import shutil
 from contextlib import suppress
 from types import SimpleNamespace
-from .base import BaseMusicClient
+from typing_extensions import Unpack
 from ..utils.hosts import APPLE_MUSIC_HOSTS
 from urllib.parse import urlencode, urlparse, parse_qs
+from .base import BaseMusicClient, BaseMusicClientKwargs
 from pathvalidate import sanitize_filepath, sanitize_filename
 from rich.progress import Progress, TextColumn, BarColumn, TimeRemainingColumn, MofNCompleteColumn
 from ..utils.appleutils import AppleMusicClientDownloadSongUtils, AppleMusicClientAPIUtils, AppleMusicClientItunesApiUtils, DownloadItem, SongCodec, RemuxMode
-from ..utils import legalizestring, resp2json, usesearchheaderscookies, safeextractfromdict, usedownloadheaderscookies, useparseheaderscookies, hostmatchessuffix, obtainhostname, cleanlrc, SongInfo, SongInfoUtils, AudioLinkTester, IOUtils
+from ..utils import legalizestring, resp2json, usesearchheaderscookies, safeextractfromdict, usedownloadheaderscookies, useparseheaderscookies, hostmatchessuffix, obtainhostname, cleanlrc, SongInfo, SongInfoUtils, IOUtils
 
 
 '''AppleMusicClient'''
 class AppleMusicClient(BaseMusicClient):
     source = 'AppleMusicClient'
-    def __init__(self, use_wrapper: bool = False, wrapper_account_url: str = "http://127.0.0.1:30020/", language: str = "en-US", codec: str = None, wrapper_decrypt_ip: str = "127.0.0.1:10020", **kwargs):
+    def __init__(self, use_wrapper: bool = False, wrapper_account_url: str = "http://127.0.0.1:30020/", language: str = "en-US", codec: str = None, wrapper_decrypt_ip: str = "127.0.0.1:10020", **kwargs: Unpack[BaseMusicClientKwargs]):
         super(AppleMusicClient, self).__init__(**kwargs)
         self.apple_music_api, self.itunes_api, self.use_wrapper, self.wrapper_account_url, self.language, self.account_info, self.codec, self.wrapper_decrypt_ip = None, None, use_wrapper, wrapper_account_url, language, {}, codec, wrapper_decrypt_ip
         if self.codec is None: self.codec = SongCodec.ALAC if use_wrapper else SongCodec.AAC_LEGACY
@@ -72,10 +73,10 @@ class AppleMusicClient(BaseMusicClient):
         # init
         if (not self.default_cookies or 'media-user-token' not in self.default_cookies) and (not self.use_wrapper): self.logger_handle.warning(f'{self.source}._constructsearchurls >>> both "media-user-token" and "use_wrapper" are not configured, so song downloads are restricted and only the preview portion of the track can be downloaded.')
         rule, request_overrides = rule or {}, request_overrides or {}; self._initapifunctions(mode='search', request_overrides=request_overrides); self._initsession()
-        (default_rule := {"groups": "song", "l": "en-US", "offset": "0", "term": keyword, "types": "activities,albums,apple-curators,artists,curators,editorial-items,music-movies,music-videos,playlists,record-labels,songs,stations,tv-episodes,uploaded-videos", "art[url]": "f", "extend": "artistUrl", "fields[albums]": "artistName,artistUrl,artwork,contentRating,editorialArtwork,editorialNotes,name,playParams,releaseDate,url,trackCount", "fields[artists]": "url,name,artwork", "format[resources]": "map", "include[editorial-items]": "contents", "include[songs]": "artists", "limit": "10", "omit[resource]": "autos", "platform": "web", "relate[albums]": "artists", "relate[editorial-items]": "contents", "relate[songs]": "albums", "types": "activities,albums,apple-curators,artists,curators,music-movies,music-videos,playlists,songs,stations,tv-episodes,uploaded-videos", "with": "lyrics,serverBubbles"}).update(rule)
+        (default_rule := {"term": keyword, "types": "songs,music-videos,albums,playlists,artists", "limit": "10", "offset": "0"}).update(rule)
         geo = safeextractfromdict(self.account_info, ['meta', 'subscription', 'storefront'], 'us')
         # construct search urls
-        search_urls, page_size, count, base_url = [], self.search_size_per_page, 0, f'https://amp-api-edge.music.apple.com/v1/catalog/{geo}/search?'
+        search_urls, page_size, count, base_url = [], self.search_size_per_page, 0, f'https://amp-api.music.apple.com/v1/catalog/{geo}/search?'
         while self.search_size_per_source > count:
             (page_rule := copy.deepcopy(default_rule))['limit'] = page_size
             page_rule['offset'] = count
@@ -116,7 +117,7 @@ class AppleMusicClient(BaseMusicClient):
             download_url_status: dict = self.audio_link_tester.test(url=download_item.stream_info.audio_track.stream_url, request_overrides=request_overrides, renew_session=True)
             song_info = SongInfo(
                 raw_data={'search': search_result, 'download': download_result, 'lyric': {}}, source=self.source, song_name=legalizestring(safeextractfromdict(search_result, ['attributes', 'name'], None)), singers=legalizestring(safeextractfromdict(search_result, ['attributes', 'artistName'], None)), album=legalizestring(safeextractfromdict(search_result, ['attributes', 'albumName'], None)), ext=download_item.stream_info.file_format.value, 
-                file_size_bytes='HLS', file_size='HLS', identifier=song_id, duration_s=duration_in_secs, duration=SongInfoUtils.seconds2hms(duration_in_secs), lyric=cleanlrc(str(download_item.lyrics.synced) or ''), cover_url=safeextractfromdict(search_result, ['attributes', 'artwork', 'url'], None), download_url=download_item, download_url_status=download_url_status,
+                file_size_bytes='HLS', file_size='HLS', identifier=song_id, duration_s=duration_in_secs, duration=SongInfoUtils.seconds2hms(duration_in_secs), lyric=cleanlrc((download_item.lyrics.synced if download_item.lyrics else '') or ''), cover_url=safeextractfromdict(search_result, ['attributes', 'artwork', 'url'], None), download_url=download_item, download_url_status=download_url_status,
             )
             if song_info.cover_url and song_info.cover_url.startswith('http'): song_info.cover_url = song_info.cover_url.format(w=600, h=600, f='jpg')
         # return
@@ -125,17 +126,18 @@ class AppleMusicClient(BaseMusicClient):
     @usesearchheaderscookies
     def _search(self, keyword: str = '', search_url: str = '', request_overrides: dict = None, song_infos: list = [], progress: Progress = None):
         # init
-        page_no, search_result_idx = int(float(parse_qs(urlparse(url=search_url).query, keep_blank_values=True).get('offset')[0]) / self.search_size_per_page) + 1, -1
+        page_no, search_result_idx = int(float(parse_qs(urlparse(url=search_url).query, keep_blank_values=True).get('offset', ['0'])[0] or 0) / self.search_size_per_page) + 1, -1
         task_id = progress.add_task(f"{self.source}._search >>> Start to process the 0th search result on page {page_no}", total=None, completed=0)
         # successful
         try:
             # --search results
             (resp := self.get(search_url, **(request_overrides := request_overrides or {}))).raise_for_status()
-            for search_result_idx, (song_key, search_result) in enumerate(dict(resp2json(resp)['resources']['songs']).items()):
+            for search_result_idx, search_result in enumerate(safeextractfromdict(resp2json(resp), ['results', 'songs', 'data'], []) or []):
+                if not search_result or not isinstance(search_result, dict): continue
                 # --update progress
                 progress.update(task_id, description=f'{self.source}._search >>> Start to process the {search_result_idx+1}th search result on page {page_no}', completed=search_result_idx+1, total=search_result_idx+1)
                 # --init song info
-                song_info, search_result['song_key'] = SongInfo(source=self.source, raw_data={'search': search_result, 'download': {}, 'lyric': {}}), song_key
+                song_info, search_result['song_key'] = SongInfo(source=self.source, raw_data={'search': search_result, 'download': {}, 'lyric': {}}), search_result.get('id')
                 # --parse with official apis
                 with suppress(Exception): song_info = self._parsewithnonvipofficialapiv1(search_result=search_result, song_info_flac=None, lossless_quality_is_sufficient=False, request_overrides=request_overrides) if (not self.default_cookies or 'media-user-token' not in self.default_cookies) and (not self.use_wrapper) else self._parsewithvipofficialapiv1(search_result=search_result, song_info_flac=None, lossless_quality_is_sufficient=False, request_overrides=request_overrides)
                 # --append to song_infos
@@ -155,18 +157,21 @@ class AppleMusicClient(BaseMusicClient):
     def parseplaylist(self, playlist_url: str, request_overrides: dict = None):
         # init
         playlist_url = self.session.head(playlist_url, allow_redirects=True, **(request_overrides := dict(request_overrides or {}))).url
-        playlist_id, song_infos = urlparse(playlist_url).path.strip('/').split('/')[-1].removesuffix('.html').removesuffix('.htm'), []
+        playlist_id, song_infos = (playlist_path := urlparse(playlist_url).path.strip('/').split('/'))[-1].removesuffix('.html').removesuffix('.htm'), []
+        is_library = playlist_path[-3: -1] in (['library', 'playlist'], ['library', 'playlists'])
         if (not (hostname := obtainhostname(url=playlist_url))) or (not hostmatchessuffix(hostname, APPLE_MUSIC_HOSTS)): return song_infos
         if (not self.default_cookies or 'media-user-token' not in self.default_cookies) and (not self.use_wrapper): self.logger_handle.error(f'{self.source}.parseplaylist >>> both "media-user-token" and "use_wrapper" are not configured, so musicdl does not have permission to parse Apple Music playlists, refer to "https://musicdl.readthedocs.io/en/latest/Clients.html#applemusicclient".'); return song_infos
         self._initapifunctions(mode='parse', request_overrides=request_overrides); self._initsession()
         # get tracks in playlist
-        playlist_result = self.apple_music_api.getplaylist(playlist_id, request_overrides=request_overrides)
-        tracks_in_playlist = safeextractfromdict(playlist_result, ['data', 0, 'relationships', 'tracks', 'data'], []) or []
+        playlist_result = (self.apple_music_api.getlibraryplaylist(playlist_id, request_overrides=request_overrides) if is_library else self.apple_music_api.getplaylist(playlist_id, request_overrides=request_overrides))
+        tracks_in_playlist = safeextractfromdict((tracks_relationship := safeextractfromdict(playlist_result, ['data', 0, 'relationships', 'tracks'], {}) or {}), ['data'], []) or []
+        for extended_api_data in self.apple_music_api.extendapidata(tracks_relationship, request_overrides=request_overrides): tracks_in_playlist.extend(safeextractfromdict(extended_api_data, ['data'], []) or [])
         # parse track by track in playlist
         with Progress(TextColumn("{task.description}"), BarColumn(bar_width=None), MofNCompleteColumn(), TimeRemainingColumn(), refresh_per_second=10) as main_process_context:
             main_progress_id = main_process_context.add_task(f"{len(tracks_in_playlist)} Songs Found in Playlist {playlist_id} >>> Completed (0/{len(tracks_in_playlist)}) SongInfo", total=len(tracks_in_playlist))
             for idx, track_info in enumerate(tracks_in_playlist):
                 if idx > 0: main_process_context.advance(main_progress_id, 1); main_process_context.update(main_progress_id, description=f"{len(tracks_in_playlist)} Songs Found in Playlist {playlist_id} >>> Completed ({idx}/{len(tracks_in_playlist)}) SongInfo")
+                if is_library and isinstance(track_info, dict) and track_info.get('type') == 'library-songs': track_info = copy.deepcopy(track_info); track_info['id'], track_info['type'] = AppleMusicClientDownloadSongUtils.getmediaidoflibrarymedia(track_info), 'songs'
                 song_info = SongInfo(source=self.source, raw_data={'search': track_info, 'download': {}, 'lyric': {}})
                 with suppress(Exception): song_info = self._parsewithvipofficialapiv1(search_result=track_info, song_info_flac=None, lossless_quality_is_sufficient=False, request_overrides=request_overrides)
                 if song_info.with_valid_download_url: song_infos.append(song_info); continue

@@ -1,5 +1,13 @@
 # Release Log
 
+- 2026-10-16: Released musicdl v2.14.2 — performed monthly maintenance on common music clients and fixed broken API integrations in four affected clients.
+
+- 2026-10-10: Released musicdl v2.14.1 — monthly maintenance of third-party music clients: fixed API issues on four platforms and replaced three discontinued ones with similar alternatives.
+
+- 2026-09-23: Released musicdl v2.14.0 — fix several bugs in Apple Music, and refactor parts of the third-party parsing interfaces for Qobuz, Deezer, and TIDAL Music.
+
+- 2026-09-08: Released musicdl v2.13.11 — regularly maintain the APIs for Kugou Music, NetEase Cloud Music, Soda Music, and QQ Music, fixing or deprecating endpoints that are no longer functional.
+
 - 2026-09-05: Released musicdl v2.13.10 — perform routine checks and maintenance on the Audius, ccMixter, FMA, JOOX, MOOV, SoundCloud, Spotify, and YouTube music clients to ensure that all their interfaces remain valid.
 
 - 2026-09-02: Released musicdl v2.13.9 — performed routine checks and maintenance on the Audius, ccMixter, FMA, JOOX, SoundCloud, Suno, and YouTube music clients; since YouTube's native API had become completely unusable, the YouTube client was fully refactored, with a large amount of unnecessary code removed.

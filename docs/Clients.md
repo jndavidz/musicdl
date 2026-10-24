@@ -767,7 +767,7 @@ SodaMusicClient offers an out-of-the-box experience: no extra CLI tools like ffm
 
   `musicdl -m SodaMusicClient -i "{'SodaMusicClient': {'default_search_cookies': 'YOUR_COOKIES'}}"`
   
-  Please note that the cookies must be captured from the network requests of the [desktop version of Soda Music](https://www.douyin.com/qishui/), and they must be provided in the following format:
+  Please note that the cookies must be captured from the network requests of an older desktop version of [Soda Music](https://www.douyin.com/qishui/), such as version 3.4.0 or earlier, and they must be provided in the following format:
   
   ```python
   SODA_MUSIC_REQUIRED_COOKIES = {
@@ -775,6 +775,7 @@ SodaMusicClient offers an out-of-the-box experience: no extra CLI tools like ffm
 	'device_id': 'xxx',
 	'x_helios': 'xxx',
 	'x_medusa': 'xxx',
+	'iid': 'xxx',
   }
   ```
   
@@ -2336,6 +2337,7 @@ The table below shows all music platforms currently supported by GDStudioMusicCl
 
 | Source (EN)             | Source (CN)                        | Official Websites                     | `allowed_music_sources`      |
 | -----------------       | -------------------                | -----------------------------------   | -------------------          |
+| Embeat                  | Embeat                             | https://sectarian-match407.github.io/ | `embeat`                     |
 | Spotify                 | Spotify                            | https://www.spotify.com               | `spotify`                    |
 | Tencent (QQ Music)      | QQ音乐                             | https://y.qq.com                      | `tencent`                    |
 | NetEase Cloud Music     | 网易云音乐                         | https://music.163.com                 | `netease`                    |
@@ -2375,8 +2377,9 @@ There’s no need to set up extra CLI tools such as ffmpeg or N_m3u8DL-RE. Just 
   ```python
   from musicdl import musicdl
 
-  # allowed_music_sources can be set to any subset (i.e., any combination) of ['spotify', 'tencent', 'netease', 'kuwo', 'tidal', 'qobuz', 'joox', 'bilibili', 'apple', 'ytmusic']
-  init_music_clients_cfg = {'GDStudioMusicClient': {'search_size_per_source': 5, 'allowed_music_sources': ['kuwo', 'netease', 'tidal', 'apple']}}
+  # allowed_music_sources can be set to any subset (i.e., any combination) of ['embeat', 'spotify', 'tencent', 'netease', 'kuwo', 'tidal', 'qobuz', 'joox', 'bilibili', 'apple', 'ytmusic']
+  # host should be in {'music.gdstudio.xyz', 'music.gdstudio.org'}. The former is the full-featured overseas version, while the latter is intended for users in mainland China without VPN access
+  init_music_clients_cfg = {'GDStudioMusicClient': {'search_size_per_source': 5, 'allowed_music_sources': ['kuwo', 'netease', 'tidal', 'apple'], 'host': 'music.gdstudio.xyz'}}
   music_client = musicdl.MusicClient(music_sources=['GDStudioMusicClient'], init_music_clients_cfg=init_music_clients_cfg)
   music_client.startcmdui()
   ```
@@ -2668,7 +2671,7 @@ No extra CLI tools like ffmpeg or N_m3u8DL-RE are needed. Just run pip install m
 
 #### FangpiMusicClient
 
-[Fangpi.net](https://www.fangpi.net/) is a music website that offers online streaming and free MP3 downloads, along with charts, recommendations, and song collections.
+[Fangpi.net](https://www.fangpiw.com/) is a music website that offers online streaming and free MP3 downloads, along with charts, recommendations, and song collections.
 
 FangpiMusicClient makes it easy to download music from the platform above.
 
@@ -2821,6 +2824,48 @@ GequhaiMusicClient is truly plug-and-play: no external CLI tools such as ffmpeg 
   music_client.startcmdui()
   ```
 
+#### GequkeMusicClient
+
+[gequke.com](https://www.gequke.com/) is a free online music website that allows users to search for songs, listen to music, and download MP3 files and lyrics.
+
+GequkeMusicClient enables users to download music directly from the platform mentioned above.
+
+GequkeMusicClient works out of the box, requiring no additional command-line tools like ffmpeg or N_m3u8DL-RE. Simply install musicdl and start using it right away.
+
+(1) Command-Line Usage
+
+- Search for and Download Playable Music Files from Websites
+
+  `musicdl -m GequkeMusicClient`
+
+- Configure Quark Drive Cookies to Search for and Download Higher-Quality Music Files
+
+  `musicdl -m GequkeMusicClient -i "{'GequkeMusicClient': {'quark_parser_config': {'cookies': 'Your Quark Drive Login Cookies'}}}"`
+
+(2) Invoke It in Python
+
+- Search for and Download Playable Music Files from Websites
+
+  ```python
+  from musicdl import musicdl
+
+  music_client = musicdl.MusicClient(music_sources=['GequkeMusicClient'])
+  music_client.startcmdui()
+  ```
+
+- Configure Quark Drive Cookies to Search for and Download Higher-Quality Music Files
+
+  ```python
+  from musicdl import musicdl
+  
+  your_quark_drive_login_cookies_with_str_or_dict_format = ''
+  init_music_clients_cfg = {
+    'GequkeMusicClient': {'quark_parser_config': {'cookies': your_quark_drive_login_cookies_with_str_or_dict_format}},
+  }
+  music_client = musicdl.MusicClient(music_sources=['GequkeMusicClient'], init_music_clients_cfg=init_music_clients_cfg)
+  music_client.startcmdui()
+  ```
+
 #### HTQYYMusicClient
 
 [htqyy.com](http://www.htqyy.com/) is a light music platform focused on instrumental, relaxing, and background music, offering online listening, recommendations, and MP3 downloads.
@@ -2846,28 +2891,32 @@ There is no need to set up external command-line tools like ffmpeg or N_m3u8DL-R
   music_client.startcmdui()
   ```
 
-#### ITingWaMusicClient
+#### HeishanMusicClient
 
-[itingwa.com](https://www.itingwa.com/) is a Chinese community-driven pure-music website where users can discover, stream, download, recommend, and discuss instrumental tracks, albums, and radio content.
+[163cn.cc](https://www.163cn.cc/) is a Chinese music website offering free MP3 and lossless music downloads, including individual songs, albums, and music collections.
 
-ITingWaMusicClient provides built-in support for downloading tracks from iTingWa.
+To get music from the platform above, we can rely on HeishanMusicClient.
 
-ITingWaMusicClient does not require external command-line tools such as ffmpeg or N_m3u8DL-RE. Simply install musicdl with pip, and you’re ready to go.
+HeishanMusicClient operates without reliance on supplementary CLI tools, including ffmpeg and N_m3u8DL-RE. Installation of musicdl via pip alone enables out-of-the-box usage.
 
 (1) Command-Line Usage
 
-- Search for and Download Playable Music Files from Websites
+- Configure Quark Drive Cookies to Search for and Download Higher-Quality Music Files
 
-  `musicdl -m ITingWaMusicClient`
+  `musicdl -m HeishanMusicClient -i "{'HeishanMusicClient': {'quark_parser_config': {'cookies': 'Your Quark Drive Login Cookies'}}}"`
 
 (2) Invoke It in Python
 
-- Search for and Download Playable Music Files from Websites
+- Configure Quark Drive Cookies to Search for and Download Higher-Quality Music Files
 
   ```python
   from musicdl import musicdl
-
-  music_client = musicdl.MusicClient(music_sources=['ITingWaMusicClient'])
+  
+  your_quark_drive_login_cookies_with_str_or_dict_format = ''
+  init_music_clients_cfg = {
+    'HeishanMusicClient': {'quark_parser_config': {'cookies': your_quark_drive_login_cookies_with_str_or_dict_format}},
+  }
+  music_client = musicdl.MusicClient(music_sources=['HeishanMusicClient'], init_music_clients_cfg=init_music_clients_cfg)
   music_client.startcmdui()
   ```
 
@@ -2900,23 +2949,19 @@ KKWSMusicClient now works without requiring extra CLI tools like ffmpeg or N_m3u
   music_client.startcmdui()
   ```
 
-#### LivePOOMusicClient
+#### LeedodoMusicClient
 
-[livepoo.cn](https://www.livepoo.cn/) is a music download website that offers free MP3 and lossless songs, with categories such as trending tracks, classic songs, DJ music, and regional music.
+[music.leedodo.com](https://music.leedodo.com/) is a platform for streaming and downloading light and instrumental music, featuring curated playlists across genres such as piano, traditional Chinese music, soundtracks, and relaxation music.
 
-To get music from the platform above, we can rely on LivePOOMusicClient.
+LeedodoMusicClient provides built-in support for downloading tracks from [music.leedodo.com](https://music.leedodo.com/).
 
-LivePOOMusicClient operates without reliance on supplementary CLI tools, including ffmpeg and N_m3u8DL-RE. Installation of musicdl via pip alone enables out-of-the-box usage.
+LeedodoMusicClient does not require external command-line tools such as ffmpeg or N_m3u8DL-RE. Simply install musicdl with pip, and you’re ready to go.
 
 (1) Command-Line Usage
 
 - Search for and Download Playable Music Files from Websites
 
-  `musicdl -m LivePOOMusicClient`
-
-- Configure Quark Drive Cookies to Search for and Download Higher-Quality Music Files
-
-  `musicdl -m LivePOOMusicClient -i "{'LivePOOMusicClient': {'quark_parser_config': {'cookies': 'Your Quark Drive Login Cookies'}}}"`
+  `musicdl -m LeedodoMusicClient`
 
 (2) Invoke It in Python
 
@@ -2925,49 +2970,7 @@ LivePOOMusicClient operates without reliance on supplementary CLI tools, includi
   ```python
   from musicdl import musicdl
 
-  music_client = musicdl.MusicClient(music_sources=['LivePOOMusicClient'])
-  music_client.startcmdui()
-  ```
-
-- Configure Quark Drive Cookies to Search for and Download Higher-Quality Music Files
-
-  ```python
-  from musicdl import musicdl
-  
-  your_quark_drive_login_cookies_with_str_or_dict_format = ''
-  init_music_clients_cfg = {
-    'LivePOOMusicClient': {'quark_parser_config': {'cookies': your_quark_drive_login_cookies_with_str_or_dict_format}},
-  }
-  music_client = musicdl.MusicClient(music_sources=['LivePOOMusicClient'], init_music_clients_cfg=init_music_clients_cfg)
-  music_client.startcmdui()
-  ```
-
-#### LiziYYMusicClient
-
-[liziyy.top](https://liziyy.top/) is a free music search and sharing platform where users can discover songs, view lyrics, and access available MP3 and lossless audio resources.
-
-To retrieve music from the platform above, we can use LiziYYMusicClient.
-
-LiziYYMusicClient works without additional command-line tools such as FFmpeg or N_m3u8DL-RE; installing musicdl via pip is sufficient for out-of-the-box use.
-
-(1) Command-Line Usage
-
-- Configure Quark Drive Cookies to Search for and Download High-Quality Music Files
-
-  `musicdl -m LiziYYMusicClient -i "{'LiziYYMusicClient': {'quark_parser_config': {'cookies': 'Your Quark Drive Login Cookies'}}}"`
-
-(2) Invoke It in Python
-
-- Configure Quark Drive Cookies to Search for and Download High-Quality Music Files
-
-  ```python
-  from musicdl import musicdl
-  
-  your_quark_drive_login_cookies_with_str_or_dict_format = ''
-  init_music_clients_cfg = {
-    'LiziYYMusicClient': {'quark_parser_config': {'cookies': your_quark_drive_login_cookies_with_str_or_dict_format}},
-  }
-  music_client = musicdl.MusicClient(music_sources=['LiziYYMusicClient'], init_music_clients_cfg=init_music_clients_cfg)
+  music_client = musicdl.MusicClient(music_sources=['LeedodoMusicClient'])
   music_client.startcmdui()
   ```
 
