@@ -6,28 +6,33 @@ Function:
     check (direct intranet access needs no key); the Lucky router IP is explicitly
     untrusted because it relays all external traffic.
 '''
+import ipaddress
+
 from fastapi import Request
 from fastapi.responses import JSONResponse
+
+
+def from_trusted_lan(st, client_host: str) -> bool:
+    '''shared trusted-source check (auth bypass AND rate-limit exemption):
+       explicit untrusted hosts first (Lucky relay), then TRUSTED_NETWORKS match.'''
+    if client_host in st.untrusted_hosts:
+        return False
+    try:
+        addr = ipaddress.ip_address(client_host.split('%')[0])
+    except Exception:
+        return False
+    return any(addr in net for net in st.trusted_networks)
 
 
 def install_auth(app, st) -> None:
     if not st.api_key:
         return
     import base64 as _b64
-    import ipaddress as _ip
-
-    def _from_trusted_lan(client_host: str) -> bool:
-        if client_host in st.untrusted_hosts: return False
-        try:
-            addr = _ip.ip_address(client_host.split('%')[0])
-        except Exception:
-            return False
-        return any(addr in net for net in st.trusted_networks)
 
     @app.middleware('http')
     async def api_key_guard(request: Request, call_next):
         client_host = request.client.host if request.client else ''
-        if request.url.path != '/healthz' and not _from_trusted_lan(client_host):
+        if request.url.path != '/healthz' and not from_trusted_lan(st, client_host):
             provided = request.headers.get('x-api-key', '')
             if not provided:
                 auth = request.headers.get('authorization', '')

@@ -66,6 +66,27 @@ def raw(base, path, timeout=10, headers=None):
             return e.code, {}
 
 
+def raw_h(base, path, timeout=10, headers=None):
+    '''like raw() but also returns response headers (for X-RateLimit assertions)'''
+    try:
+        with urllib.request.urlopen(urllib.request.Request(base + path, headers=headers or {}), timeout=timeout) as resp:
+            return resp.status, json.loads(resp.read().decode('utf-8')), dict(resp.headers)
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read().decode('utf-8')), dict(e.headers)
+        except Exception:
+            return e.code, {}, {}
+
+
+def raw_text(base, path, timeout=10):
+    '''plain-text getter (metrics exposition is not enveloped JSON)'''
+    try:
+        with urllib.request.urlopen(base + path, timeout=timeout) as resp:
+            return resp.status, resp.read().decode('utf-8'), resp.headers.get('Content-Type', '')
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode('utf-8', errors='ignore'), ''
+
+
 class FakeAdapter:
     '''records calls, returns canned url data — lets us assert route semantics
        (alias normalization, cache keys, cached flags) through the real HTTP seam.'''
@@ -201,6 +222,36 @@ if webgui_tier and server_tag:
 else:
     check('webgui/server kuwo tag tables consistent', False,
           f'extract failed: webgui={bool(webgui_tier)} server={bool(server_tag)}')
+
+# ---- section 6: /metrics exposition + untrusted-only rate limit (roadmap C1/C2) ----
+app3 = create_app(Settings(env={'API_KEY': '', 'RATE_LIMIT': '3/minute', 'TRUSTED_NETWORKS': ''}))
+base3, server3 = start_app(app3)
+app3.state.adapters['qq'] = FakeAdapter()
+
+for _ in range(3):
+    raw(base3, '/qq/search?keywords=x')
+st4, b4, h4 = raw_h(base3, '/qq/search?keywords=x')
+h4 = {k.lower(): v for k, v in h4.items()}
+check('untrusted 4th request -> 429 envelope', st4 == 429 and b4.get('code') == 429, f'status={st4} code={b4.get("code")}')
+check('429 carries X-RateLimit + Retry-After', h4.get('x-ratelimit-limit') == '3' and h4.get('retry-after') in ('59', '60')
+      and h4.get('x-ratelimit-remaining') == '0', f"limit={h4.get('x-ratelimit-limit')} retry={h4.get('retry-after')}")
+st, _ = raw(base3, '/healthz')
+check('healthz exempt from rate limit', st == 200)
+
+st, body, ctype = raw_text(base3, '/metrics')
+check('metrics: 200 text exposition', st == 200 and 'text/plain' in ctype, f'ctype={ctype}')
+for fragment in ('# TYPE kwqq_request_latency_seconds histogram', 'kwqq_requests_total', 'kwqq_cache_hit_rate{cache="url"}'):
+    check(f'metrics: exposes {fragment.split()[2] if fragment.startswith("#") else fragment}',
+          fragment in body)
+check('metrics: 429 recorded on request counter', 'kwqq_requests_total{endpoint="other",status="429"}' in body)
+server3.should_exit = True
+
+app4 = create_app(Settings(env={'API_KEY': '', 'RATE_LIMIT': '1/minute', 'TRUSTED_NETWORKS': '127.0.0.0/8'}))
+base4, server4 = start_app(app4)
+app4.state.adapters['qq'] = FakeAdapter()
+codes = [raw(base4, '/qq/search?keywords=x')[0] for _ in range(5)]
+check('trusted client bypasses rate limit', codes == [200] * 5, f'codes={codes}')
+server4.should_exit = True
 
 print(f'\nRESULT: {PASSED} passed, {len(FAILED)} failed' + (f' -> {FAILED}' if FAILED else ''))
 sys.exit(1 if FAILED else 0)

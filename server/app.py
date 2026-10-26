@@ -19,6 +19,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
+from prometheus_client import CONTENT_TYPE_LATEST
 
 from server.config import settings, get_settings
 from server.cache import TTLCache
@@ -27,11 +29,19 @@ from server.envelope import ok, err
 from server.schemas import Envelope
 from server.adapters import ADAPTER_CLASSES, AdapterError
 from server.auth import install_auth
+from server.metrics import Metrics
+from server.ratelimit import install_ratelimit
 from server.routes import resolve, kugou_vip, passthrough
 
 
 async def healthz(request: Request):
     return ok({'status': 'up', 'uptime_s': round(time.time() - request.app.state.started_at)})
+
+
+async def metrics(request: Request):
+    m = request.app.state.metrics
+    m.sync_from_state(request.app.state)
+    return Response(content=m.render(), media_type=CONTENT_TYPE_LATEST)
 
 
 async def status(request: Request):
@@ -66,9 +76,24 @@ def create_app(st=None) -> FastAPI:
     app.state.lyric_cache = TTLCache(st.meta_cache_ttl)
     app.state.health = ParserHealth(fail_threshold=st.parser_fail_threshold, cooldown_s=st.parser_cooldown_s)
     app.state.adapters = {}
+    app.state.metrics = Metrics()
 
     app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_credentials=False, allow_methods=['*'], allow_headers=['*'])
     install_auth(app, st)
+
+    # order (outermost first after all adds): metrics > ratelimit > auth > CORS.
+    # ratelimit sheds external floods before auth/routes; metrics sits above
+    # everything so 401/429 responses are counted too.
+    install_ratelimit(app, st)
+
+    @app.middleware('http')
+    async def metrics_middleware(request: Request, call_next):
+        t0 = time.perf_counter()
+        response = await call_next(request)
+        route = request.scope.get('route')
+        request.app.state.metrics.observe(getattr(route, 'path', None) or 'other',
+                                          response.status_code, time.perf_counter() - t0)
+        return response
 
     @app.exception_handler(AdapterError)
     async def adapter_error_handler(request: Request, exc: AdapterError):
@@ -96,6 +121,7 @@ def create_app(st=None) -> FastAPI:
     R('/netease/api/{path:path}', passthrough.netease_post, methods=['POST'], summary='passthrough POST')
     R('/healthz', healthz, methods=['GET'], summary='liveness probe')
     R('/status', status, methods=['GET'], summary='parser health & cache stats')
+    R('/metrics', metrics, methods=['GET'], summary='Prometheus exposition (plain text, not enveloped)')
     return app
 
 

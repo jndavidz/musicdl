@@ -54,6 +54,10 @@ class Settings:
         # listed in untrusted_hosts, otherwise external traffic relayed through it is trusted too.
         self.trusted_networks: list = _networks_from(e.get('TRUSTED_NETWORKS', '127.0.0.0/8,10.10.10.0/24,172.16.0.0/12,192.168.0.0/16'))
         self.untrusted_hosts: list = [h.strip() for h in e.get('UNTRUSTED_HOSTS', '10.10.10.1').split(',') if h.strip()]
+        # untrusted-client rate limit ("N/second|minute|hour|day", empty = disabled).
+        # Trusted-network requests bypass it entirely; all external traffic (which
+        # arrives via the Lucky relay as one shared source IP) shares one bucket.
+        self.rate_limit: str = e.get('RATE_LIMIT', '120/minute').strip()
         # sibling api containers on the NAS (their long-lived logins power netease/kugou resolution)
         self.ncm_api_base: str = e.get('NCM_API_BASE', 'http://10.10.10.2:3000')
         self.kugou_api_base: str = e.get('KUGOU_API_BASE', 'http://10.10.10.2:3001')
