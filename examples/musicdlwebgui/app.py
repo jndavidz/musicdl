@@ -4,13 +4,17 @@ Function:
     Search across platforms with per-source result limits, download everything
     into ONE flat directory with human-readable names (artist - title - album),
     quality-tier preference, and lyrics/cover/tags embedded into a single audio file.
-Design notes (zero modification to the musicdl library):
+Design notes (library coupling contract, see README "库耦合契约"):
     * search(persist_results=False)   -> no per-platform workdirs / pkl files
     * SongInfo._save_path override    -> one fixed download dir + readable names
     * client._download(...)           -> per-item download without pkl dumping
-    * ProgressStub                    -> duck-typed rich.Progress replacement feeding SSE
-    * SongInfoUtils.savelrctofile patched -> no .lrc sidecar unless enabled in config,
-      so lyrics/cover/tags stay embedded inside the ONE audio file
+    * ProgressStub                    -> duck-typed progress adapter feeding SSE
+      (the library's progress parameter is a callback channel; this is NOT a
+       library patch — sanctioned per the coupling contract below)
+    * SongInfoUtils.lrc_saver set     -> library extension point, no .lrc sidecar
+      unless enabled in config (lyrics/cover/tags stay embedded in the ONE file)
+Patch inventory (contract: count only decreases; new patches need README rationale):
+    - SongInfoUtils.lrc_saver  (extension point, batch-5 sanctioned)  — 1 active
 Run:
     cd /mnt/d/_work/repos/musicdl && uv run python examples/musicdlwebgui/app.py --port 3004
 '''
@@ -167,7 +171,7 @@ def touch_download_dir():
 
 touch_download_dir()
 
-'''---------------- library patch: single-file-per-song by default ----------------'''
+'''---------------- library coupling: lrc sidecar via the lrc_saver extension point ----------------'''
 
 from musicdl.modules import BuildMusicClient, LoggerHandle  # noqa: E402
 from musicdl.modules.utils import SongInfo, SongInfoUtils  # noqa: E402
@@ -181,7 +185,8 @@ def _savelrc_sidecar_aware(audio_path, lyrics_text, *, overwrite: bool = False) 
     return _ORIGINAL_SAVELRCTOFILE(audio_path, lyrics_text, overwrite=overwrite)
 
 
-SongInfoUtils.savelrctofile = staticmethod(_savelrc_sidecar_aware)
+# batch-5 sanctioned extension point (songinfoutils.lrc_saver) — not a monkeypatch
+SongInfoUtils.lrc_saver = staticmethod(_savelrc_sidecar_aware)
 
 '''---------------- musicdl client pool ----------------'''
 

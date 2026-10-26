@@ -165,16 +165,23 @@ sudo bash examples/musicdlwebgui/scripts/mount-nas-music.sh --smb  # 或 SMB 回
 | POST | `/api/tasks/{id}/retry` · DELETE `/api/tasks/{id}` | 单条重试 / 整批取消 |
 | GET  | `/healthz` | 存活探针 |
 
-## 设计说明（零改动 musicdl 库）
+## 设计说明（库耦合契约）
+
+库耦合契约（2026-10-27 架构审查 C5 定案，替代旧"零改动库"声明）：**允许的库耦合 = 下述
+显式清单，数量只减不增；新增耦合须在本节记录理由。** patch 现状：1 项（扩展点）。
 
 - **统一目录**：`search(persist_results=False)` 跳过库默认的 `<平台>/<时间 关键词>` 目录与 pkl；
   下载前覆写 `SongInfo.work_dir/_save_path` 指向固定目录。
-- **单曲单文件**：patch `SongInfoUtils.savelrctofile`，歌词仅走 `embedlyrics` 嵌入
-  （MP3-USLT / FLAC-LYRICS / M4A-©lyr）；封面经 `embedcover` 嵌入；基础标签经 `embedbasictags` 写入。
-- **进度**：`ProgressStub` 以 duck-typing 替代 rich.Progress（覆盖 `_download` 与 HLS 分支的接口），
-  回调写入内存任务状态，SSE 每 600ms 推快照。
+- **单曲单文件**：设 `SongInfoUtils.lrc_saver`（**库级扩展点**，batch-5 批准）为配置感知回调，
+  歌词仅走 `embedlyrics` 嵌入（MP3-USLT / FLAC-LYRICS / M4A-©lyr）；封面经 `embedcover` 嵌入；
+  基础标签经 `embedbasictags` 写入。`save_lrc_sidecar=true` 时回调内转调原 `savelrctofile`。
+- **进度**：`ProgressStub` 以 duck-typing 作为 progress 回调适配器（库的 progress 参数本质是
+  回调通道，batch-5 起库侧接受任意 duck-typed progress 含 None=no-op），回调写入内存任务状态，
+  SSE 每 600ms 推快照。非库 patch。
 - **音质档位**：按扩展名 + 大小/时长估算码率分级 hires/lossless/320k/128k/low/other，
   用于结果徽章、"仅看无损"过滤与同曲择优。
+- **兜底通道定位**（ADR-0001）：API 为主，六源 lib 直连**冻结保留**为兜底——其重搜索
+  （逐候选解析直链）是自足性的来源，不切换 metadata-only 搜索。
 
 ## 冒烟测试
 

@@ -64,7 +64,7 @@ class SongInfoUtils:
         album = SongInfoUtils.normalizetext(getattr(song_info, "album", None)); artists = SongInfoUtils.normalizetext(getattr(song_info, "singers", None))
         cover_source = SongInfoUtils.normalizetext(getattr(song_info, "cover_url", None)); audio_path = Path(song_info.save_path)
         results = {"lyrics_embedded": False, "basic_tags_embedded": False, "cover_embedded": False, "lrc_saved": False}
-        if lyrics_text: results["lrc_saved"] = SongInfoUtils.savelrctofile(audio_path, lyrics_text, overwrite=overwrite)
+        if lyrics_text: results["lrc_saved"] = SongInfoUtils.lrc_saver(audio_path, lyrics_text, overwrite=overwrite)
         if lyrics_text: results["lyrics_embedded"] = SongInfoUtils.safeeditaudio(audio_path=audio_path, editor=SongInfoUtils.embedlyrics, overwrite=overwrite, lyrics_text=lyrics_text)
         if title or album or artists: results["basic_tags_embedded"] = SongInfoUtils.safeeditaudio(audio_path=audio_path, editor=SongInfoUtils.embedbasictags, overwrite=overwrite, title=title, album=album, artists=artists)
         if cover_source and SongInfoUtils.lookslikecoversource(cover_source): results["cover_embedded"] = SongInfoUtils.safeeditaudio(audio_path=audio_path, editor=SongInfoUtils.embedcover, overwrite=overwrite, cover_source=cover_source, timeout=timeout)
@@ -75,6 +75,10 @@ class SongInfoUtils:
         if (lrc_path := audio_path.with_suffix(".lrc")).exists() and (not overwrite): return False
         if (not (content := (lyrics_text or "").replace("\r\n", "\n").strip())) or (content in {'None', 'none', 'NULL', 'null'}): return False
         return SongInfoUtils.atomicwritetext(lrc_path, content + "\n" if (not content.endswith("\n")) else content)
+    # library extension point: .lrc sidecar writer, signature (audio_path, lyrics_text, *, overwrite) -> bool.
+    # Embedders that keep lyrics inside the audio file only can point this at a no-op /
+    # config-aware callable instead of monkeypatching savelrctofile.
+    lrc_saver = savelrctofile
     '''safeeditaudio'''
     @staticmethod
     def safeeditaudio(audio_path: Path, editor, **editor_kwargs) -> bool:

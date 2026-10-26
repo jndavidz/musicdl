@@ -61,6 +61,17 @@ class AudioAwareColumn(ProgressColumn):
         else: return self._download_col.render(task)
 
 
+'''_NullProgress'''
+class _NullProgress:
+    '''headless stand-in for rich.Progress: _download accepts progress=None (e.g.
+       embedded/API callers that feed their own progress channel or need none).'''
+    def add_task(self, *args, **kwargs): return 0
+    def update(self, *args, **kwargs): pass
+    def advance(self, *args, **kwargs): pass
+    def __enter__(self): return self
+    def __exit__(self, *exc): return False
+
+
 '''BaseMusicClient'''
 class BaseMusicClient():
     source = 'BaseMusicClient'
@@ -194,10 +205,21 @@ class BaseMusicClient():
         if owns_progress: main_process_context.__exit__(None, None, None)
         # return
         return song_infos
+    '''search_metadata: metadata-only search contract (ADR-0001/0003, 2026-10 architecture
+       review C5). Returns SongInfo rows WITHOUT download links resolved — one upstream
+       request per page, no third-party chain, no official parse. Callers that need links
+       resolve them separately per song id (the server adapters do exactly this).
+       Default: NotImplementedError — implementing it needs a per-platform raw-row
+       mapping; add implementations on demand, don't guess one. Note the six main
+       sources in the webgui fallback channel deliberately keep the heavy search():
+       its resolved links are what make that fallback self-sufficient.'''
+    def search_metadata(self, keyword: str, limit: int = None, page: int = 1) -> list[SongInfo]:
+        raise NotImplementedError(f'{self.source} does not implement metadata-only search')
     '''_download'''
     @usedownloadheaderscookies
     def _download(self, song_info: SongInfo, request_overrides: dict = None, downloaded_song_infos: list[SongInfo] = [], progress: Progress = None, song_progress_id: int = 0, auto_supplement_song: bool = True):
         # init
+        progress = progress if progress is not None else _NullProgress()  # headless callers may omit the progress channel
         song_info, request_overrides = copy.deepcopy(song_info), copy.deepcopy(request_overrides or {})
         song_info._save_path = sanitize_filepath(song_info.save_path); song_info.work_dir = os.path.dirname(song_info.save_path); IOUtils.touchdir(song_info.work_dir)
         # hls
