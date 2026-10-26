@@ -64,6 +64,7 @@ Makefile 的 `install`/`publish` 是上游 PyPI 发布遗留；本仓库的发�
 
 ## 文档指针
 
+- `D:\_work\dev\docs\projects\MUSICDL\music-ecosystem-roadmap.md` — **音乐生态路线图（本仓库责任区）**：多组件架构（bridge/Lyrion/手机端）中本仓库的四 Track 执行计划与跨区契约。**规划 API 消费方、手机端、服务强化前读它**。
 - `server/README.md` — 端点表、环境变量表、架构图、NAS 部署与验收命令。**改配置或部署前读它**（本文件的命令只覆盖最短开发环）。
 - `docs/API-REFERENCE.md` — 对外接口契约：认证双层模型、响应包裹语义（业务未命中 = HTTP 200 + code 403/404，上游故障 = 502/504）、各源能力。**改任何路由语义前读它**。
 - `docs/MUSIC-SOURCES-REGISTRY.md` — 全部解析端点/凭证的存活台账（含失效条目，供考古与恢复）。**每次探测端点后更新其状态列**，新端点追加登记。
