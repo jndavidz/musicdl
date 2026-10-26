@@ -46,7 +46,8 @@ def check(name, cond, detail=''):
 def find_song_id(source, keywords):
     body, _ = get(f'/{source}/search?keywords={urllib.parse.quote(keywords)}&limit=5')
     items = (body.get('data') or {}).get('items') or []
-    return (items[0] or {}).get('id'), (items[0] or {}).get('name')
+    first = items[0] or {}
+    return first.get('id'), first.get('name'), (first.get('extra') or {})
 
 
 print(f'== smoke against {BASE} ==')
@@ -66,10 +67,33 @@ def get_retry(path, timeout=45, retries=1):
     raise last
 
 
-for source, keywords in [('kuwo', '林俊杰 江南'), ('qq', '邓紫棋 光年之外')]:
-    sid, sname = find_song_id(source, keywords)
+# per-source live checks. Default tier = sources reachable without NAS containers or
+# account cookies (public anonymous endpoints). --all adds the NAS-container sources.
+# (source, keywords, needs_copyright, has_lyric)
+DEFAULT_SOURCES = [
+    ('kuwo', '林俊杰 江南', False, True),
+    ('qq', '邓紫棋 光年之外', False, True),
+    ('migu', '周杰伦 晴天', True, False),
+    ('qianqian', '林俊杰 江南', False, False),
+]
+ALL_SOURCES = [
+    ('kugou', '林俊杰 江南', False, True),      # needs kugou-api container (NAS)
+    ('bilibili', '周杰伦 晴天', False, False),   # anonymous ok; SESSDATA only unlocks Hi-Res
+]
+
+
+def run_source(source, keywords, needs_copyright, has_lyric):
+    sid, sname, extra = find_song_id(source, keywords)
     check(f'{source} search', bool(sid), f'id={sid} name={sname}')
-    b, ms = get_retry(f'/{source}/song/url?id={sid}&quality=auto')
+    if not sid:
+        return
+    cr = str(extra.get('copyrightId') or '')
+    if needs_copyright:
+        check(f'{source} copyright in extra', bool(cr), f'copyrightId={cr or "MISSING"}')
+        if not cr:
+            return
+    qs = f'&copyright={urllib.parse.quote(cr)}' if cr and needs_copyright else ''
+    b, ms = get_retry(f'/{source}/song/url?id={sid}&quality=auto{qs}')
     d = b.get('data') or {}
     check(f'{source} song/url ok', b['code'] == 200 and bool(d.get('url')), f"{ms}ms ext={d.get('ext')} kbps={d.get('bitrate_kbps')} parser={d.get('parser')}")
     url = d.get('url') or ''
@@ -81,13 +105,20 @@ for source, keywords in [('kuwo', '林俊杰 江南'), ('qq', '邓紫棋 光年�
                 check(f'{source} url downloadable', resp.status in (200, 206) and len(sample) > 512, f'status={resp.status} bytes={len(sample)}')
         except Exception as e:
             check(f'{source} url downloadable', False, str(e)[:100])
-    b2, ms2 = get(f'/{source}/song/url?id={sid}&quality=auto', timeout=10)
+    b2, ms2 = get(f'/{source}/song/url?id={sid}&quality=auto{qs}', timeout=10)
     check(f'{source} url cached', (b2.get('data') or {}).get('cached') is True, f'{ms2}ms')
-    b3, ms3 = get(f'/{source}/song/info?id={sid}')
+    b3, ms3 = get(f'/{source}/song/info?id={sid}{qs}')
     check(f'{source} song/info', b3['code'] == 200 and bool((b3.get('data') or {}).get('name')), f'{ms3}ms')
     b4, ms4 = get(f'/{source}/lyric?id={sid}', timeout=30)
     lyric_text = (b4.get('data') or {}).get('lyric') or ''
-    check(f'{source} lyric non-empty', len(lyric_text) > 50, f'{ms4}ms len={len(lyric_text)}')
+    if has_lyric:
+        check(f'{source} lyric non-empty', len(lyric_text) > 50, f'{ms4}ms len={len(lyric_text)}')
+    else:
+        check(f'{source} lyric endpoint (empty ok)', b4['code'] == 200, f'{ms4}ms')
+
+
+for cfg in DEFAULT_SOURCES:
+    run_source(*cfg)
 
 b, _ = get('/qq/song/url?id=0039MnYb0qxYhV&quality=flac')
 check('lossless gated by default', b['code'] == 403, f"code={b['code']}")
@@ -96,6 +127,8 @@ st, body = raw('/kugou/api/user/logout')
 check('passthrough blocked path', st == 403 and b'blocked' in body, f'status={st}')
 
 if ALL:
+    for cfg in ALL_SOURCES:
+        run_source(*cfg)
     st, body = raw('/kugou/api/search?keywords=%E6%9E%97%E4%BF%8A%E6%9D%B0')
     ok_json = st == 200 and body[:1] in (b'{', b'[')
     check('kugou passthrough search', ok_json, f'status={st} bytes={len(body)}')

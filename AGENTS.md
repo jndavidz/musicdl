@@ -33,13 +33,15 @@ uv pip install -p .venv/bin/python -r requirements.txt -r server/requirements.tx
 # 起 API 服务（3003；XDG_STATE_HOME 前缀不可省）
 XDG_STATE_HOME=$PWD/.state .venv/bin/python -m uvicorn server.app:app --host 127.0.0.1 --port 3003
 
-# 冒烟验证（需服务已起；全 PASS 即通过）
-XDG_STATE_HOME=$PWD/.state .venv/bin/python server/tests/test_smoke.py http://127.0.0.1:3003
+# 冒烟验证（需服务已起）
+XDG_STATE_HOME=$PWD/.state .venv/bin/python server/tests/test_offline.py                        # 离线：信封/鉴权/缓存/音质表契约，无需上游
+XDG_STATE_HOME=$PWD/.state .venv/bin/python server/tests/test_smoke.py http://127.0.0.1:3003   # live 默认档 kuwo/qq/migu/qianqian（公网匿名）
+XDG_STATE_HOME=$PWD/.state .venv/bin/python server/tests/test_smoke.py http://127.0.0.1:3003 --all   # 追加 kugou/bilibili + passthrough（需 NAS 容器）
 ```
 
 webgui 同构验证：`XDG_STATE_HOME=$PWD/.state uv run python examples/musicdlwebgui/app.py`（3004）起服务后跑 `examples/musicdlwebgui/tests/test_smoke.py http://127.0.0.1:3004`。
 
-本仓库没有 pytest 单测——**验证 = 起真实服务跑冒烟**，改动的每个组件都要有对应的冒烟全 PASS 才算完成。端点/协议探测脚本写进 `.state/`，不进版本库。
+本仓库没有 pytest 单测——**验证 = 离线 + live 双轨冒烟**（server/app.py 是 `create_app(settings)` 工厂，adapters/缓存可注入替换）。改动组件对应的离线与 live 默认档全 PASS 即可本机收工；kugou/bilibili/passthrough 以 NAS 部署后 `--all` 全 PASS 为验收。端点/协议探测脚本写进 `.state/`，不进版本库。
 
 Makefile 的 `install`/`publish` 是上游 PyPI 发布遗留；本仓库的发布形态是 NAS compose 部署（命令见 `server/README.md`），twine 上传勿执行。
 

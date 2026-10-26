@@ -9,14 +9,17 @@
 
 | Method | Path | 参数 | 说明 |
 |--------|------|------|------|
-| GET | `/{source}/search` | `keywords`*、`page`=1、`limit`=20(≤50) | 元数据搜索（单上游请求，无解析链，~200ms） |
-| GET | `/{source}/song/url` | `id`*、`quality`=auto\|320k\|192k\|128k\|flac\|hires\|master\|surround51（MusicFree 四档：low=128k/standard=192k/high=320k/super 封顶 320k；后两档仅酷我，无损档仅下载有效） | 播放直链（酷我 nmobi 直出 ~120ms；QQ 第三方链 1–11s，长尾由健康度冷却收敛） |
-| GET | `/{source}/song/info` | `id`* | 单曲元数据（封面/专辑/时长） |
-| GET | `/{source}/lyric` | `id`* | LRC 歌词 |
-| GET | `/healthz` | — | 存活探针 |
+| GET | `/{source}/search` | `keywords`*、`page`=1、`limit`=20(>50 截断到 50) | 元数据搜索（单上游请求，无解析链，~200ms） |
+| GET | `/{source}/song/url` | `id`*、`quality`=auto\|320k\|192k\|128k\|flac\|hires\|master\|surround51（MusicFree 四档：low=128k/standard=192k/high=320k/super 封顶 320k；后两档仅酷我，无损档仅下载有效）、`copyright`（仅 migu：搜索项 `extra.copyrightId` 回传） | 播放直链（酷我 nmobi 直出 ~120ms；QQ 第三方链 1–11s，长尾由健康度冷却收敛） |
+| GET | `/{source}/song/info` | `id`*、`copyright`（仅 migu） | 单曲元数据（封面/专辑/时长） |
+| GET | `/{source}/lyric` | `id`* | LRC 歌词（migu/qianqian/bilibili/deezer 恒空） |
+| GET | `/healthz` | — | 存活探针（豁免 API key） |
 | GET | `/status` | — | parser 健康度（`<source>:<parser>` 键）+ 缓存统计 |
+| POST | `/kugou/vip/day` · `/kugou/vip/upgrade` | — | 酷狗概念版 VIP 领取（语义化包裹） |
+| GET | `/kugou/vip/status` | — | VIP 权益结构化视图 |
+| GET/POST | `/kugou/api/{path}` · `/netease/api/{path}` | 任意容器端点 | 通用透传（自动注入账号 cookie，屏蔽登出/验证码等危险路径；上游错误原样透传） |
 
-`{source}` ∈ `kuwo` | `qq`。
+`{source}` ∈ `kuwo` | `qq` | `qianqian` | `migu` | `netease` | `kugou` | `bilibili`（注册表唯一定义处：`server/adapters/__init__.py` 的 `ADAPTER_CLASSES`）。
 
 ### 音质路由
 
@@ -40,22 +43,34 @@
 | `PARSER_FAIL_THRESHOLD` | 3 | 连续失败 N 次进入冷却 |
 | `PARSER_COOLDOWN_S` | 300 | 冷却时长（期间该 parser 被跳过） |
 | `URL_CACHE_TTL` / `SEARCH_CACHE_TTL` / `META_CACHE_TTL` | 600/300/86400 | 各缓存 TTL（秒） |
+| `SEARCH_SIZE_DEFAULT` / `SEARCH_SIZE_MAX` | 20/50 | 搜索默认条数 / 上限（超过截断） |
+| `API_KEY` | 空（关闭） | 服务级 API key；`X-API-Key` 或 `Basic base64(KEY+":")` |
+| `TRUSTED_NETWORKS` / `UNTRUSTED_HOSTS` | 内网段 / 10.10.10.1 | 免 key 网段 / 强制走 key 的来源 IP（Lucky 反代必须列入） |
+| `NCM_API_BASE` / `KUGOU_API_BASE` | 10.10.10.2:3000/3001 | NAS 侧 ncm-api / kugou-api 容器地址 |
+| `KUGOU_TOKEN_FILE` / `NETEASE_COOKIE_FILE` | /app/secrets/* | 酷狗 token / 网易 cookie 挂载路径（网易缺省匿名转发） |
+| `BILI_SESSDATA` | 空 | bilibili 账号 cookie（解锁 Hi-Res/Dolby） |
+| `COOKIE_REFRESH_S` | 1800 | 酷狗 cookie 缓存刷新周期（秒） |
 
 ## 本机开发
 
 ```bash
 uv venv --python 3.12 && uv pip install -p .venv/bin/python -r requirements.txt -r server/requirements.txt -e .
 XDG_STATE_HOME=$PWD/.state .venv/bin/python -m uvicorn server.app:app --host 127.0.0.1 --port 3003
-XDG_STATE_HOME=$PWD/.state .venv/bin/python server/tests/test_smoke.py http://127.0.0.1:3003   # 15 项冒烟
+# 离线冒烟（无需任何上游/NAS；信封/鉴权/缓存/音质表契约，~1.5s）
+XDG_STATE_HOME=$PWD/.state .venv/bin/python server/tests/test_offline.py
+# live 冒烟默认档 kuwo/qq/migu/qianqian（公网匿名端点）；--all 追加 kugou/bilibili + passthrough（需 NAS 容器）
+XDG_STATE_HOME=$PWD/.state .venv/bin/python server/tests/test_smoke.py http://127.0.0.1:3003 [--all]
 ```
+
+验证双轨：改动后离线 + live 默认档全 PASS 即可在本机收工；NAS 容器相关源与 passthrough 以部署后 `--all` 全 PASS 为验收。
 
 ## NAS 部署
 
 ```bash
 # 同步构建上下文（排除开发产物）到 NAS，然后：
 ssh zxsadmin@10.10.10.2 "cd /volume2/docker/musicdl-api && /usr/local/bin/docker compose up -d --build"
-# 验收
-XDG_STATE_HOME=$PWD/.state .venv/bin/python server/tests/test_smoke.py http://10.10.10.2:3003
+# 验收（全量档）
+XDG_STATE_HOME=$PWD/.state .venv/bin/python server/tests/test_smoke.py http://10.10.10.2:3003 --all
 ```
 
 compose 位于 `deploy/docker-compose.yml`（NAS 侧 `/volume2/docker/musicdl-api/docker-compose.yml`），`restart: unless-stopped` + 内置 healthcheck。
@@ -63,12 +78,15 @@ compose 位于 `deploy/docker-compose.yml`（NAS 侧 `/volume2/docker/musicdl-ap
 ## 架构速览
 
 ```
-client → FastAPI(app.py) → SourceAdapter(adapters/{kuwo,qq}.py)
-                              ├─ TTLCache(cache.py)          url 10min / search 5min / meta·lyric 24h
-                              ├─ ParserHealth(parsers_health) 连败3次冷却5min，跳过失效源
-                              └─ musicdl 源客户端（免 Cookie，第三方解析链 + 官方匿名端点）
-                                  酷我: nmobi → mobi.s → 第三方链(nxinxz/nobb/…)
-                                  QQ:   第三方链(vkeys→…→nki) → 3e0 兜底
+client → FastAPI(create_app) → 路由处理器（读 request.app.state）
+            ├─ app.state: settings / 4×TTLCache / ParserHealth / adapters（可注入替换，离线冒烟靠它）
+            ├─ SourceAdapter(adapters/*.py, 7 源)
+            │     ├─ TTLCache(cache.py)          url 10min / search 5min / meta·lyric 24h
+            │     ├─ ParserHealth(parsers_health) 连败3次冷却5min，跳过失效源
+            │     └─ musicdl 源客户端（免 Cookie，第三方解析链 + 官方匿名端点）
+            │         酷我: nmobi → mobi.s → zhenpin(master/surround51) → haitangw → xcloudv
+            │         QQ:   第三方链(vkeys→…→nki) → 3e0 兜底
+            └─ proxy.py 通用透传 → NAS 侧 kugou-api / ncm-api 容器
 ```
 
 所有阻塞调用经 `asyncio.to_thread` + 每源信号量 + 硬超时包装；`workers=1` 保证进程内缓存一致性。
