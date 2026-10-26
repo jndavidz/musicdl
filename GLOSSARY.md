@@ -33,5 +33,5 @@ webgui 主流六源的进程内库直连，API 为主定位下**冻结保留**�
 _Avoid_: 双通道（六源已不再是并行双轨）
 
 **消费方（consumers）**:
-kw-qq-music-api 的两类消费方及其能力边界：MusicFree 插件**只消费 ≤320k mp3**；webgui 消费全档（含 mflac+ekey 加密件，经 QMC 解密钩子得明文，ADR-0002）。master/surround51 加密档的现实唯一消费方是 webgui。
+kw-qq-music-api 的两类消费方及其能力边界：MusicFree 插件**只消费 ≤320k mp3**；webgui 消费全档（含 mflac+ekey 加密件，经 QMC 解密钩子得明文，ADR-0002）。master/surround51 加密档的现实唯一消费方是 webgui。**API 不入播放链**（2026-10-27 定案）：保真层只消费本地文件，播放类消费链只吃 ≤320k mp3，API 直链永不直接进播放。
 _Avoid_: 用户、客户端（不区分能力边界）
