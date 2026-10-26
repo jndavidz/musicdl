@@ -1,6 +1,6 @@
 # C2 限流：仅外网来源
 
-Status: claimed
+Status: resolved
 Type: task
 
 roadmap §2 C2：仅外网（非 TRUSTED_NETWORKS）限流，429 + X-RateLimit 头，内网免限。

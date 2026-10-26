@@ -1,6 +1,6 @@
 # C3 kugou adapter lyric fallback 链
 
-Status: claimed
+Status: resolved
 Type: task
 
 roadmap §2 C3：容器 /lyric 稳定 400（error_code 20010，NAS 环境事实）时 fallback 到库层/官方歌词端点。

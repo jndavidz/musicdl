@@ -1,6 +1,6 @@
 # C1 /metrics Prometheus 端点
 
-Status: claimed
+Status: resolved
 Type: task
 
 roadmap §2 C1：prometheus-client 暴露 /metrics（parsers 健康度、缓存 hit_rate、请求延迟直方图、请求计数）。
