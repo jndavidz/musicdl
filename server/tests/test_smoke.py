@@ -77,8 +77,9 @@ DEFAULT_SOURCES = [
     ('qianqian', '林俊杰 江南', False, False),
 ]
 ALL_SOURCES = [
-    ('kugou', '林俊杰 江南', False, True),      # needs kugou-api container (NAS)
-    ('bilibili', '周杰伦 晴天', False, False),   # anonymous ok; SESSDATA only unlocks Hi-Res
+    ('kugou', '林俊杰 江南', False, False),      # needs kugou-api container (NAS); container /lyric
+    ('bilibili', '周杰伦 晴天', False, False),   # 400s error_code 20010 (2026-10-27) -> adapter degrades to '',
+                                                # flip back to has_lyric=True when the container endpoint is fixed
 ]
 
 
@@ -120,8 +121,15 @@ def run_source(source, keywords, needs_copyright, has_lyric):
 for cfg in DEFAULT_SOURCES:
     run_source(*cfg)
 
+b, _ = get('/status')
+lossless_enabled = (b.get('data') or {}).get('settings', {}).get('enable_lossless')
 b, _ = get('/qq/song/url?id=0039MnYb0qxYhV&quality=flac')
-check('lossless gated by default', b['code'] == 403, f"code={b['code']}")
+# the gate must HONOR the server switch, whatever the deployment chose:
+# ENABLE_LOSSLESS=false -> business miss (HTTP 200 + code 403); true -> resolvable
+if lossless_enabled:
+    check('lossless gate honors switch (enabled -> 200)', b['code'] == 200, f"code={b['code']}")
+else:
+    check('lossless gate honors switch (disabled -> 403)', b['code'] == 403, f"code={b['code']}")
 
 st, body = raw('/kugou/api/user/logout')
 check('passthrough blocked path', st == 403 and b'blocked' in body, f'status={st}')
@@ -136,7 +144,9 @@ if ALL:
     ok_json = st == 200 and b'"result"' in body
     check('netease passthrough search (anonymous ok)', ok_json, f'status={st} bytes={len(body)}')
     st, body = raw('/netease/api/__no_such_endpoint__')
-    check('passthrough relays upstream error verbatim', st != 502 and body[:1] == b'{', f'status={st}')
+    # verbatim relay = upstream status passes through (ncm-api answers HTML 404 here);
+    # the invariant is that OUR error handler did not wrap it as 502/504
+    check('passthrough relays upstream error verbatim', st not in {502, 504} and len(body) > 0, f'status={st} bytes={len(body)}')
 
 print(f'\nRESULT: {PASSED} passed, {len(FAILED)} failed' + (f' -> {FAILED}' if FAILED else ''))
 sys.exit(1 if FAILED else 0)
