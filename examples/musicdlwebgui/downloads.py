@@ -6,6 +6,8 @@ Function:
     QMC decryption hooks, cancel/retry, and task snapshots for the API layer.
 '''
 import re
+import os
+import json
 import copy
 import time
 import uuid
@@ -14,7 +16,7 @@ import contextlib
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
-from config import SETTINGS, PLATFORM_MAP
+from config import SETTINGS, PLATFORM_MAP, REPO_ROOT
 from quality import (serialize_item, render_stem, allocate_path, fmt_mb,
                      QUALITY_PREF_RANKS, LOSSLESS_MBPM_FLOOR)
 from kwqq_api import api_resolve_into
@@ -25,7 +27,7 @@ from library import (get_client, get_lib_downloader, ProgressStub,
 RESULT_STORE: dict = {}
 STORE_LOCK = threading.Lock()
 
-'''dedupe win-source statistics (in-memory, resets on restart).
+'''dedupe win-source statistics (in-memory + periodic state-dir persistence, D3).
    Counts CONTESTED dedupe picks only: clusters where the same song+album had
    candidates from BOTH the api channel and the lib direct channel, and the
    two-level pick (tier rank -> larger payload) chose one side. This is the
@@ -35,17 +37,66 @@ STORE_LOCK = threading.Lock()
 DEDUPE_STATS: dict = {'contested': 0, 'wins': {'api': 0, 'lib': 0}, 'by_origin_source': {}}
 DEDUPE_STATS_LOCK = threading.Lock()
 
+'''dedupe stats persistence (roadmap D3): the ADR-0001 monitoring window must survive
+   restarts, so DEDUPE_STATS is flushed to the runtime state dir (XDG_STATE_HOME, repo
+   convention `$PWD/.state`) at most every DEDUPE_SAVE_INTERVAL_S of dedupe activity,
+   plus once on app shutdown (lifespan). File shape == /api/stats/dedupe `data`;
+   a corrupt/missing file is silently ignored and stats rebuild from zero.'''
+DEDUPE_STATS_PATH = Path(os.environ.get('XDG_STATE_HOME', str(REPO_ROOT / '.state'))) / 'dedupe_stats.json'
+DEDUPE_SAVE_INTERVAL_S = 600
+_dedupe_last_save = 0.0
+_dedupe_save_due = False
+
+
+def load_dedupe_stats() -> None:
+    '''restore persisted dedupe stats at startup (called from app lifespan, not at import — D1).'''
+    global _dedupe_last_save
+    try:
+        raw = json.loads(DEDUPE_STATS_PATH.read_text(encoding='utf-8'))
+        wins = raw.get('wins') or {}
+        by_src = raw.get('by_origin_source') or {}
+        with DEDUPE_STATS_LOCK:
+            DEDUPE_STATS['contested'] = max(0, int(raw.get('contested', 0)))
+            DEDUPE_STATS['wins'] = {'api': max(0, int(wins.get('api', 0))),
+                                    'lib': max(0, int(wins.get('lib', 0)))}
+            DEDUPE_STATS['by_origin_source'] = {str(k): max(0, int(v))
+                                                for k, v in by_src.items() if isinstance(v, (int, float))}
+        _dedupe_last_save = time.time()
+    except Exception:
+        pass   # missing/corrupt file: silently rebuild the window from zero
+
+
+def save_dedupe_stats() -> None:
+    '''persist DEDUPE_STATS (same shape as /api/stats/dedupe data); silent on any failure.'''
+    try:
+        DEDUPE_STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with DEDUPE_STATS_LOCK:
+            data = {'contested': DEDUPE_STATS['contested'], 'wins': dict(DEDUPE_STATS['wins']),
+                    'by_origin_source': dict(DEDUPE_STATS['by_origin_source'])}
+        tmp = DEDUPE_STATS_PATH.with_name(DEDUPE_STATS_PATH.name + '.tmp')
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+        tmp.replace(DEDUPE_STATS_PATH)   # atomic swap: readers never see a half-written file
+    except Exception:
+        pass
+
 
 def _record_dedupe_win(cluster_items: list, best_item: dict) -> None:
     origins = {it['origin'] for it in cluster_items}
     if len(cluster_items) < 2 or not {'api', 'lib'} <= origins:
         return
+    global _dedupe_save_due, _dedupe_last_save
     with DEDUPE_STATS_LOCK:
         DEDUPE_STATS['contested'] += 1
         origin = best_item['origin']
         DEDUPE_STATS['wins'][origin] += 1
         key = f'{origin}:{best_item["source"]}'
         DEDUPE_STATS['by_origin_source'][key] = DEDUPE_STATS['by_origin_source'].get(key, 0) + 1
+        if not _dedupe_save_due and time.time() - _dedupe_last_save >= DEDUPE_SAVE_INTERVAL_S:
+            _dedupe_save_due = True
+    if _dedupe_save_due:
+        _dedupe_save_due = False
+        _dedupe_last_save = time.time()
+        save_dedupe_stats()
 
 
 class DownloadEngine:

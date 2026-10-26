@@ -54,7 +54,8 @@ from quality import QUALITY_ORDER, QUALITY_PREF_RANKS, LOSSLESS_MBPM_FLOOR, MAST
 import quality
 from kwqq_api import api_online, api_resolve_into
 from library import kuwo_vip_enabled, search_platform_sync
-from downloads import engine, RESULT_STORE, STORE_LOCK, DEDUPE_STATS, DEDUPE_STATS_LOCK
+from downloads import (engine, RESULT_STORE, STORE_LOCK,
+                       DEDUPE_STATS, DEDUPE_STATS_LOCK, load_dedupe_stats, save_dedupe_stats)
 
 '''---------------- kuwo explicit-tier table (webgui/server contract) ----------------'''
 
@@ -81,10 +82,15 @@ quality.PLATFORM_TAG_TIER = PLATFORM_TAG_TIER
 @asynccontextmanager
 async def _startup_lifespan(app: FastAPI):
     '''startup side effects moved here from import time (roadmap D1):
-    first-run config bootstrap (write default config.json) + download-dir creation.'''
+    first-run config bootstrap (write default config.json) + download-dir creation.
+    D3: dedupe stats restore on startup + flush on shutdown (window survives restarts).'''
     if not CONFIG_PATH.exists(): save_config(SETTINGS)
     touch_download_dir()
-    yield
+    load_dedupe_stats()
+    try:
+        yield
+    finally:
+        save_dedupe_stats()
 
 
 app = FastAPI(title='musicdl-webgui', version='1.0.0', description='Easy web GUI on top of musicdl',
