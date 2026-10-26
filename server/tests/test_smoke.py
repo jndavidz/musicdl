@@ -46,7 +46,7 @@ def check(name, cond, detail=''):
 def find_song_id(source, keywords):
     body, _ = get(f'/{source}/search?keywords={urllib.parse.quote(keywords)}&limit=5')
     items = (body.get('data') or {}).get('items') or []
-    first = items[0] or {}
+    first = items[0] if items else {}   # empty upstream result must degrade to a FAIL, not crash
     return first.get('id'), first.get('name'), (first.get('extra') or {})
 
 

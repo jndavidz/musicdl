@@ -310,3 +310,13 @@
 1. 监控 [Huibq/keep-alive](https://github.com/Huibq/keep-alive) 与元力公众号的端点更新
 2. 每季度重跑 `.state/probe_endpoints.py` 探测矩阵复核存活状态
 3. ⚠️ **勘误（2026-10-24）**：原第 3 条「musicdl 上游更新时同步 hifi 分支解析链」已失效——`archive/hifi` tag 已于 2026-09-06 归档并入本分支，单分支治理后**上游同步只发生在 `api-server`**（fetch `upstream` 后直接 merge `upstream/master`）。每次合并后须按本台账口径复核库层解析链变动（即本文所有 ⬆️ 条目的来源）。
+
+## 11. bilibili（第 7 源，2026-08-24 并入；此前漏登记，2026-10-27 补）
+
+| 端点 | 现状 | 凭证 | 实测 | 角色 |
+|---|---|---|---|---|
+| `api.bilibili.com/x/web-interface/search/type?search_type=video` | **2026-10-27 起匿名裸请求 412 Precondition Failed（风控收紧）**——须带 buvid3 cookie；adapter 经 `finger/spi` 动态换指纹（7 天 TTL 缓存）后恢复 | 免 cookie（动态指纹）；`BILI_SESSDATA` 可选解锁 Hi-Res/Dolby | ✅ 2026-10-27 NAS 修复后实测 | 🟢 搜索主通道 |
+| `api.bilibili.com/x/frontend/finger/spi` | 匿名换 buvid3/buvid4，正常 | 无 | ✅ | 🟢 指纹源 |
+| DASH 音频流提取（`bili.dash.*` parser） | m4a 192k 上下，URL 需 `Referer: www.bilibili.com` | 同上 | ✅ 2026-10-27 | 🟢 取链主通道 |
+
+修复记录：`server/adapters/bilibili.py` `_search_raw` 原先裸请求未走 `_api_get`（注释声称带 buvid 实则未带），2026-10-27 统一走 `_api_get` 修复 412。

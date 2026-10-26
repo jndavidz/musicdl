@@ -53,13 +53,15 @@ class BilibiliAdapter(SourceAdapter):
             'User-Agent': self.UA, 'Referer': 'https://www.bilibili.com/', 'Cookie': cookie})
         return resp.json() if hasattr(resp, 'json') else {}
 
-    '''metadata-only search via web-interface video search (dynamic buvid bypasses risk control)'''
+    '''metadata-only search via web-interface video search — MUST go through
+       _api_get: since 2026-10-27 bilibili 412s anonymous search requests without
+       the dynamic buvid cookie (search used to hit the endpoint bare).'''
     def _search_raw(self, keywords: str, limit: int, page: int) -> list:
         from urllib.parse import urlencode
         rule = {'search_type': 'video', 'keyword': keywords, 'page': page, 'page_size': limit}
-        resp = self.client.get('https://api.bilibili.com/x/web-interface/search/type?' + urlencode(rule))
         try:
-            return ((resp.json().get('data') or {}).get('result')) or []
+            data = self._api_get('https://api.bilibili.com/x/web-interface/search/type?' + urlencode(rule))
+            return ((data.get('data') or {}).get('result')) or []
         except Exception:
             return []
 
