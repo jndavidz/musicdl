@@ -17,7 +17,8 @@ import urllib.request
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, REPO)
 
-from server.config import Settings, QUALITY_ALIASES
+from server.config import Settings
+from server.quality import ALIASES, resolve as resolve_quality
 from server.app import create_app
 from server.cache import TTLCache
 
@@ -160,12 +161,20 @@ for k in 'abcdefghijklmnopq':
 check('cache evicts under capacity pressure', c2.get('a') is None and c2.get('q') == 'q')
 check('cache keeps recent entries after eviction', c2.get('p') is not None)
 
-# ---- section 4: quality alias table invariants ----
-check('alias: MusicFree four tiers', QUALITY_ALIASES['low'] == '128k' and QUALITY_ALIASES['standard'] == '192k'
-      and QUALITY_ALIASES['high'] == '320k' and QUALITY_ALIASES['super'] == '320k')
-check('alias: surround5.1 spellings collapse', QUALITY_ALIASES['surround5.1'] == 'surround51'
-      and QUALITY_ALIASES['5.1'] == 'surround51')
-check('alias: auto maps to itself', QUALITY_ALIASES['auto'] == 'auto')
+# ---- section 4: quality tier domain invariants (server/quality.py, ADR-0003) ----
+check('alias: MusicFree four tiers', ALIASES['low'] == '128k' and ALIASES['standard'] == '192k'
+      and ALIASES['high'] == '320k' and ALIASES['super'] == '320k')
+check('alias: surround5.1 spellings collapse', ALIASES['surround5.1'] == 'surround51'
+      and ALIASES['5.1'] == 'surround51')
+check('alias: auto maps to itself', ALIASES['auto'] == 'auto')
+check('192k rule: netease keeps real tier', resolve_quality('netease', '192k') == '192k')
+check('192k rule: bilibili snaps to 320k (was: fell to auto)', resolve_quality('bilibili', '192k') == '320k')
+check('192k rule: kuwo/qq snap to 320k', resolve_quality('kuwo', '192k') == '320k'
+      and resolve_quality('qq', '192k') == '320k')
+check('whitelist: qq has no master tier -> auto', resolve_quality('qq', 'master') == 'auto')
+check('whitelist: kuwo keeps master/surround51', resolve_quality('kuwo', 'surround5.1') == 'surround51'
+      and resolve_quality('kuwo', 'master') == 'master')
+check('resolve is idempotent', resolve_quality('qq', resolve_quality('qq', 'SUPER')) == '320k')
 
 # ---- section 5: dual-side quality tag tables stay in sync (ast, no import) ----
 def _extract_dict(path, varname):

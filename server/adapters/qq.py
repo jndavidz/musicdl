@@ -6,10 +6,9 @@ Function:
 import time
 import base64
 from .base import SourceAdapter, AdapterError
+from ..quality import resolve as resolve_quality, lossless_allowed, LOSSLESS_MSG, LOSSLESS_EXTS
 from musicdl.modules.sources.qq import QQMusicClient
 from musicdl.modules.utils import AudioLinkTester
-
-LOSSLESS_EXTS = {'flac', 'wav', 'ape'}
 
 
 class QQAdapter(SourceAdapter):
@@ -92,10 +91,9 @@ class QQAdapter(SourceAdapter):
 
     '''quality param is advisory for QQ (chain returns the best it can); flac/hires gated likewise'''
     async def song_url(self, song_id: str, quality: str) -> dict:
-        q = quality if quality in {'auto', '320k', '192k', '128k', 'flac', 'hires'} else 'auto'
-        if q == '192k': q = '320k'  # no native 192k tier — snap up to 320k
-        if q in {'flac', 'hires'} and not self.settings.enable_lossless:
-            raise AdapterError(403, 'lossless tier disabled on this server (ENABLE_LOSSLESS=false)')
+        q = resolve_quality(self.source_key, quality)
+        if not lossless_allowed(q, self.settings.enable_lossless):
+            raise AdapterError(403, LOSSLESS_MSG)
         t0 = time.perf_counter()
         info = await self.run(self._via_thirdparty, song_id)
         elapsed = round((time.perf_counter() - t0) * 1000)

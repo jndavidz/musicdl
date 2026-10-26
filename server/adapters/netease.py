@@ -6,6 +6,7 @@ Function:
 '''
 import time
 from .base import SourceAdapter, AdapterError
+from ..quality import resolve as resolve_quality
 from .kugou import requests_get
 
 
@@ -60,7 +61,7 @@ class NeteaseAdapter(SourceAdapter):
                 'cover': (raw.get('al') or {}).get('picUrl'), 'source': 'netease'}
 
     async def song_url(self, song_id: str, quality: str) -> dict:
-        q = quality if quality in {'auto', '320k', '192k', '128k', 'flac', 'hires'} else 'auto'
+        q = resolve_quality(self.source_key, quality)  # netease has a REAL 192k tier ('higher')
         t0 = time.perf_counter()
         # single-pass: official catalog ladder only (no cross-platform unblock
         # mirrors — per policy, netease songs must come from netease CDNs).

@@ -11,6 +11,7 @@ Function:
 import time
 import requests
 from .base import SourceAdapter, AdapterError
+from ..quality import resolve as resolve_quality
 
 DOC_BASE = 'https://music-api.gdstudio.xyz/api.php'
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131',
@@ -47,7 +48,7 @@ class GDMusicAdapter(SourceAdapter):
 
     '''resolve url for any platform track id; quality maps to br sequence'''
     async def song_url(self, song_id: str, quality: str, source: str = 'netease') -> dict:
-        q = quality if quality in {'auto', '320k', '128k', 'flac', 'hires'} else 'auto'
+        q = resolve_quality(self.source_key, quality)
         t0 = time.perf_counter()
         last = {}
         for br in BR_MAP[q]:

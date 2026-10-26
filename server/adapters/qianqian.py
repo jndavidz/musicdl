@@ -4,9 +4,8 @@ Function:
     tracklink(TSID, rate) resolves directly; response also carries song meta.
 '''
 from .base import SourceAdapter, AdapterError
+from ..quality import resolve as resolve_quality, lossless_allowed, LOSSLESS_MSG
 from musicdl.modules.sources.qianqian import QianqianMusicClient
-
-LOSSLESS_RATES = {'3000'}
 
 
 class QianqianAdapter(SourceAdapter):
@@ -46,15 +45,14 @@ class QianqianAdapter(SourceAdapter):
 
     '''quality routing: auto/320k/128k capped at 320; flac/hires gated by ENABLE_LOSSLESS'''
     async def song_url(self, song_id: str, quality: str) -> dict:
-        q = quality if quality in {'auto', '320k', '192k', '128k', 'flac', 'hires'} else 'auto'
-        if q == '192k': q = '320k'  # no native 192k tier — snap up to 320k
+        q = resolve_quality(self.source_key, quality)
         t0 = __import__('time').perf_counter()
         import time
         elapsed = lambda: round((time.perf_counter() - t0) * 1000)
         rates = {'128k': ['128'], '320k': ['320'], 'auto': ['320', '128'],
                  'flac': ['3000'], 'hires': ['3000']}[q]
-        if q in {'flac', 'hires'} and not self.settings.enable_lossless:
-            raise AdapterError(403, 'lossless tier disabled on this server (ENABLE_LOSSLESS=false)')
+        if not lossless_allowed(q, self.settings.enable_lossless):
+            raise AdapterError(403, LOSSLESS_MSG)
         for rate in rates:
             link = await self.run(self._tracklink, song_id, rate)
             if not link['path']: continue

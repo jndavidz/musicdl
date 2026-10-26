@@ -11,6 +11,7 @@ import urllib.parse
 import gzip
 import io as _io
 from .base import SourceAdapter, AdapterError
+from ..quality import resolve as resolve_quality
 
 
 def raw_get(url: str, timeout: int = 15) -> str:
@@ -92,8 +93,7 @@ class KugouAdapter(SourceAdapter):
         return str(v or '')
 
     async def song_url(self, song_id: str, quality: str) -> dict:
-        q = quality if quality in {'auto', '320k', '192k', '128k', 'flac', 'hires'} else 'auto'
-        if q == '192k': q = '320k'  # no native 192k tier — snap up to 320k
+        q = resolve_quality(self.source_key, quality)
         t0 = time.perf_counter()
         data = await self.run(self._api_get, '/song/url', {'hash': str(song_id), 'quality': self.QUALITY[q]})
         url = self._first_url(data.get('url')) or self._first_url(data.get('backupUrl'))

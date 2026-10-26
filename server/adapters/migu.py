@@ -6,6 +6,7 @@ Function:
 '''
 import re
 from .base import SourceAdapter, AdapterError
+from ..quality import resolve as resolve_quality, lossless_allowed, LOSSLESS_MSG
 from musicdl.modules.sources.migu import MiguMusicClient
 
 
@@ -65,8 +66,7 @@ class MiguAdapter(SourceAdapter):
 
     '''quality routing: HQ=320k mp3 reliable anonymously; SQ/ZQ flac gated by ENABLE_LOSSLESS'''
     async def song_url(self, song_id: str, quality: str, copyright_id: str = '') -> dict:
-        q = quality if quality in {'auto', '320k', '192k', '128k', 'flac', 'hires'} else 'auto'
-        if q == '192k': q = '320k'  # no native 192k tier — snap up to 320k
+        q = resolve_quality(self.source_key, quality)
         t0 = __import__('time').perf_counter()
         import time
         elapsed = lambda: round((time.perf_counter() - t0) * 1000)
@@ -74,8 +74,8 @@ class MiguAdapter(SourceAdapter):
             raise AdapterError(404, 'migu by-id needs copyrightId — pass `copyright` from the search item extra')
         flags = {'128k': ['PQ'], '320k': ['HQ'], 'auto': ['HQ'],
                  'flac': ['SQ', 'ZQ'], 'hires': ['SQ', 'ZQ']}[q]
-        if q in {'flac', 'hires'} and not self.settings.enable_lossless:
-            raise AdapterError(403, 'lossless tier disabled on this server (ENABLE_LOSSLESS=false)')
+        if not lossless_allowed(q, self.settings.enable_lossless):
+            raise AdapterError(403, LOSSLESS_MSG)
         for flag in flags:
             resolved = await self.run(self._listen_url, song_id, copyright_id, '2', flag)
             if not resolved: continue

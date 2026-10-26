@@ -5,12 +5,12 @@ Function:
 import re
 import time
 from .base import SourceAdapter, AdapterError
+from ..quality import resolve as resolve_quality, lossless_allowed, LOSSLESS_MSG, LOSSLESS_EXTS
 from musicdl.modules.sources.kuwo import KuwoMusicClient
 from musicdl.modules.utils import AudioLinkTester
 from musicdl.modules.utils.kuwoutils import KuwoMusicClientUtils
 
 MIN_KBPS = {'128k': 112, '320k': 256}
-LOSSLESS_EXTS = {'flac', 'wav', 'ape'}
 
 
 class KuwoAdapter(SourceAdapter):
@@ -153,12 +153,11 @@ class KuwoAdapter(SourceAdapter):
        - auto/320k/128k: nmobi plain API first (no silent downgrade), then mobi.s encrypted
          sibling, then third-party chain; keep whichever candidate has more bandwidth.'''
     async def song_url(self, song_id: str, quality: str) -> dict:
-        q = quality if quality in {'auto', '320k', '192k', '128k', 'flac', 'hires', 'master', 'surround51'} else 'auto'
-        if q == '192k': q = '320k'  # kuwo 192kmp3 is a fake tier (silently downgrades to 128) — snap up to 320k
+        q = resolve_quality(self.source_key, quality)
         t0 = time.perf_counter()
+        if not lossless_allowed(q, self.settings.enable_lossless):
+            raise AdapterError(403, LOSSLESS_MSG)
         if q in self.ZHENPIN_BR:
-            if not self.settings.enable_lossless:
-                raise AdapterError(403, 'lossless tier disabled on this server (ENABLE_LOSSLESS=false)')
             br = self.ZHENPIN_BR[q]
             direct = await self.run(self._nmobi_direct, song_id, br)
             if direct and direct.get('ekey'):
@@ -171,8 +170,6 @@ class KuwoAdapter(SourceAdapter):
                                               platform_tag='第三方链无损')
 
         if q in {'flac', 'hires'}:
-            if not self.settings.enable_lossless:
-                raise AdapterError(403, 'lossless tier disabled on this server (ENABLE_LOSSLESS=false)')
             lossless_br = '20000kflac' if q == 'hires' else '2000kflac'
             direct = await self.run(self._nmobi_direct, song_id, lossless_br)
             if direct and direct['bitrate'] >= 900:

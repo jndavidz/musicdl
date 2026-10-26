@@ -9,6 +9,7 @@ Function:
 '''
 import time
 from .base import SourceAdapter, AdapterError
+from ..quality import resolve as resolve_quality, lossless_allowed, LOSSLESS_MSG
 from musicdl.modules.sources.deezer import DeezerMusicClient
 from musicdl.modules.utils import AudioLinkTester
 
@@ -56,10 +57,10 @@ class DeezerAdapter(SourceAdapter):
         return self.client._getsongmetainfo(song_id=song_id)
 
     async def song_url(self, song_id: str, quality: str) -> dict:
-        q = quality if quality in {'auto', '320k', '128k', 'flac', 'hires'} else 'auto'
+        q = resolve_quality(self.source_key, quality)
         t0 = time.perf_counter()
-        if q in {'flac', 'hires'} and not self.settings.enable_lossless:
-            raise AdapterError(403, 'lossless tier disabled on this server (ENABLE_LOSSLESS=false)')
+        if not lossless_allowed(q, self.settings.enable_lossless):
+            raise AdapterError(403, LOSSLESS_MSG)
         info = await self.run(self._via_thirdparty, song_id)
         elapsed = round((time.perf_counter() - t0) * 1000)
         if not (info.with_valid_download_url and info.ext in AudioLinkTester.VALID_AUDIO_EXTS):

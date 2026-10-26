@@ -22,7 +22,8 @@ from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
-from server.config import settings, SOURCES, QUALITY_ALIASES, get_settings
+from server.config import settings, SOURCES, get_settings
+from server.quality import resolve as resolve_quality
 from server.cache import TTLCache
 from server.parsers_health import ParserHealth
 from server.schemas import Envelope, SearchData, SongUrlData, SongInfoData, LyricData
@@ -91,7 +92,7 @@ async def song_url(request: Request, source: str, id: str = Query(..., min_lengt
                    copyright: str = Query('', description='migu only: copyrightId from search item extra')):
     s = request.app.state
     adapter = get_adapter(s, source)
-    q = QUALITY_ALIASES.get(quality.lower(), 'auto')
+    q = resolve_quality(source, quality)
     cache_key = f'{source}:{id}:{q}:{copyright}'
     cached = s.url_cache.get(cache_key)
     if cached:

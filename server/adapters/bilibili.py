@@ -10,6 +10,7 @@ import json as _json
 import urllib.request
 import urllib.parse
 from .base import SourceAdapter, AdapterError
+from ..quality import resolve as resolve_quality, requires_lossless
 
 
 class BilibiliAdapter(SourceAdapter):
@@ -78,7 +79,7 @@ class BilibiliAdapter(SourceAdapter):
 
     '''resolve DASH audio track by quality tier'''
     async def song_url(self, song_id: str, quality: str) -> dict:
-        q = quality if quality in {'auto', '320k', '128k', 'flac', 'hires'} else 'auto'
+        q = resolve_quality(self.source_key, quality)  # 192k request -> 320k (no native 192k tier)
         t0 = time.perf_counter()
         sessdata = getattr(self.settings, 'bili_sessdata', '')
         cookie = self._get_buvid() + (f'; SESSDATA={sessdata}' if sessdata else '')
@@ -108,8 +109,8 @@ class BilibiliAdapter(SourceAdapter):
             return None
         tiers = {'128k': [30232, 30280], '320k': [30280, 30251, 30250, 30232],
                  'auto': [30280, 30251, 30250, 30232]}
-        want_ids = {'flac': [30251], 'hires': [30251]}[q] if q in {'flac', 'hires'} else tiers[q]
-        if q in {'flac', 'hires'} and not sessdata:
+        want_ids = {'flac': [30251], 'hires': [30251]}[q] if requires_lossless(q) else tiers[q]
+        if requires_lossless(q) and not sessdata:
             raise AdapterError(403, 'Hi-Res/Dolby needs BILI_SESSDATA (bilibili account)')
         all_audio = ((dash.get('flac') or {}).get('audio') or []) + \
                     ((dash.get('dolby') or {}).get('audio') or []) + (dash.get('audio') or [])

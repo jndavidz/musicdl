@@ -160,7 +160,7 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 | id 格式 | BV 号（如 `BV15g411X7vj`） |
 | 出链通道 | DASH 提取：`playurl?fnval=16` → dash.audio/flac/dolby 按 quality 选轨 → bilivideo CDN 直链 |
 | 凭证 | finger/spi 动态 buvid3/4（免登录绕风控，进程缓存 7 天）；可选 `BILI_SESSDATA` 解锁 Hi-Res/Dolby |
-| 音质映射 | low→64k、standard→132k、auto/high/320k→192k AAC；super/flac/hires→Hi-Res/Dolby 声道（gated） |
+| 音质映射 | low→64k、standard→192k AAC（30280，2026-10-27 起归一为 320k 档请求）、auto/320k→192k AAC 档；flac/hires→Hi-Res/Dolby 声道（gated） |
 | **headers 必须** | CDN 校验 Referer：客户端须携带 `Referer: www.bilibili.com` + UA，否则 403 |
 | 已知边界 | 匿名音质封顶 192k AAC；UGC 内容库（翻唱/改编/现场），与版权曲库互补而非替代 |
 
@@ -310,6 +310,7 @@ server/tests/test_smoke.py <url> [--auth K:] # 冒烟 15 项
 | 日期 | 版本 | 变更 |
 |------|------|------|
 | 2026-08-12 | 1.0 | 六源中的四源上线（酷我/QQ/千千/咪咕）+ NAS 部署 + 外网验收 |
+| 2026-10-27 | 1.4 | 音质档位知识收敛 `server/quality.py`（ADR-0003）：192k 语义统一（真档优先/就近上取；bilibili 192k 由落 auto 收紧为 320k）、每源白名单/lossless 门单点化、LOSSLESS_EXTS 补齐 8 元素 |
 | 2026-08-24 | 1.2 | +bilibili 第七源（DASH 提取，匿名 192k，SESSDATA 可解锁 Hi-Res）；+MUSIC_U VIP 无损；+VIP 运维端点；+全量透传层；+内网免 key |
 | 2026-08-23 | 1.1 | 元力/haitangw 兜底通道；nmobi 主通道；服务层 API Key + 内网免 key；host 网络部署；网易云 MUSIC_U VIP 无损；酷狗容器背书出链；**通用透传层（全函数就绪）**；Deezer/Apple/TIDAL 等调研结论留档 |> **GD音乐台（gdstudio）实验性未启用**：官方无签名 API 已验证可用（2026-08-23 全平台普查）：
 > - ✅ 存活通道：netease（真直链）、**joox（FLAC）**、bilibili（m4s 音视频流，B站曲库含大量 Hi-Res 翻唱/OST）

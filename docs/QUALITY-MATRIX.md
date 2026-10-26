@@ -19,7 +19,9 @@
 | `master` | — | 母带（**仅酷我**实现，2026-09-07 新增；仅下载有效）|
 | `surround51` | surround5.1 / 5.1 | 5.1 全景声（**仅酷我**实现，2026-09-07 新增；仅下载有效）|
 
-`server/config.py QUALITY_ALIASES` 负责别名归一；各源 adapter 再把归一后的 quality 映射到平台私有参数。
+`server/quality.py` 是档位知识的单一归属（ADR-0003）：`ALIASES` 负责别名归一、`resolve(source, quality)` 负责每源白名单 + 192k 规则 + 未知档回 auto；各源 adapter 再把归一后的 quality 映射到平台私有参数（br/rate/level/quality id）。
+
+**192k 统一语义（2026-10-27 起）**：请求 `192k` = "有真 192k 档的源用真档，否则 snap 到不低于 192k 的最近档"。仅网易有原生 `higher`（192kbps）档；其余源（含 bilibili——此前 192k 落 auto 可能拿 Hi-Res，现已收紧为 320k）一律得 320k。
 
 ---
 
