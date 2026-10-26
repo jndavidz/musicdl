@@ -4,7 +4,18 @@ Function:
 '''
 import time
 from typing import Optional, List, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+def _coerce_int(v):
+    '''upstream numbers arrive as floats sometimes (qq third-party chain returned
+       duration 228.98 -> 500 on a strict int field); truncate or drop, never fail'''
+    if v is None:
+        return None
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        return None
 
 
 class Envelope(BaseModel):
@@ -57,6 +68,8 @@ class SongUrlData(BaseModel):
     ekey: Optional[str] = None           # kuwo zhenpin: QMC key to decrypt mflac/mgg -> flac/ogg
     elapsed_ms: int = 0
     cached: bool = False
+
+    _int_fields = field_validator('size_bytes', 'bitrate_kbps', 'duration_s', mode='before')(_coerce_int)
 
 
 class SongInfoData(BaseModel):
