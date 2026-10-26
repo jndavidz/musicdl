@@ -23,3 +23,15 @@ _Avoid_: 适配器模式（泛称）
 **.state 目录**:
 运行时状态目录：所有进程以 `XDG_STATE_HOME=$PWD/.state` 启动，探测脚本、缓存、一次性实验落这里（已 gitignore）。
 _Avoid_: tmp、运行目录
+
+**音质档位（quality tier）**:
+跨源统一的档位语义：128k / 192k / 320k / flac / hires / master / surround51 / auto。总册见 `docs/QUALITY-MATRIX.md`；服务端归一/白名单/守卫收敛在 `server/quality.py`（ADR-0003）。192k = 有真档用真档（netease higher），否则 snap 到不低于请求档的最近档。
+_Avoid_: 音质等级、码率档（泛称）
+
+**兜底通道（fallback channel）**:
+webgui 主流六源的进程内库直连，API 为主定位下**冻结保留**（ADR-0001）：代码不演进，仅 API 故障时作独立保险；库直连只对 59 个小众平台保持现役。
+_Avoid_: 双通道（六源已不再是并行双轨）
+
+**消费方（consumers）**:
+kw-qq-music-api 的两类消费方及其能力边界：MusicFree 插件**只消费 ≤320k mp3**；webgui 消费全档（含 mflac+ekey 加密件，经 QMC 解密钩子得明文，ADR-0002）。master/surround51 加密档的现实唯一消费方是 webgui。
+_Avoid_: 用户、客户端（不区分能力边界）
