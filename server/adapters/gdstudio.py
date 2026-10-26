@@ -4,7 +4,7 @@ Function:
     Official doc: https://music-api.gdstudio.xyz/api.php (no signature required).
     Status 2026-08-23: API works (netease verified real CDN link) BUT the new paid
     server has ~50% connect-timeout rate from CN networks. Re-enable when stable:
-      1) add 'gdstudio' to ADAPTER_CLASSES and config.SOURCES
+      1) add 'gdstudio': GDMusicAdapter to ADAPTER_CLASSES (config.SOURCES derives)
     Usage note: /gdstudio/song/url accepts `source=` (netease/joox/bilibili/tidal/
     qobuz/apple/ytmusic/spotify/kuwo) to resolve ANY platform's track id.
 '''

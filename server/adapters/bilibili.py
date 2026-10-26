@@ -10,6 +10,7 @@ import json as _json
 import urllib.request
 import urllib.parse
 from .base import SourceAdapter, AdapterError
+from ..cache import TTLCache
 from ..quality import resolve as resolve_quality, requires_lossless
 
 
@@ -28,17 +29,19 @@ class BilibiliAdapter(SourceAdapter):
                                    default_search_cookies={}, default_parse_cookies={},
                                    default_download_cookies={})
 
-    '''动态设备指纹：finger/spi 匿名换取 buvid3/buvid4（进程级缓存）'''
+    '''动态设备指纹：finger/spi 匿名换取 buvid3/buvid4（TTL 缓存 7 天）'''
     def _get_buvid(self) -> str:
         cache = getattr(self, '_buvid_cache', None)
-        if cache and time.time() - cache['at'] < 86400 * 7:
-            return cache['cookie']
-        resp = self.client.get('https://api.bilibili.com/x/frontend/finger/spi')
-        d = _json.loads(resp.text) if hasattr(resp, 'text') else {}
-        b3 = (d.get('data') or {}).get('b_3', '')
-        b4 = (d.get('data') or {}).get('b_4', '')
-        cookie = f'buvid3={b3}; buvid4={b4}'
-        self._buvid_cache = {'cookie': cookie, 'at': time.time()}
+        if cache is None:
+            cache = self._buvid_cache = TTLCache(ttl_seconds=86400 * 7)
+        cookie = cache.get('buvid')
+        if cookie is None:
+            resp = self.client.get('https://api.bilibili.com/x/frontend/finger/spi')
+            d = _json.loads(resp.text) if hasattr(resp, 'text') else {}
+            b3 = (d.get('data') or {}).get('b_3', '')
+            b4 = (d.get('data') or {}).get('b_4', '')
+            cookie = f'buvid3={b3}; buvid4={b4}'
+            cache.set('buvid', cookie)
         return cookie
 
     def _api_get(self, url: str) -> dict:

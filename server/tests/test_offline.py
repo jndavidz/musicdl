@@ -160,6 +160,9 @@ for k in 'abcdefghijklmnopq':
     c2.set(k, k)
 check('cache evicts under capacity pressure', c2.get('a') is None and c2.get('q') == 'q')
 check('cache keeps recent entries after eviction', c2.get('p') is not None)
+st = c2.stats()
+check('cache stats expose hit/miss counters', st['hits'] >= 2 and st['misses'] >= 1
+      and st['hit_rate'] is not None and 0 < st['hit_rate'] < 1, f"hits={st['hits']} misses={st['misses']}")
 
 # ---- section 4: quality tier domain invariants (server/quality.py, ADR-0003) ----
 check('alias: MusicFree four tiers', ALIASES['low'] == '128k' and ALIASES['standard'] == '192k'

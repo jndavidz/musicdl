@@ -69,4 +69,7 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
-SOURCES = ('kuwo', 'qq', 'qianqian', 'migu', 'netease', 'kugou', 'bilibili')
+# single source of truth for the enabled-source registry: server/adapters/__init__.py.
+# enable/disable a source by editing ADAPTER_CLASSES only (one place).
+from .adapters import ADAPTER_CLASSES  # noqa: E402  (no cycle: adapters never import config)
+SOURCES = tuple(ADAPTER_CLASSES)

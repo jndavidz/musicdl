@@ -4,9 +4,7 @@ Function:
     Wraps each `client._parsewithXxxApi` so dead third-party endpoints are
     bypassed quickly instead of burning seconds on every request.
 '''
-import re
 import time
-import inspect
 import threading
 from musicdl.modules.utils import SongInfo, AudioLinkTester
 
@@ -40,14 +38,14 @@ class ParserHealth:
     '''wrap every third-party parser on the client with health checks.
        stats are keyed by "<source>:<parser>" — method names overlap across platforms.
        Clients without a third-party chain (official-only sources like migu/qianqian)
-       are returned unwrapped.'''
+       are returned unwrapped. Discovery is dir()-reflection on the class — no source
+       scraping, so upstream parser renames can't silently break the cooldown net
+       (chain-disabled parsers get wrapped too but are never invoked, hence never recorded).'''
     def wrap_client(self, client):
         if not hasattr(type(client), '_parsewiththirdpartapis'):
             return client
-        chain_src = inspect.getsource(type(client)._parsewiththirdpartapis)
-        names = []
-        for m in re.finditer(r'self\.(_parsewith\w+)', chain_src):
-            if m.group(1) not in names: names.append(m.group(1))
+        names = [n for n in dir(type(client))
+                 if n.startswith('_parsewith') and n != '_parsewiththirdpartapis']
         prefix = f'{client.source}:'
         for name in names:
             if getattr(getattr(client, name), '_health_wrapped', False): continue

@@ -211,9 +211,11 @@ class KuwoMusicClient(BaseMusicClient):
     '''_parsewiththirdpartapis'''
     def _parsewiththirdpartapis(self, search_result: dict, request_overrides: dict = None):
         if self.default_cookies or request_overrides.get('cookies'): return SongInfo(source=self.source)
-        l1_parser_funcs = [self._parsewithccwuapi, ][:0] # svip
+        # chain membership is explicit (empty tier list = disabled); per-parser status
+        # lives in docs/MUSIC-SOURCES-REGISTRY.md. Don't reintroduce [:0] slicing.
+        l1_parser_funcs: list = []  # svip tier: ccwu disabled
         l2_parser_funcs = [self._parsewithnxinxzapi, self._parsewithhaitangwapi, self._parsewithxcloudvapi, ] # vip
-        l3_parser_funcs = [self._parsewithlxmusicapi, self._parsewithyyy001api, self._parsewithgdstudioapi, ][:0] # invalid or unstable accounts
+        l3_parser_funcs: list = []  # invalid or unstable accounts: lxmusic / yyy001 / gdstudio disabled
         for parser_func in (l1_parser_funcs + l2_parser_funcs + l3_parser_funcs):
             song_info_flac = SongInfo(source=self.source, raw_data={'search': search_result, 'download': {}, 'lyric': {}})
             with suppress(Exception): song_info_flac = parser_func(search_result, request_overrides)

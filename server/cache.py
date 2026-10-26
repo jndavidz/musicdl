@@ -12,14 +12,19 @@ class TTLCache:
         self.max_items = max(16, int(max_items))
         self._store: dict = {}
         self._lock = threading.Lock()
+        self._hits = self._misses = 0
 
     def get(self, key: str):
         with self._lock:
             item = self._store.get(key)
-            if not item: return None
+            if not item:
+                self._misses += 1
+                return None
             expires_at, value = item
             if expires_at < time.monotonic():
-                self._store.pop(key, None); return None
+                self._store.pop(key, None); self._misses += 1
+                return None
+            self._hits += 1
             return value
 
     def set(self, key: str, value):
@@ -36,7 +41,10 @@ class TTLCache:
 
     def stats(self) -> dict:
         with self._lock:
-            return {'items': len(self._store), 'ttl': self.ttl}
+            total = self._hits + self._misses
+            return {'items': len(self._store), 'ttl': self.ttl,
+                    'hits': self._hits, 'misses': self._misses,
+                    'hit_rate': round(self._hits / total, 3) if total else None}
 
 
 async def cached(cache: TTLCache, key_parts: tuple, fn) -> tuple:

@@ -11,6 +11,7 @@ import urllib.parse
 import gzip
 import io as _io
 from .base import SourceAdapter, AdapterError
+from ..cache import TTLCache
 from ..quality import resolve as resolve_quality
 
 
@@ -51,13 +52,14 @@ class KugouAdapter(SourceAdapter):
     def account_cookie(self) -> str:
         cache = getattr(self, '_cookie_cache', None)
         if cache is None:
-            self._cookie_cache = {'v': '', 'at': 0}
-        if not self._cookie_cache['v'] or time.time() - self._cookie_cache['at'] > self.settings.cookie_refresh_s:
+            cache = self._cookie_cache = TTLCache(ttl_seconds=self.settings.cookie_refresh_s)
+        ck = cache.get('cookie')
+        if ck is None:
             with open(self.settings.kugou_token_file) as fp:
                 tok = json.load(fp)
             ck = f"token={tok.get('token','')};userid={tok.get('userid','')};dfid={tok.get('dfid','')}"
-            self._cookie_cache.update({'v': ck, 'at': time.time()})
-        return self._cookie_cache['v']
+            cache.set('cookie', ck)
+        return ck
 
     '''raw GET against the sibling kugou-api container with cookie attached'''
     def _api_get(self, path: str, params: dict = None) -> dict:

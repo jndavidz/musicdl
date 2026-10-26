@@ -57,7 +57,7 @@ Makefile 的 `install`/`publish` 是上游 PyPI 发布遗留；本仓库的发�
 ## 新增一个解析源（adapter）
 
 1. 写 `server/adapters/<key>.py`：继承 `SourceAdapter`，实现 `_build_client()`（优先复用 `musicdl/modules/sources/` 里现成的客户端类；走第三方链的源须零 Cookie）、`_search_raw()`、`item_from_raw()`、`song_url()`。
-2. 注册两处：`server/adapters/__init__.py` 的 `ADAPTER_CLASSES` + `server/config.py` 的 `SOURCES` 元组。
+2. 注册一处：`server/adapters/__init__.py` 的 `ADAPTER_CLASSES`（`config.SOURCES` 由它派生）。
 3. 给 `server/tests/test_smoke.py` 补该源的检查项。
 4. 文档三处：`docs/API-REFERENCE.md` 补源与接口说明；新引入的上游端点登记进 `docs/MUSIC-SOURCES-REGISTRY.md` 台账；有取舍决策时记入 PLAN。
 5. 起服务 → 冒烟全 PASS → 以 conventional commits 提交（`feat(server): ...`，历史 scope 见 git log：server / webgui / api / docs）。
