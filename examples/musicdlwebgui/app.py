@@ -703,6 +703,28 @@ def serialize_item(key: str, info, platform_id: str) -> dict:
 RESULT_STORE: dict = {}
 STORE_LOCK = threading.Lock()
 
+'''dedupe win-source statistics (in-memory, resets on restart).
+   Counts CONTESTED dedupe picks only: clusters where the same song+album had
+   candidates from BOTH the api channel and the lib direct channel, and the
+   two-level pick (tier rank -> larger payload) chose one side. This is the
+   data behind the ADR-0001 re-review clause: if lib wins stay near zero over
+   a monitoring window (with no API outage in it), the six-source lib channel
+   can be deleted instead of converted to metadata-only search.'''
+DEDUPE_STATS: dict = {'contested': 0, 'wins': {'api': 0, 'lib': 0}, 'by_origin_source': {}}
+_DEDUPE_STATS_LOCK = threading.Lock()
+
+
+def _record_dedupe_win(cluster_items: list, best_item: dict) -> None:
+    origins = {it['origin'] for it in cluster_items}
+    if len(cluster_items) < 2 or not {'api', 'lib'} <= origins:
+        return
+    with _DEDUPE_STATS_LOCK:
+        DEDUPE_STATS['contested'] += 1
+        origin = best_item['origin']
+        DEDUPE_STATS['wins'][origin] += 1
+        key = f'{origin}:{best_item["source"]}'
+        DEDUPE_STATS['by_origin_source'][key] = DEDUPE_STATS['by_origin_source'].get(key, 0) + 1
+
 '''---------------- progress stub replacing rich.Progress ----------------'''
 
 
@@ -797,6 +819,7 @@ class DownloadEngine:
                         self._rank(serialized[k], quality_pref),
                         -(serialized[k]['file_size_bytes'] or 0),
                         k))
+                    _record_dedupe_win([serialized[k] for k in cluster], serialized[best])
                     for k in cluster:
                         if k != best:
                             skipped_reason[k] = f'同曲同专辑已有更优版本({serialized[best]["source"]})'
@@ -1068,6 +1091,16 @@ class ConfigBody(BaseModel):
 
 @app.get('/healthz')
 async def healthz(): return {'code': 200, 'msg': 'up', 'data': {'ts': int(time.time())}}
+
+
+@app.get('/api/stats/dedupe')
+async def dedupe_stats():
+    '''contested dedupe win-source counters (in-memory) — ADR-0001 fallback-channel review data'''
+    with _DEDUPE_STATS_LOCK:
+        data = {'contested': DEDUPE_STATS['contested'],
+                'wins': dict(DEDUPE_STATS['wins']),
+                'by_origin_source': dict(DEDUPE_STATS['by_origin_source'])}
+    return {'code': 200, 'msg': 'ok', 'data': data}
 
 
 @app.get('/api/config')

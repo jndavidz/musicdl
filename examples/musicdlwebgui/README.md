@@ -163,6 +163,7 @@ sudo bash examples/musicdlwebgui/scripts/mount-nas-music.sh --smb  # 或 SMB 回
 | GET  | `/api/tasks` · `/api/tasks/{id}` | 任务列表/快照 |
 | GET  | `/api/tasks/{id}/events` | SSE 实时进度流 |
 | POST | `/api/tasks/{id}/retry` · DELETE `/api/tasks/{id}` | 单条重试 / 整批取消 |
+| GET  | `/api/stats/dedupe` | dedupe 胜出来源计数（仅内存，ADR-0001 兜底通道再议数据） |
 | GET  | `/healthz` | 存活探针 |
 
 ## 设计说明（库耦合契约）
@@ -182,6 +183,8 @@ sudo bash examples/musicdlwebgui/scripts/mount-nas-music.sh --smb  # 或 SMB 回
   用于结果徽章、"仅看无损"过滤与同曲择优。
 - **兜底通道定位**（ADR-0001）：API 为主，六源 lib 直连**冻结保留**为兜底——其重搜索
   （逐候选解析直链）是自足性的来源，不切换 metadata-only 搜索。
+  `GET /api/stats/dedupe` 持续累计"同曲双通道竞争时谁胜出"（仅内存、重启清零）：
+  若监控窗口内 lib 胜出趋近于零且无 API 故障，可按 ADR-0001 再议条款删除六源 lib 通道。
 
 ## 冒烟测试
 
