@@ -85,8 +85,8 @@ def main():
         from pathlib import Path
         p = Path(saved)
         check('file inside fixed download dir', str(p.parent) == os.path.realpath(download_dir) or p.parent == Path(download_dir), str(p.parent))
-        rel = p.relative_to(download_dir)
-        check('flat layout (no subdirectory)', '/' not in str(rel) and os.sep not in str(rel), str(rel))
+        rel = os.path.relpath(os.path.realpath(str(p)), os.path.realpath(download_dir))
+        check('flat layout (no subdirectory)', '/' not in rel and os.sep not in rel and not rel.startswith('..'), rel)
         stem = p.stem
         has_sep = ' - ' in stem
         check('readable multi-segment name', has_sep, stem)
