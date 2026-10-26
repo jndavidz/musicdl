@@ -4,6 +4,8 @@
 #   tar 管道同步构建上下文 → 预留回滚 tag → compose build + up -d → healthz 探活 → 失败回滚上一镜像。
 # 前提：office → david@10.10.10.6（家庭 PC）与家庭 PC → zxsadmin@10.10.10.2（NAS）均 ssh 免密；
 #       NAS 的 docker 在 /usr/local/bin/docker；部署现状：NAS compose ENABLE_LOSSLESS=true（见 server/README.md）。
+# 坑位记录：home PC 登录 shell 是 PowerShell，内层命令必须单引号包裹（双引号被 sshd 剥掉后 && 裸露会报
+#   「标记"&&"不是此版本中的有效语句分隔符」）——run_nas 的 '$*' 只此一个用途，内嵌命令勿含单引号。
 # 用法：仓库根目录运行  bash deploy/deploy.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -16,7 +18,7 @@ TAR_EXCLUDES=(--exclude='.git' --exclude='.venv' --exclude='.state' --exclude='.
               --exclude='__pycache__' --exclude='*.pyc' --exclude='dl2*' --exclude='sources_*.json'
               --exclude='*.egg-info' --exclude='.zcode')
 
-run_nas() { ssh "$JUMP" "ssh $NAS \"$*\""; }
+run_nas() { ssh "$JUMP" "ssh $NAS '$*'"; }
 
 echo "[1/5] 同步构建上下文 → $NAS:$NAS_DIR/src/"
 tar -cf - "${TAR_EXCLUDES[@]}" \
@@ -30,18 +32,16 @@ run_nas "cd $NAS_DIR && $DOCKER tag musicdl-api:latest musicdl-api:previous 2>/d
 echo "[3/5] compose build + up -d"
 run_nas "cd $NAS_DIR && $DOCKER compose up -d --build"
 
-echo "[4/5] healthz 探活（最长 120s）"
+echo "[4/5] healthz 探活（最长 120s，本机经 WireGuard 直探）"
 ok=""
 for _ in $(seq 1 24); do
-  if run_nas "$DOCKER exec musicdl-api python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:3003/healthz', timeout=5)\"" >/dev/null 2>&1; then
-    ok=1; break
-  fi
+  if curl -fs --max-time 8 http://10.10.10.2:3003/healthz >/dev/null 2>&1; then ok=1; break; fi
   sleep 5
 done
 if [ -z "$ok" ]; then
   echo "healthz 探活失败 → 回滚到上一镜像"
   run_nas "cd $NAS_DIR && $DOCKER tag musicdl-api:previous musicdl-api:latest && $DOCKER compose up -d --no-build"
-  echo "已回滚；请查日志：run_nas docker logs --tail 100 musicdl-api"
+  echo "已回滚；查日志：ssh $JUMP \"ssh $NAS '$DOCKER logs --tail 100 musicdl-api'\""
   exit 1
 fi
 
