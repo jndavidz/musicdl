@@ -124,12 +124,38 @@ class KugouAdapter(SourceAdapter):
                 'duration_s': int(float(first('duration') or 0)) or None,
                 'cover': first('cover_url', 'img'), 'raw': {}}
 
-    '''official lyric endpoint of KuGouMusicApi'''
+    '''lyric chain: KuGouMusicApi container /lyric first; on failure or empty body
+       fall back to kugou's official lyric service (lyrics.kugou.com search ->
+       krcs.kugou.com download, anonymous zero-cookie chain, accesskey comes with
+       the candidate). Added 2026-10-27: the container /lyric has been stably
+       returning 400 error_code 20010 (NAS environment fact), which used to
+       degrade to '' for every song.'''
     async def lyric(self, song_id: str) -> str:
         try:
             data = await self.run(self._api_get, '/lyric', {'hash': str(song_id)})
+            candidates = data.get('candidates') if isinstance(data.get('candidates'), list) else []
+            content = (candidates[0].get('content') if candidates and isinstance(candidates[0], dict) else None)
+            text = content or data.get('content') or ''
+            if text:
+                return text
+        except Exception:
+            pass
+        return await self.run(self._lyric_official, str(song_id))
+
+    '''official lyric service fallback (two anonymous GETs, no cookie needed)'''
+    @staticmethod
+    def _lyric_official(song_id: str) -> str:
+        import base64
+        try:
+            c = requests_get('https://lyrics.kugou.com/search',
+                             {'ver': 1, 'man': 'yes', 'client': 'pc', 'hash': str(song_id)})
+            cand = next((x for x in (c.get('candidates') or []) if isinstance(x, dict) and x.get('id')), None)
+            if not cand:
+                return ''
+            d = requests_get('https://krcs.kugou.com/download',
+                             {'ver': 1, 'client': 'pc', 'fmt': 'lrc', 'charset': 'utf8',
+                              'id': cand.get('id'), 'accesskey': cand.get('accesskey') or ''})
+            content = d.get('content') or ''
+            return base64.b64decode(content).decode('utf-8', errors='ignore') if content else ''
         except Exception:
             return ''
-        candidates = data.get('candidates') if isinstance(data.get('candidates'), list) else []
-        content = (candidates[0].get('content') if candidates and isinstance(candidates[0], dict) else None)
-        return content or data.get('content') or ''

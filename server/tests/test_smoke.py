@@ -77,9 +77,11 @@ DEFAULT_SOURCES = [
     ('qianqian', '林俊杰 江南', False, False),
 ]
 ALL_SOURCES = [
-    ('kugou', '林俊杰 江南', False, False),      # needs kugou-api container (NAS); container /lyric
-    ('bilibili', '周杰伦 晴天', False, False),   # 400s error_code 20010 (2026-10-27) -> adapter degrades to '',
-                                                # flip back to has_lyric=True when the container endpoint is fixed
+    ('kugou', '林俊杰 江南', False, True),       # needs kugou-api container (NAS). Container /lyric
+                                                 # stably 400s error_code 20010 (2026-10-27) —
+                                                 # adapter falls back to the official lyric chain,
+                                                 # so non-empty is assertable again.
+    ('bilibili', '周杰伦 晴天', False, False),   # bilibili has no standard lyrics; empty is expected
 ]
 
 
