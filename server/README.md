@@ -13,8 +13,9 @@
 | GET | `/{source}/song/url` | `id`*、`quality`=auto\|320k\|192k\|128k\|flac\|hires\|master\|surround51（MusicFree 四档：low=128k/standard=192k/high=320k/super 封顶 320k；后两档仅酷我，无损档仅下载有效）、`copyright`（仅 migu：搜索项 `extra.copyrightId` 回传） | 播放直链（酷我 nmobi 直出 ~120ms；QQ 第三方链 1–11s，长尾由健康度冷却收敛） |
 | GET | `/{source}/song/info` | `id`*、`copyright`（仅 migu） | 单曲元数据（封面/专辑/时长） |
 | GET | `/{source}/lyric` | `id`* | LRC 歌词（migu/qianqian/bilibili/deezer 恒空） |
-| GET | `/healthz` | — | 存活探针（豁免 API key） |
+| GET | `/healthz` | — | 存活探针（豁免 API key 与限流） |
 | GET | `/status` | — | parser 健康度（`<source>:<parser>` 键）+ 缓存统计 |
+| GET | `/metrics` | — | Prometheus 文本格式（请求计数/延迟直方图/parser 健康 gauge/缓存命中率 gauge；非信封包裹，豁免限流； Grafana scrape 配置见下文部署节） |
 | POST | `/kugou/vip/day` · `/kugou/vip/upgrade` | — | 酷狗概念版 VIP 领取（语义化包裹） |
 | GET | `/kugou/vip/status` | — | VIP 权益结构化视图 |
 | GET/POST | `/kugou/api/{path}` · `/netease/api/{path}` | 任意容器端点 | 通用透传（自动注入账号 cookie，屏蔽登出/验证码等危险路径；上游错误原样透传） |
@@ -46,6 +47,7 @@
 | `SEARCH_SIZE_DEFAULT` / `SEARCH_SIZE_MAX` | 20/50 | 搜索默认条数 / 上限（超过截断） |
 | `API_KEY` | 空（关闭） | 服务级 API key；`X-API-Key` 或 `Basic base64(KEY+":")` |
 | `TRUSTED_NETWORKS` / `UNTRUSTED_HOSTS` | 内网段 / 10.10.10.1 | 免 key 网段 / 强制走 key 的来源 IP（Lucky 反代必须列入） |
+| `RATE_LIMIT` | 120/minute | **仅外网**固定窗口限流（`N/second\|minute\|hour\|day`，空 = 关闭）；可信网段完全豁免，外网（经 Lucky 中继后同源 IP）共享一个桶，429 带 `X-RateLimit-*` + `Retry-After` 头 |
 | `NCM_API_BASE` / `KUGOU_API_BASE` | 10.10.10.2:3000/3001 | NAS 侧 ncm-api / kugou-api 容器地址 |
 | `KUGOU_TOKEN_FILE` / `NETEASE_COOKIE_FILE` | /app/secrets/* | 酷狗 token / 网易 cookie 挂载路径（网易缺省匿名转发） |
 | `BILI_SESSDATA` | 空 | bilibili 账号 cookie（解锁 Hi-Res/Dolby） |
@@ -67,13 +69,24 @@ XDG_STATE_HOME=$PWD/.state .venv/bin/python server/tests/test_smoke.py http://12
 ## NAS 部署
 
 ```bash
-# 同步构建上下文（排除开发产物）到 NAS，然后：
-ssh zxsadmin@10.10.10.2 "cd /volume2/docker/musicdl-api && /usr/local/bin/docker compose up -d --build"
+bash deploy/deploy.sh     # 双跳 tar 同步 → 预留回滚 tag → compose build → healthz 探活 → 失败自动回滚
 # 验收（全量档）
-XDG_STATE_HOME=$PWD/.state .venv/bin/python server/tests/test_smoke.py http://10.10.10.2:3003 --all
+XDG_STATE_HOME=$PWD/.state .venv/Scripts/python.exe server/tests/test_smoke.py http://10.10.10.2:3003 --all
 ```
 
 compose 位于 `deploy/docker-compose.yml`（NAS 侧 `/volume2/docker/musicdl-api/docker-compose.yml`），`restart: unless-stopped` + 内置 healthcheck。
+
+**部署现状注记（2026-10-27）**：NAS 侧实际运行 compose 的 `ENABLE_LOSSLESS=true`（无损档在 NAS 上是活的，含 master/surround51 加密档），与仓库 compose 默认 `false` 不同——以 NAS compose 为准，修改后需同步本注记与 `docs/QUALITY-MATRIX.md` / `docs/API-REFERENCE.md`。
+
+**Grafana / Prometheus 对接**（dashboard 16110）：Prometheus 抓取任务（NAS 内网来源免 key）：
+
+```yaml
+- job_name: kwqq-music-api
+  static_configs: [{ targets: ['10.10.10.2:3003'] }]
+  metrics_path: /metrics
+```
+
+可用指标：`kwqq_requests_total{endpoint,status}`、`kwqq_request_latency_seconds`（histogram）、`kwqq_parser_up` / `kwqq_parser_fail_streak{parser}`、`kwqq_cache_hit_rate` / `kwqq_cache_items{cache}`。
 
 ## 架构速览
 
