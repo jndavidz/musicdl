@@ -5,6 +5,7 @@ Function:
     - blocks account-dangerous paths (logout/captcha/sms/register...)
     - streams upstream bytes verbatim (no re-parse) — overhead ~1ms
 '''
+import io as _io
 import urllib.request
 import urllib.parse
 import urllib.error
@@ -36,6 +37,14 @@ def blocked_segment(source: str, path: str):
     return None
 
 
+def _read_netease_cookie() -> str:
+    '''netease passthrough is cookie-optional: file absent -> anonymous request.'''
+    try:
+        return open(settings.netease_cookie_file).read().strip()
+    except Exception:
+        return ''
+
+
 def fetch(source: str, method: str, path: str, query: dict = None,
           body: bytes = None, content_type: str = 'application/json',
           kugou_cookie_fn=None, timeout: int = 30,
@@ -56,10 +65,11 @@ def fetch(source: str, method: str, path: str, query: dict = None,
     if cfg['kugou_cookie'] and kugou_cookie_fn:
         sep = '&' if '?' in url else '?'
         url += f"{sep}cookie={urllib.parse.quote(kugou_cookie_fn())}"
-    elif cfg['netease_cookie'] and (netease_cookie or settings.netease_cookie):
-        mu = netease_cookie or settings.netease_cookie
-        sep = '&' if '?' in url else '?'
-        url += f'{sep}cookie={urllib.parse.quote(mu)}'
+    elif cfg['netease_cookie']:
+        mu = netease_cookie or _read_netease_cookie()
+        if mu:
+            sep = '&' if '?' in url else '?'
+            url += f'{sep}cookie={urllib.parse.quote(mu)}'
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:

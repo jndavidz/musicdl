@@ -7,7 +7,8 @@ import urllib.request
 import urllib.parse
 
 args = sys.argv[1:]
-BASE = args[0] if args else 'http://127.0.0.1:3003'
+BASE = args[0] if args and not args[0].startswith('--') else 'http://127.0.0.1:3003'
+ALL = '--all' in args   # full tier: adds checks that need NAS containers (kugou-api / ncm-api)
 AUTH = None
 if '--auth' in args:
     AUTH = base64.b64encode(args[args.index('--auth') + 1].encode()).decode()
@@ -21,6 +22,18 @@ def get(path, timeout=30):
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         body = json.loads(resp.read().decode('utf-8'))
     return body, round((time.perf_counter() - t0) * 1000)
+
+
+def raw(path, timeout=30):
+    '''returns (status, body_bytes) without raising on upstream 4xx/5xx —
+       passthrough endpoints relay upstream errors verbatim by design.'''
+    req = urllib.request.Request(BASE + path)
+    if AUTH: req.add_header('Authorization', f'Basic {AUTH}')
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
 
 
 def check(name, cond, detail=''):
@@ -78,6 +91,19 @@ for source, keywords in [('kuwo', '林俊杰 江南'), ('qq', '邓紫棋 光年�
 
 b, _ = get('/qq/song/url?id=0039MnYb0qxYhV&quality=flac')
 check('lossless gated by default', b['code'] == 403, f"code={b['code']}")
+
+st, body = raw('/kugou/api/user/logout')
+check('passthrough blocked path', st == 403 and b'blocked' in body, f'status={st}')
+
+if ALL:
+    st, body = raw('/kugou/api/search?keywords=%E6%9E%97%E4%BF%8A%E6%9D%B0')
+    ok_json = st == 200 and body[:1] in (b'{', b'[')
+    check('kugou passthrough search', ok_json, f'status={st} bytes={len(body)}')
+    st, body = raw('/netease/api/search?keywords=%E6%9E%97%E4%BF%8A%E6%9D%B0')
+    ok_json = st == 200 and b'"result"' in body
+    check('netease passthrough search (anonymous ok)', ok_json, f'status={st} bytes={len(body)}')
+    st, body = raw('/netease/api/__no_such_endpoint__')
+    check('passthrough relays upstream error verbatim', st != 502 and body[:1] == b'{', f'status={st}')
 
 print(f'\nRESULT: {PASSED} passed, {len(FAILED)} failed' + (f' -> {FAILED}' if FAILED else ''))
 sys.exit(1 if FAILED else 0)
