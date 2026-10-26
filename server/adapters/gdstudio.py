@@ -60,13 +60,14 @@ class GDMusicAdapter(SourceAdapter):
             url = d.get('url') or ''
             if not str(url).startswith('http') or d.get('br') in (-1, '-1'):
                 last = d; continue
-            return {'id': str(song_id), 'source': f'gdstudio:{source}', 'quality': q,
-                    'url': url, 'ext': 'flac' if int(d.get('br') or 0) >= 800 else 'mp3',
-                    'size_bytes': int(float(d.get('size') or 0)) * 1024 or None,
-                    'bitrate_kbps': int(d['br']) if str(d.get('br')).isdigit() else None,
-                    'duration_s': None, 'cover': None, 'verified': False, 'headers': {},
-                    'parser': f'gd.{source}.br{d.get("br")}',
-                    'elapsed_ms': round((time.perf_counter() - t0) * 1000), 'cached': False}
+            data = self.url_data(song_id, q,
+                                 url=url, ext='flac' if int(d.get('br') or 0) >= 800 else 'mp3',
+                                 size_bytes=int(float(d.get('size') or 0)) * 1024 or None,
+                                 bitrate_kbps=int(d['br']) if str(d.get('br')).isdigit() else None,
+                                 verified=False, parser=f'gd.{source}.br{d.get("br")}',
+                                 elapsed_ms=round((time.perf_counter() - t0) * 1000))
+            data['source'] = f'gdstudio:{source}'  # aggregate: the resolved platform is part of the id
+            return data
         raise AdapterError(404, f'no playable url resolved (last={last})')
 
     async def song_info(self, song_id: str, source: str = 'netease') -> dict:

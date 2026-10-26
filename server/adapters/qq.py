@@ -103,22 +103,18 @@ class QQAdapter(SourceAdapter):
             # chain exhausted -> yuanli SVIP relay, then 3e0 aggregate relay
             fallback = await self.run(self._via_yuanli, song_id, q)
             if fallback:
-                return {'id': str(song_id), 'source': self.source_key, 'quality': q,
-                        'url': fallback['download_url'], 'ext': fallback.get('ext') or 'mp3',
-                        'size_bytes': fallback.get('file_size_bytes'), 'bitrate_kbps': None,
-                        'duration_s': None, 'cover': None, 'verified': True,
-                        'headers': {}, 'parser': 'yuanli.relay', 'platform_tag': qq_tag,
-                        'elapsed_ms': round((time.perf_counter() - t0) * 1000),
-                        'cached': False}
+                return self.url_data(song_id, q,
+                                     url=fallback['download_url'], ext=fallback.get('ext') or 'mp3',
+                                     size_bytes=fallback.get('file_size_bytes'),
+                                     parser='yuanli.relay', platform_tag=qq_tag,
+                                     elapsed_ms=round((time.perf_counter() - t0) * 1000))
             fallback = await self.run(self._via_3e0, song_id)
             if fallback:
-                return {'id': str(song_id), 'source': self.source_key, 'quality': q,
-                        'url': fallback['download_url'], 'ext': fallback.get('ext') or 'mp3',
-                        'size_bytes': fallback.get('file_size_bytes'), 'bitrate_kbps': None,
-                        'duration_s': None, 'cover': None, 'verified': True,
-                        'headers': {}, 'parser': '3e0.relay', 'platform_tag': f'{qq_tag}(聚合降级)',
-                        'elapsed_ms': round((time.perf_counter() - t0) * 1000),
-                        'cached': False}
+                return self.url_data(song_id, q,
+                                     url=fallback['download_url'], ext=fallback.get('ext') or 'mp3',
+                                     size_bytes=fallback.get('file_size_bytes'),
+                                     parser='3e0.relay', platform_tag=f'{qq_tag}(聚合降级)',
+                                     elapsed_ms=round((time.perf_counter() - t0) * 1000))
             raise AdapterError(404, 'no playable url resolved')
         data = self.urldata_from_songinfo(song_id, q, info, elapsed, platform_tag=qq_tag)
         # annotate actual tier honestly

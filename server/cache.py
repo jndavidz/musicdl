@@ -37,3 +37,16 @@ class TTLCache:
     def stats(self) -> dict:
         with self._lock:
             return {'items': len(self._store), 'ttl': self.ttl}
+
+
+async def cached(cache: TTLCache, key_parts: tuple, fn) -> tuple:
+    '''single cache idiom for all routes: key_parts joined by ':'; fn is the async
+       resolver. Returns (value, hit). Note the store-treats-''-as-hit asymmetry is
+       intentional: lyric '' is a valid cached value, hence `is not None` checks.'''
+    key = ':'.join(str(p) for p in key_parts)
+    hit = cache.get(key)
+    if hit is not None:
+        return hit, True
+    value = await fn()
+    cache.set(key, value)
+    return value, False

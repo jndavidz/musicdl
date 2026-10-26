@@ -61,14 +61,13 @@ class QianqianAdapter(SourceAdapter):
             link_size = int(float(link.get('size') or 0)) or None
             bits = str(link.get('bits') or '')
             platform_tag = f'{rate}kbps' + (f'·{bits}bit' if bits else '')
-            return {'id': str(song_id), 'source': self.source_key, 'quality': q,
-                    'url': status.get('download_url') or link['path'], 'ext': status.get('ext'),
-                    'size_bytes': status.get('file_size_bytes') or link_size,
-                    'bitrate_kbps': int(rate) if rate.isdigit() else None,
-                    'duration_s': int(float(link.get('duration') or 0)) or None,
-                    'cover': None, 'verified': True, 'headers': {}, 'parser': f'tracklink.{rate}',
-                    'platform_tag': platform_tag,
-                    'elapsed_ms': elapsed(), 'cached': False}
+            return self.url_data(song_id, q,
+                                 url=status.get('download_url') or link['path'], ext=status.get('ext'),
+                                 size_bytes=status.get('file_size_bytes') or link_size,
+                                 bitrate_kbps=int(rate) if rate.isdigit() else None,
+                                 duration_s=int(float(link.get('duration') or 0)) or None,
+                                 parser=f'tracklink.{rate}', platform_tag=platform_tag,
+                                 elapsed_ms=elapsed())
         raise AdapterError(404, f'no playable url resolved (rates tried: {rates})')
 
     '''song meta via tracklink response fields (works with any available rate)'''

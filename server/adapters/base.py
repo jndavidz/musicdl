@@ -25,6 +25,10 @@ class SourceAdapter:
         self.semaphore = asyncio.Semaphore(settings.max_concurrency_per_source)
         self.client = health.wrap_client(self._build_client())
 
+    '''account cookie value for passthrough injection; default: anonymous (no cookie)'''
+    def account_cookie(self) -> str:
+        return ''
+
     '''run a sync callable in a worker thread under the source semaphore + hard timeout'''
     async def run(self, fn, *args, **kwargs):
         return await self.run_with_timeout(fn, self.settings.hard_timeout_s, *args, **kwargs)
@@ -69,4 +73,18 @@ class SourceAdapter:
             'cover': info.cover_url, 'verified': True, 'headers': {},
             'parser': (info.raw_data or {}).get('spike_parser'), 'elapsed_ms': elapsed_ms, 'cached': cached,
             'platform_tag': platform_tag,
+        }
+
+    '''direct/relay result -> song url dict: the single assembly point for the
+       14-field response shape (replaces the per-adapter hand-built dicts)'''
+    def url_data(self, song_id: str, quality: str, *, url: str, ext: str = 'mp3', size_bytes=None,
+                 bitrate_kbps=None, duration_s=None, cover=None, verified: bool = True,
+                 headers: dict | None = None, parser: str = '', platform_tag: str | None = None,
+                 ekey: str | None = None, elapsed_ms: int = 0, cached: bool = False) -> dict:
+        return {
+            'id': str(song_id), 'source': self.source_key, 'quality': quality,
+            'url': url, 'ext': ext, 'size_bytes': size_bytes, 'bitrate_kbps': bitrate_kbps,
+            'duration_s': duration_s, 'cover': cover, 'verified': verified,
+            'headers': headers or {}, 'parser': parser, 'platform_tag': platform_tag,
+            'ekey': ekey, 'elapsed_ms': elapsed_ms, 'cached': cached,
         }

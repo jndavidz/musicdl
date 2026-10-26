@@ -1,7 +1,8 @@
 '''
 Function:
     Generic passthrough to the sibling kugou-api / ncm-api containers.
-    - injects each container's account cookie automatically
+    - injects each container's account cookie automatically (cookie_fn from the
+      source adapter's public account_cookie(); absent/empty -> anonymous request)
     - blocks account-dangerous paths (logout/captcha/sms/register...)
     - streams upstream bytes verbatim (no re-parse) — overhead ~1ms
 '''
@@ -13,18 +14,18 @@ import gzip
 
 from .config import settings
 
+'''per-source capability table: base URL + account-dangerous path segments.
+   Cookie resolution itself lives in the adapters (account_cookie()).'''
 PROXY_CFG = {
     'kugou': {
         'base': settings.kugou_api_base,
         'blocked': ('logout', 'captcha', 'sms', 'register', 'setcookie', 'cellphone', 'user/update'),
-        'kugou_cookie': True,
-        'netease_cookie': False,
+        'wants_cookie': True,
     },
     'netease': {
         'base': settings.ncm_api_base,
         'blocked': ('logout', 'captcha', 'sms', 'register', 'setcookie', 'cellphone'),
-        'kugou_cookie': False,
-        'netease_cookie': True,
+        'wants_cookie': True,
     },
 }
 
@@ -37,18 +38,9 @@ def blocked_segment(source: str, path: str):
     return None
 
 
-def _read_netease_cookie() -> str:
-    '''netease passthrough is cookie-optional: file absent -> anonymous request.'''
-    try:
-        return open(settings.netease_cookie_file).read().strip()
-    except Exception:
-        return ''
-
-
 def fetch(source: str, method: str, path: str, query: dict = None,
           body: bytes = None, content_type: str = 'application/json',
-          kugou_cookie_fn=None, timeout: int = 30,
-          netease_cookie: str = '') -> tuple:
+          cookie_fn=None, timeout: int = 30) -> tuple:
     '''returns (upstream_status, content_type, body_bytes) verbatim.
        Never raises on HTTP errors — upstream 4xx/5xx are passed through.'''
     bad = blocked_segment(source, path)
@@ -62,11 +54,8 @@ def fetch(source: str, method: str, path: str, query: dict = None,
     if method == 'POST':
         data = body or b''
         headers['Content-Type'] = content_type
-    if cfg['kugou_cookie'] and kugou_cookie_fn:
-        sep = '&' if '?' in url else '?'
-        url += f"{sep}cookie={urllib.parse.quote(kugou_cookie_fn())}"
-    elif cfg['netease_cookie']:
-        mu = netease_cookie or _read_netease_cookie()
+    if cfg['wants_cookie'] and cookie_fn:
+        mu = cookie_fn() or ''
         if mu:
             sep = '&' if '?' in url else '?'
             url += f'{sep}cookie={urllib.parse.quote(mu)}'

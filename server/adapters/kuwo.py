@@ -119,16 +119,13 @@ class KuwoAdapter(SourceAdapter):
             # encrypted container: report the POST-DECRYPT container, not the raw mflac/mgg
             native = (platform_tag or direct.get('format') or '').lower()
             ext = 'mflac' if 'mflac' in native else ('mgg' if 'mgg' in native else (ext or 'mflac'))
-        return {
-            'id': str(song_id), 'source': self.source_key, 'quality': q,
-            'url': status.get('download_url') or direct['url'], 'ext': ext or 'mp3',
-            'size_bytes': status.get('file_size_bytes'), 'bitrate_kbps': direct['bitrate'] or None,
-            'duration_s': direct.get('duration_s'), 'cover': None, 'verified': bool(status.get('ok')),
-            'headers': {}, 'parser': parser, 'platform_tag': platform_tag or direct.get('format'),
-            'ekey': direct.get('ekey') or None,
-            'elapsed_ms': round((time.perf_counter() - t0) * 1000),
-            'cached': False,
-        }
+        return self.url_data(song_id, q,
+                             url=status.get('download_url') or direct['url'], ext=ext or 'mp3',
+                             size_bytes=status.get('file_size_bytes'), bitrate_kbps=direct['bitrate'] or None,
+                             duration_s=direct.get('duration_s'), verified=bool(status.get('ok')),
+                             parser=parser, platform_tag=platform_tag or direct.get('format'),
+                             ekey=direct.get('ekey') or None,
+                             elapsed_ms=round((time.perf_counter() - t0) * 1000))
 
     '''xcloudv relay (upstream v2.13.10 new source, POST protocol, verified FLAC 2000k)'''
     def _via_xcloudv(self, song_id: str):
@@ -208,23 +205,20 @@ class KuwoAdapter(SourceAdapter):
         if relay:
             lossless_hit = relay.get('ext') in LOSSLESS_EXTS
             if lossless_hit or best_direct is None:
-                return {
-                    'id': str(song_id), 'source': self.source_key, 'quality': q,
-                    'url': relay['download_url'], 'ext': relay.get('ext') or 'mp3',
-                    'size_bytes': relay.get('file_size_bytes'), 'bitrate_kbps': 320 if not lossless_hit else None,
-                    'duration_s': None, 'cover': None, 'verified': True,
-                    'headers': {}, 'parser': 'haitangw.relay',
-                    'elapsed_ms': round((time.perf_counter() - t0) * 1000), 'cached': False,
-                }
+                return self.url_data(song_id, q,
+                                     url=relay['download_url'], ext=relay.get('ext') or 'mp3',
+                                     size_bytes=relay.get('file_size_bytes'),
+                                     bitrate_kbps=320 if not lossless_hit else None,
+                                     parser='haitangw.relay',
+                                     elapsed_ms=round((time.perf_counter() - t0) * 1000))
         # tier-2c: xcloudv relay (upstream v2.13.10 new source, flac-capable)
         xcv = await self.run(self._via_xcloudv, song_id)
         if xcv:
-            return {'id': str(song_id), 'source': self.source_key, 'quality': q,
-                    'url': xcv['url'], 'ext': xcv.get('ext') or 'flac',
-                    'size_bytes': None, 'bitrate_kbps': 2000 if 'flac' in str(xcv.get('url', '')).lower() else 320,
-                    'duration_s': None, 'cover': None, 'verified': True, 'headers': {},
-                    'parser': 'xcloudv.relay',
-                    'elapsed_ms': round((time.perf_counter() - t0) * 1000), 'cached': False}
+            return self.url_data(song_id, q,
+                                 url=xcv['url'], ext=xcv.get('ext') or 'flac',
+                                 bitrate_kbps=2000 if 'flac' in str(xcv.get('url', '')).lower() else 320,
+                                 parser='xcloudv.relay',
+                                 elapsed_ms=round((time.perf_counter() - t0) * 1000))
         if best_direct:
             parser = 'nmobi.degraded' if best_direct is direct else 'mobi.s.degraded'
             return await self._finalize_direct(song_id, q, best_direct, t0, parser)

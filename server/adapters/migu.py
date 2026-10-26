@@ -80,12 +80,12 @@ class MiguAdapter(SourceAdapter):
             resolved = await self.run(self._listen_url, song_id, copyright_id, '2', flag)
             if not resolved: continue
             status = resolved['status']
-            return {'id': str(song_id), 'source': self.source_key, 'quality': q,
-                    'url': resolved['url'], 'ext': status.get('ext'),
-                    'size_bytes': status.get('file_size_bytes'), 'bitrate_kbps': 320 if flag == 'HQ' else None,
-                    'duration_s': None, 'cover': None, 'verified': True, 'headers': {},
-                    'parser': f'migu.listen.{flag}', 'platform_tag': flag,
-                    'elapsed_ms': elapsed(), 'cached': False}
+            return self.url_data(song_id, q,
+                                 url=resolved['url'], ext=status.get('ext'),
+                                 size_bytes=status.get('file_size_bytes'),
+                                 bitrate_kbps=320 if flag == 'HQ' else None,
+                                 parser=f'migu.listen.{flag}', platform_tag=flag,
+                                 elapsed_ms=elapsed())
         raise AdapterError(404, 'no playable url resolved')
 
     '''song meta: reuse listen-url response data.song (works with HQ)'''

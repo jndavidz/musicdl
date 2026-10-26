@@ -27,12 +27,14 @@ class NeteaseAdapter(SourceAdapter):
        os=pc in the cookie guarantees non-truncated bitrates (per ncm-api docs).'''
     def _api_get(self, path: str, params: dict = None) -> dict:
         params = dict(params or {})
-        mu = self._read_cookie()
+        mu = self.account_cookie()
         if mu:
             params['cookie'] = 'os=pc; ' + mu
         return requests_get(f'{self.settings.ncm_api_base}{path}', params)
 
-    def _read_cookie(self) -> str:
+    '''raw cookie value (e.g. MUSIC_U=xxx); public interface for the generic passthrough
+       (cookie-optional injection: absent file -> anonymous request)'''
+    def account_cookie(self) -> str:
         try:
             return open(self.settings.netease_cookie_file).read().strip()
         except Exception:
@@ -99,17 +101,14 @@ class NeteaseAdapter(SourceAdapter):
                     'parser': f'ncm-api.{level}',
                     'elapsed_ms': round((time.perf_counter() - t0) * 1000), 'cached': False}
 
-        if True:
-            # pass 3: ffapi 128k last-resort (official CDN, anonymous — survives VIP expiry)
-            ff = await self.run(self._via_ffapi, song_id)
-            if ff and ff.get('url'):
-                return {'id': str(song_id), 'source': self.source_key, 'quality': q,
-                        'url': ff['url'], 'ext': 'mp3', 'size_bytes': None, 'bitrate_kbps': 128,
-                        'duration_s': None, 'cover': None, 'verified': False, 'headers': {},
-                        'parser': 'ffapi.relay',
-                        'elapsed_ms': round((time.perf_counter() - t0) * 1000), 'cached': False}
-            raise AdapterError(404, f'no playable url at levels={levels} (official + unblock + ffapi exhausted)')
-        return result
+        # pass 3: ffapi 128k last-resort (official CDN, anonymous — survives VIP expiry)
+        ff = await self.run(self._via_ffapi, song_id)
+        if ff and ff.get('url'):
+            return self.url_data(song_id, q,
+                                 url=ff['url'], ext='mp3', bitrate_kbps=128, verified=False,
+                                 parser='ffapi.relay',
+                                 elapsed_ms=round((time.perf_counter() - t0) * 1000))
+        raise AdapterError(404, f'no playable url at levels={levels} (official + unblock + ffapi exhausted)')
 
     async def song_info(self, song_id: str) -> dict:
         data = await self.run(self._api_get, '/song/detail', {'ids': str(song_id)})

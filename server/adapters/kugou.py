@@ -46,8 +46,9 @@ class KugouAdapter(SourceAdapter):
         return KugouMusicClient(search_size_per_source=self.settings.search_size_max,
                                 disable_print=True, work_dir='/tmp/kwqq-kugou', max_retries=2)
 
-    '''account cookie assembled from kugou_token.json (TTL cached, file re-read on expiry)'''
-    def _get_cookie(self) -> str:
+    '''account cookie assembled from kugou_token.json (TTL cached, file re-read on expiry).
+       Public interface: the generic passthrough injects it into container requests.'''
+    def account_cookie(self) -> str:
         cache = getattr(self, '_cookie_cache', None)
         if cache is None:
             self._cookie_cache = {'v': '', 'at': 0}
@@ -61,7 +62,7 @@ class KugouAdapter(SourceAdapter):
     '''raw GET against the sibling kugou-api container with cookie attached'''
     def _api_get(self, path: str, params: dict = None) -> dict:
         params = dict(params or {})
-        params['cookie'] = self._get_cookie()
+        params['cookie'] = self.account_cookie()
         return requests_get(f'{self.settings.kugou_api_base}{path}', params)
 
     '''metadata-only search via musicdl's anonymous search endpoint (stable JSON)'''
@@ -99,15 +100,14 @@ class KugouAdapter(SourceAdapter):
         url = self._first_url(data.get('url')) or self._first_url(data.get('backupUrl'))
         if not url.startswith('http'):
             raise AdapterError(404, f'no url at quality={self.QUALITY[q]} — cookie expired?')
-        return {'id': str(song_id), 'source': self.source_key, 'quality': q,
-                'url': url, 'ext': (data.get('extName') or 'mp3').lstrip('.'),
-                'bitrate_kbps': int(float(data.get('bitRate') or 0)) // 1000 or None,
-                'size_bytes': int(float(data.get('fileSize') or 0)) or None,
-                'duration_s': (int(float(data.get('timeLength') or 0)) // 1000 or None),
-                'cover': None, 'verified': False, 'headers': {},
-                'parser': f'kugou-api.{self.QUALITY[q]}',
-                'platform_tag': str(data.get('quality') or self.QUALITY[q]),
-                'elapsed_ms': round((time.perf_counter() - t0) * 1000), 'cached': False}
+        return self.url_data(song_id, q,
+                             url=url, ext=(data.get('extName') or 'mp3').lstrip('.'),
+                             bitrate_kbps=int(float(data.get('bitRate') or 0)) // 1000 or None,
+                             size_bytes=int(float(data.get('fileSize') or 0)) or None,
+                             duration_s=(int(float(data.get('timeLength') or 0)) // 1000 or None),
+                             verified=False, parser=f'kugou-api.{self.QUALITY[q]}',
+                             platform_tag=str(data.get('quality') or self.QUALITY[q]),
+                             elapsed_ms=round((time.perf_counter() - t0) * 1000))
 
     '''song meta via musicdl's kugou metainfo helper (lowercase fields: songname/singername/album_name)'''
     async def song_info(self, song_id: str) -> dict:

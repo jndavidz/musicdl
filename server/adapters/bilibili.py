@@ -123,15 +123,14 @@ class BilibiliAdapter(SourceAdapter):
         status = await self.run(self.client.audio_link_tester.test, base)
         final_url = status.get('download_url') or base
         ext = 'm4a' if status.get('ext') in {'m4s', 'mp4', None} else status.get('ext')
-        return {'id': str(song_id), 'source': self.source_key, 'quality': q,
-                'url': final_url, 'ext': ext,
-                'size_bytes': status.get('file_size_bytes'),
-                'bitrate_kbps': int(chosen.get('bandwidth', 0)) // 1000 or None,
-                'duration_s': int(float(dash.get('duration') or 0)) or None,
-                'cover': None, 'verified': bool(status.get('ok')),
-                'headers': {'Referer': 'www.bilibili.com', 'User-Agent': self.UA},
-                'parser': f'bili.dash.{chosen.get("id")}',
-                'elapsed_ms': round((time.perf_counter() - t0) * 1000), 'cached': False}
+        return self.url_data(song_id, q,
+                             url=final_url, ext=ext, size_bytes=status.get('file_size_bytes'),
+                             bitrate_kbps=int(chosen.get('bandwidth', 0)) // 1000 or None,
+                             duration_s=int(float(dash.get('duration') or 0)) or None,
+                             verified=bool(status.get('ok')),
+                             headers={'Referer': 'www.bilibili.com', 'User-Agent': self.UA},
+                             parser=f'bili.dash.{chosen.get("id")}',
+                             elapsed_ms=round((time.perf_counter() - t0) * 1000))
 
     '''song meta via view endpoint'''
     async def song_info(self, song_id: str) -> dict:
@@ -151,7 +150,3 @@ class BilibiliAdapter(SourceAdapter):
     '''bilibili videos have no standard lyrics; AI subtitles need login — keep empty'''
     async def lyric(self, song_id: str) -> str:
         return ''
-
-
-import time as _time_mod
-time = _time_mod
