@@ -118,6 +118,8 @@
 |------|------|------|------|------|
 | **ncm-api 容器 `/song/url/v1?level=`** + `NETEASE_COOKIE`(MUSIC_U) | standard→hires（黑胶 VIP：lossless=944kbps FLAC 实测） | 🔐 MUSIC_U | ✅ VIP 生效 | 🟢 主通道 |
 | **ncm-api 容器 `/cloudsearch?type=10` + `/album?id=`** | 元数据（专辑候选 + 官方曲序，P6 `/{source}/album` netease 实现） | 无（cookie 可选） | ✅ 2026-10-28 实测 | 🟢 P6 主通道 |
+| kuwo `/search.kuwo.cn/r.s?ft=album&itemset=album`（专辑候选）| 元数据 | 无 | ✅ 候选可搜 | 🧪 半通：**曲目列表端点未通**（wapi `/api/www/album/musicList` 需 kw_token cookie，JS 注入 curl 拿不到；nmobi albuminfo 空响应）|
+| QQ `u.y.qq.com musicu.fcg`（匿名）| 元数据 | 无 | ❌ 专辑受限：search_type=3 空结果、`AlbumInfoEx`/`AlbumSongList` code 500003（匿名拒绝） | 💀 未接（除非带登录态） |
 | two-pass unblock mirror（灰色曲目 kuwo CDN） | FLAC（灰曲兜底） | 无 | ✅ 《晴天》灰曲出 FLAC 实测 | 🟢 并行会话实现 |
 | `api.qijieya.cn/meting/?server=netease&br=999000` | **直接音频流 fLaC**（VIP 曲被禁） | 无 | ✅ 流魔数验证 | 🧪 备用未注册 |
 | `oiapi.net/api/Music_163?id=` | 320k | 无 | ✅ code 0 | 🧪 备用未注册 |
