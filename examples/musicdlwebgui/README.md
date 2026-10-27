@@ -137,6 +137,7 @@ compose 服务 `musicdl-webgui`（`deploy/docker-compose.yml`）要点：
 | 网络 | `network_mode: host` | 3004 直绑宿主；回环访问 `127.0.0.1:3003` 属可信网段，免 key |
 | 卷 | `/volume1/music:/music` | 曲库共享（`\\10.10.10.2\music`），`download_dir=/music/download` |
 | 卷 | `/volume2/docker/musicdl-webgui:/cfg` | `MUSICDL_WEBGUI_CONFIG=/cfg/config.json`、`XDG_STATE_HOME=/cfg/state` |
+| 启停 | `restart: "no"`（按需） | 平时不用：不开机自启、崩溃不自动拉起。`docker start musicdl-webgui` 起 / `docker stop musicdl-webgui` 停 |
 
 配置注入用环境变量（`MUSICDL_WEBGUI_DOWNLOAD_DIR` / `MUSICDL_WEBGUI_KWQQ_API_BASE` /
 `MUSICDL_WEBGUI_KWQQ_API_KEY` / `MUSICDL_WEBGUI_HOST` / `MUSICDL_WEBGUI_PORT`），优先级高于

@@ -85,6 +85,7 @@ compose 位于 `deploy/docker-compose.yml`（NAS 侧 `/volume2/docker/musicdl-ap
 **两份文件**，NAS 侧保留自己的 `API_KEY` 与 `ENABLE_LOSSLESS=true`），`restart: unless-stopped` + 内置 healthcheck。
 
 **webgui 容器**：`network_mode: host`（3004 直绑宿主，回环调 `127.0.0.1:3003` 属可信网段免 key）；
+`restart: "no"` **按需拉起**（平时不用，`docker start|stop musicdl-webgui`）；
 卷 `/volume1/music:/music`（下载落 NAS 本地盘）+ `/volume2/docker/musicdl-webgui:/cfg`（`config.json` 与
 `.state` 队列快照）；配置用 `MUSICDL_WEBGUI_*` 环境变量注入，镜像内不含 config.json。
 ⚠️ 容器 root 写 Synology 共享会得到 `000` 权限（ACL 生效），webgui 落盘后显式 `chmod 644`

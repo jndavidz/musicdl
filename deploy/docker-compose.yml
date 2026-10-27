@@ -40,7 +40,8 @@ services:
     volumes:
       - /volume1/music:/music                             # 曲库共享（\\10.10.10.2\music），下载落 NAS 本地盘
       - /volume2/docker/musicdl-webgui:/cfg               # config.json + .state（D2 队列快照）
-    restart: unless-stopped
+    restart: "no"                  # 按需拉起：不开机自启、崩溃不自动拉起（用完手动停止）
+    # 起：docker start musicdl-webgui    停：docker stop musicdl-webgui
     environment:
       - MUSICDL_WEBGUI_CONFIG=/cfg/config.json
       - XDG_STATE_HOME=/cfg/state
