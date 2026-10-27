@@ -11,7 +11,7 @@ from server.adapters import AdapterError
 from server.cache import cached
 from server.envelope import ok
 from server.quality import resolve as resolve_quality
-from server.schemas import SearchData, SongUrlData, SongInfoData, LyricData
+from server.schemas import SearchData, SongUrlData, SongInfoData, LyricData, AlbumData
 from server.config import SOURCES
 
 
@@ -74,3 +74,21 @@ async def lyric(request: Request, source: str, id: str = Query(..., min_length=1
     text, hit = await cached(s.lyric_cache, (source, 'lyric', id),
                              lambda: asyncio.wait_for(adapter.lyric(id), timeout=s.settings.hard_timeout_s))
     return ok(LyricData(id=id, source=source, lyric=text, cached=hit).model_dump())
+
+
+async def album(request: Request, source: str, name: str = Query(..., min_length=1),
+                artist: str = Query(''), page: int = Query(1, ge=1)):
+    '''P6 专辑检索：专辑名 → 候选专辑 + 首选专辑的有序曲目（item 含 track_no）。
+       单次调用覆盖语音点歌"整张连播"场景；仅实现了 album() 的源可用（其余 501 envelope）。'''
+    s = request.app.state
+    adapter = get_adapter(s, source)
+    if not hasattr(adapter, 'album'):
+        raise AdapterError(501, f'album search not supported for source "{source}"')
+    result, hit = await cached(
+        s.meta_cache, (source, 'album', name, artist, page),
+        lambda: asyncio.wait_for(adapter.album(name, artist, page),
+                                 timeout=s.settings.hard_timeout_s))
+    items = result.get('items') or []
+    data = AlbumData(source=source, name=name, artist=artist or None,
+                     albums=result.get('albums') or [], items=items, total=len(items))
+    return ok(data.model_dump())

@@ -39,6 +39,8 @@ class SearchItem(BaseModel):
     # clients show what the platform stocks before any per-song resolve happens.
     stock_tier: Optional[str] = None
     stock_size_bytes: Optional[int] = None
+    # 有序曲目场景（/{source}/album）的曲序号，1 起；search 场景恒 None
+    track_no: Optional[int] = None
     # platform-specific fields the client should echo back to /song/url
     # (e.g. migu needs copyrightId for by-id resolution)
     extra: dict = {}
@@ -49,6 +51,26 @@ class SearchData(BaseModel):
     page: int = 1
     total: int = 0
     items: List[SearchItem] = []
+
+
+class AlbumEntry(BaseModel):
+    id: str
+    name: Optional[str] = None
+    artist: Optional[str] = None
+    size: Optional[int] = None  # 曲目数（平台口径）
+    cover: Optional[str] = None
+    source: str
+    extra: dict = {}
+
+
+class AlbumData(BaseModel):
+    """P6 专辑检索：albums = 候选专辑（首个为最优匹配），items = 首选专辑的有序曲目（track_no 1 起）"""
+    source: str
+    name: str
+    artist: Optional[str] = None
+    albums: List[AlbumEntry] = []
+    items: List[SearchItem] = []
+    total: int = 0
 
 
 class SongUrlData(BaseModel):

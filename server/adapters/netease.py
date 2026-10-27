@@ -134,3 +134,36 @@ class NeteaseAdapter(SourceAdapter):
     async def lyric(self, song_id: str) -> str:
         data = await self.run(self._api_get, '/lyric', {'id': str(song_id)})
         return ((data.get('lrc') or {}).get('lyric')) or ''
+
+    '''P6 专辑检索（netease 先行实现）：ncm-api /cloudsearch?type=10（专辑候选）
+       → /album?id=（官方曲序 songs，ar/al/dt 与 cloudsearch 同构，item_from_raw 直接复用）。
+       artist 提示用于候选排序（平台专辑搜索常有同名异手专辑）。'''
+    async def album(self, name: str, artist: str = '', page: int = 1) -> dict:
+        def _fetch():
+            kw = f'{name} {artist}'.strip() if artist else name
+            search = self._api_get('/cloudsearch', {'keywords': kw, 'type': 10,
+                                                    'limit': 5, 'offset': (page - 1) * 5})
+            albums_raw = ((search.get('result') or {}).get('albums')) or []
+            albums = []
+            for a in albums_raw:
+                if not a.get('id'):
+                    continue
+                albums.append({'id': str(a['id']), 'name': a.get('name'),
+                               'artist': (a.get('artist') or {}).get('name'),
+                               'size': a.get('size'), 'cover': a.get('picUrl'),
+                               'source': self.source_key, 'extra': {}})
+            if artist:
+                # 最优匹配 = 名字含关键词 且 歌手命中提示，其次歌手命中，再退回首个
+                key = artist.lower()
+                albums.sort(key=lambda a: (key in (a.get('artist') or '').lower(),) , reverse=True)
+            if not albums:
+                return {'albums': [], 'items': []}
+            detail = self._api_get('/album', {'id': albums[0]['id']})
+            items = []
+            for i, raw in enumerate(detail.get('songs') or [], 1):
+                item = self.item_from_raw(raw)
+                if item.get('id'):
+                    item['track_no'] = i
+                    items.append(item)
+            return {'albums': albums, 'items': items}
+        return await self.run(_fetch)

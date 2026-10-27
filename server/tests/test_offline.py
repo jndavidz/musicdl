@@ -116,6 +116,14 @@ class FakeAdapter:
         self.calls.append(('lyric', song_id, kw))
         return 'x' * 120
 
+    async def album(self, name, artist='', page=1):
+        self.calls.append(('album', name, artist, page))
+        return {'albums': [{'id': 'a1', 'name': name, 'artist': artist or None, 'size': 3,
+                            'cover': None, 'source': self.source_key, 'extra': {}}],
+                'items': [{'id': f'f{i}', 'name': f'track{i}', 'singer': None, 'album': name,
+                           'ext': 'mp3', 'size_bytes': None, 'duration_s': 180, 'cover': None,
+                           'source': self.source_key, 'track_no': i} for i in (1, 2, 3)]}
+
 
 print('== offline smoke ==')
 
@@ -147,6 +155,14 @@ st, b = raw(base, '/qq/lyric?id=f1')
 check('lyric envelope', st == 200 and len((b['data'] or {}).get('lyric') or '') > 50)
 st, b = raw(base, '/qq/lyric?id=f1')
 check('lyric cached flag on hit', (b['data'] or {}).get('cached') is True)
+
+# P6 album: ordered tracks via adapter album(); unsupported source -> 501 envelope
+st, b = raw(base, '/qq/album?name=%E5%8F%B6%E6%83%A0%E7%BE%8E&artist=%E5%91%A8%E6%9D%B0%E4%BC%A6')
+nos = [i.get('track_no') for i in (b['data'] or {}).get('items') or []]
+check('album via fake adapter (ordered track_no 1..n)', st == 200 and b['code'] == 200 and nos == [1, 2, 3], f'nos={nos}')
+check('album cached (adapter called once)', len([c for c in fake.calls if c[0] == 'album']) == 1)
+st, b = raw(base, '/qianqian/album?name=x')
+check('album unsupported source -> 501 envelope (HTTP 501, not business-miss class)', st == 501 and b['code'] == 501, f"status={st} code={b.get('code')}")
 
 # real qianqian adapter lossless gate: raises before any network when ENABLE_LOSSLESS=false
 st, b = raw(base, '/qianqian/song/url?id=whatever&quality=flac')

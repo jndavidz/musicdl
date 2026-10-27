@@ -64,6 +64,12 @@ class SourceAdapter:
     def item_from_raw(raw: dict) -> dict:
         raise NotImplementedError
 
+    '''P6 专辑检索（roadmap）：专辑名 → {'albums': [候选], 'items': [首选专辑有序曲目]}。
+       items 与 search_items 同构（附加 track_no，1 起）；曲目解析仍走 /song/url by-id（二段式不变）。
+       默认不支持——routes 层转 501 envelope；支持源在各自 adapter 覆写。'''
+    async def album(self, name: str, artist: str = '', page: int = 1) -> dict:
+        raise AdapterError(501, f'album search not supported for source "{self.source_key}"')
+
     '''SongInfo / direct-dict -> song url dict'''
     def urldata_from_songinfo(self, song_id: str, quality: str, info, elapsed_ms: int, cached: bool = False, platform_tag: str | None = None) -> dict:
         return {

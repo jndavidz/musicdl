@@ -123,6 +123,18 @@ def run_source(source, keywords, needs_copyright, has_lyric):
 for cfg in DEFAULT_SOURCES:
     run_source(*cfg)
 
+# P6 album (netease-first): one call -> candidates + ordered tracks of best match
+b5, ms5 = get('/netease/album?name=%E5%8F%B6%E6%83%A0%E7%BE%8E&artist=%E5%91%A8%E6%9D%B0%E4%BC%A6')
+items5 = (b5.get('data') or {}).get('items') or []
+nos = [i.get('track_no') for i in items5]
+check('netease album ordered tracks (P6)', b5['code'] == 200 and len(items5) >= 5
+      and nos == list(range(1, len(items5) + 1)), f'{ms5}ms items={len(items5)} nos[:3]={nos[:3]}')
+albums5 = (b5.get('data') or {}).get('albums') or []
+check('netease album artist-hint ranking', b5['code'] == 200 and albums5
+      and '周杰伦' in (albums5[0].get('artist') or ''), f"first={(albums5[0] or {}).get('name')}/(albums5[0] or {}).get('artist')" if albums5 else 'none')
+b6, _ = get('/kuwo/album?name=x')
+check('album unsupported source -> 501 envelope', b6['code'] == 501, f"code={b6['code']}")
+
 b, _ = get('/status')
 lossless_enabled = (b.get('data') or {}).get('settings', {}).get('enable_lossless')
 b, _ = get('/qq/song/url?id=0039MnYb0qxYhV&quality=flac')

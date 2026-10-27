@@ -94,7 +94,23 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 
 单曲元数据 / LRC 歌词。migu 两端点同样需要 `copyright=`。netease lyric 需容器登录态才有完整翻译/罗马音。
 
-### 4.4 七源逐源详述
+### 4.4 GET /{source}/album — 专辑检索（P6，2026-10-28 v1.7）
+
+专辑名 → 候选专辑 + **首选专辑的有序曲目**，一次调用覆盖"整张连播"场景（消费方：bridge `song_request`、songloft kwqq 插件专辑页）。
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| name | ✅ | 专辑名关键词 |
+| artist | — | 歌手提示（用于同名异手专辑的候选排序） |
+| page | — | 专辑候选页码 ≥1 |
+
+成功 data：`{source, name, artist, albums: [{id, name, artist, size, cover, source, extra}], items: [<search item 结构> + track_no], total}`。
+
+- **items = 首选专辑的官方曲序**，`track_no` 1 起；item 结构与 `/search` 完全一致 → 曲目解析照走 `/{source}/song/url?id=`（二段式不变）。
+- **逐源能力**（未实现的源返回 **HTTP 501** envelope——能力缺失类，非业务未命中 403/404）：`netease` ✅（ncm-api `/cloudsearch?type=10` → `/album`，官方曲序）；其余六源 ◐ 未接入（适配器已留标准扩展点 `SourceAdapter.album()`，默认 501）。
+- 缓存：meta_cache，键含 name/artist/page。
+
+### 4.5 七源逐源详述
 
 #### kuwo 酷我
 
@@ -311,6 +327,7 @@ server/tests/test_smoke.py <url> [--auth K:] # 冒烟 15 项
 | 日期 | 版本 | 变更 |
 |------|------|------|
 | 2026-10-27 | 1.6 | `TRUSTED_NETWORKS` 默认加入办公室 WG 网段 `10.20.0.0/24`（D-x 定案：办公室免 key / 免限流；代价是该网段内设备均可匿名访问） |
+| 2026-10-28 | 1.7 | +`/{source}/album`（P6 专辑检索：候选 + 首选专辑有序曲目 track_no；netease 先行，未实现源 HTTP 501）|
 | 2026-10-27 | 1.5 | +`/metrics`（Prometheus 文本格式，非信封）；+`RATE_LIMIT` 仅外网限流（429 + X-RateLimit 头，内网豁免）；kugou `/lyric` 容器 400（20010）时 fallback 官方歌词链路；部署现状注记：NAS compose `ENABLE_LOSSLESS=true`（仓库默认 false，以 NAS 为准） |
 | 2026-08-12 | 1.0 | 六源中的四源上线（酷我/QQ/千千/咪咕）+ NAS 部署 + 外网验收 |
 | 2026-10-27 | 1.4 | 音质档位知识收敛 `server/quality.py`（ADR-0003）：192k 语义统一（真档优先/就近上取；bilibili 192k 由落 auto 收紧为 320k）、每源白名单/lossless 门单点化、LOSSLESS_EXTS 补齐 8 元素 |
