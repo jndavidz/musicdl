@@ -1,49 +1,64 @@
 #!/usr/bin/env bash
-# deploy/deploy.sh — kw-qq-music-api NAS 部署（office → 家庭 PC → NAS 双跳）
-# 固化 2026-10-27 架构审查批次验证过的手工流程：
-#   tar 管道同步构建上下文 → 预留回滚 tag → compose build + up -d → healthz 探活 → 失败回滚上一镜像。
-# 前提：office → david@10.10.10.6（家庭 PC）与家庭 PC → zxsadmin@10.10.10.2（NAS）均 ssh 免密；
-#       NAS 的 docker 在 /usr/local/bin/docker；部署现状：NAS compose ENABLE_LOSSLESS=true（见 server/README.md）。
-# 坑位记录：home PC 登录 shell 是 PowerShell，内层命令必须单引号包裹（双引号被 sshd 剥掉后 && 裸露会报
-#   「标记"&&"不是此版本中的有效语句分隔符」）——run_nas 的 '$*' 只此一个用途，内嵌命令勿含单引号。
-# 用法：仓库根目录运行  bash deploy/deploy.sh
+# deploy/deploy.sh — musicdl NAS 部署（镜像在 WSL 侧构建 → 传到 NAS → compose up）
+# 单镜像双容器：musicdl:latest 同时承载 api(:3003) 与 webgui(:3004)。
+# 前提：在 **WSL 内**运行（docker 只在 WSL；NAS 免密 ssh 从 WSL 可用）。
+#       NAS 的 docker 在 /usr/local/bin/docker；NAS compose 与仓库 compose 是两份文件，
+#       NAS 侧保留自己的 API_KEY / ENABLE_LOSSLESS=true（本脚本不覆盖 compose）。
+# 坑位记录：构建必须在 WSL（DS416play 上构建极慢）；镜像经 WSL 内直管管道传输，
+#       不要用 wsl.exe 把二进制导到 Windows 再转发（wsl.exe 会损坏二进制流）。
+# 用法（WSL）：cd /mnt/d/_work/repos/musicdl && bash deploy/deploy.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-JUMP="david@10.10.10.6"                       # 家庭 PC（跳板）
 NAS="zxsadmin@10.10.10.2"
 NAS_DIR="/volume2/docker/musicdl-api"
 DOCKER="/usr/local/bin/docker"
+IMAGE="musicdl:latest"
 TAR_EXCLUDES=(--exclude='.git' --exclude='.venv' --exclude='.state' --exclude='.scratch'
               --exclude='__pycache__' --exclude='*.pyc' --exclude='dl2*' --exclude='sources_*.json'
-              --exclude='*.egg-info' --exclude='.zcode')
+              --exclude='*.egg-info' --exclude='.zcode' --exclude='node_modules'
+              --exclude='config.json' --exclude='*.bak*' --exclude='.webgui-downloads')
 
-run_nas() { ssh "$JUMP" "ssh $NAS '$*'"; }
+command -v docker >/dev/null || { echo "docker 不可用：请在 WSL 内运行本脚本"; exit 1; }
 
-echo "[1/5] 同步构建上下文 → $NAS:$NAS_DIR/src/"
+echo "[1/6] 同步构建上下文 → $NAS:$NAS_DIR/src/"
 tar -cf - "${TAR_EXCLUDES[@]}" \
     AGENTS.md CITATION.cff CODE_OF_CONDUCT.md GLOSSARY.md LICENSE MANIFEST.in Makefile README.md \
-    docs deploy musicdl server requirements.txt requirements-optional.txt setup.py \
-  | run_nas "mkdir -p $NAS_DIR/src && tar -xf - -C $NAS_DIR/src"
+    docs deploy examples/musicdlwebgui musicdl server requirements.txt requirements-optional.txt setup.py \
+  | ssh "$NAS" "mkdir -p $NAS_DIR/src && tar -xf - -C $NAS_DIR/src"
 
-echo "[2/5] 预留回滚镜像 tag"
-run_nas "cd $NAS_DIR && $DOCKER tag musicdl-api:latest musicdl-api:previous 2>/dev/null || true"
+echo "[2/6] 本地构建镜像 $IMAGE（WSL）"
+docker build -t "$IMAGE" .
 
-echo "[3/5] compose build + up -d"
-run_nas "cd $NAS_DIR && $DOCKER compose up -d --build"
+echo "[3/6] NAS 侧预留回滚 tag"
+ssh "$NAS" "$DOCKER tag $IMAGE ${IMAGE%%:*}:previous 2>/dev/null || true"
 
-echo "[4/5] healthz 探活（最长 120s，本机经 WireGuard 直探）"
+echo "[4/6] 镜像传输 → NAS（直管 gzip 管道）"
+docker save "$IMAGE" | gzip -3 | ssh "$NAS" "$DOCKER load"
+
+echo "[5/6] compose up -d --no-build"
+ssh "$NAS" "cd $NAS_DIR && $DOCKER compose up -d --no-build"
+
+echo "[6/6] 探活（api 3003 / webgui 3004，最长 120s + 60s）"
 ok=""
 for _ in $(seq 1 24); do
   if curl -fs --max-time 8 http://10.10.10.2:3003/healthz >/dev/null 2>&1; then ok=1; break; fi
   sleep 5
 done
 if [ -z "$ok" ]; then
-  echo "healthz 探活失败 → 回滚到上一镜像"
-  run_nas "cd $NAS_DIR && $DOCKER tag musicdl-api:previous musicdl-api:latest && $DOCKER compose up -d --no-build"
-  echo "已回滚；查日志：ssh $JUMP \"ssh $NAS '$DOCKER logs --tail 100 musicdl-api'\""
+  echo "api healthz 探活失败 → 回滚到上一镜像"
+  ssh "$NAS" "cd $NAS_DIR && $DOCKER tag ${IMAGE%%:*}:previous $IMAGE && $DOCKER compose up -d --no-build"
+  echo "已回滚；查日志：ssh $NAS '$DOCKER logs --tail 100 musicdl-api'"
   exit 1
 fi
 
-echo "[5/5] 部署完成。验收命令："
-echo "  XDG_STATE_HOME=\$PWD/.state .venv/Scripts/python.exe server/tests/test_smoke.py http://10.10.10.2:3003 --all"
+ok4=""
+for _ in $(seq 1 12); do
+  if curl -fs --max-time 8 http://10.10.10.2:3004/ >/dev/null 2>&1; then ok4=1; break; fi
+  sleep 5
+done
+[ -z "$ok4" ] && echo "⚠️ webgui 3004 未探活（api 已就绪）；查日志：ssh $NAS '$DOCKER logs --tail 100 musicdl-webgui'"
+
+echo "部署完成。验收命令："
+echo "  .venv/bin/python server/tests/test_smoke.py http://10.10.10.2:3003 --all"
+echo "  .venv/bin/python examples/musicdlwebgui/tests/test_smoke.py http://10.10.10.2:3004"

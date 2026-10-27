@@ -119,7 +119,39 @@ uv run python examples/musicdlwebgui/app.py            # 默认 http://127.0.0.1
 - 聚合网关(TuneHub/GDStudio)存在压缩陷阱：同曲直连 36-41 的源经它们只有 ≤19。
 - 库内置公共 cookie 权益可能随上游变动 —— 「直连」通道规格以实际 resolve 为准。
 
+## 部署到 NAS（容器，2026-10-28 新增）
+
+正式部署形态：webgui 与 kwqq-api **同一个镜像、两个容器**跑在 NAS 上，下载直接写 NAS 本地盘
+（不走 SMB，慢且依赖挂载）。
+
+```bash
+# 镜像在 WSL 侧构建，再传 NAS（DS416play 本机构建太慢）
+cd /mnt/d/_work/repos/musicdl && bash deploy/deploy.sh
+```
+
+compose 服务 `musicdl-webgui`（`deploy/docker-compose.yml`）要点：
+
+| 项 | 值 | 说明 |
+|---|---|---|
+| 镜像 | `musicdl:latest`（与 api 同一个镜像，只换 `command`） | webgui 依赖是 server 依赖子集，零额外增重 |
+| 网络 | `network_mode: host` | 3004 直绑宿主；回环访问 `127.0.0.1:3003` 属可信网段，免 key |
+| 卷 | `/volume1/music:/music` | 曲库共享（`\\10.10.10.2\music`），`download_dir=/music/download` |
+| 卷 | `/volume2/docker/musicdl-webgui:/cfg` | `MUSICDL_WEBGUI_CONFIG=/cfg/config.json`、`XDG_STATE_HOME=/cfg/state` |
+
+配置注入用环境变量（`MUSICDL_WEBGUI_DOWNLOAD_DIR` / `MUSICDL_WEBGUI_KWQQ_API_BASE` /
+`MUSICDL_WEBGUI_KWQQ_API_KEY` / `MUSICDL_WEBGUI_HOST` / `MUSICDL_WEBGUI_PORT`），优先级高于
+`config.json`——镜像与 compose 里不需要塞整份配置。⚠️ `deploy.sh` 已排除 `config.json`：本机配置含
+api_key，不会被同步到 NAS 源码目录。
+
+**权限陷阱**：容器以 root 写 Synology 共享，文件会得到 `000` 权限（Synology ACL 生效），下游
+（Lyrion / 群晖套件）读不到。webgui 落盘后显式 `chmod`（默认 `644`，`MUSICDL_DOWNLOAD_FILE_MODE` 可调）。
+
+验收：`... examples/musicdlwebgui/tests/test_smoke.py http://10.10.10.2:3004`（远程目标时文件系统类断言自动
+`SKIP`，只校验返回路径形状）。
+
 ## 下载目录指向群晖（/volume1/music/download）
+
+> 仅当 webgui 跑在**其他机器**（如家庭 PC 的 WSL）时才需要挂载；跑在 NAS 容器内直接用卷，无需本节。
 
 `config.json` 默认 `download_dir=/volume1/music/download`。WSL2 需先把群晖同路径挂载进来
 （挂载点与 NAS 路径一致，配置两端通用）：

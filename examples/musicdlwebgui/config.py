@@ -128,6 +128,25 @@ def load_config() -> dict:
     if CONFIG_PATH.exists():
         with contextlib.suppress(Exception):
             cfg.update(json.loads(CONFIG_PATH.read_text(encoding='utf-8')) or {})
+    return _apply_env(cfg)
+
+
+# 容器部署用：compose 只注入差异项，避免把整份 config.json 塞进镜像或 compose
+_ENV_OVERRIDES = {
+    'MUSICDL_WEBGUI_DOWNLOAD_DIR': 'download_dir',
+    'MUSICDL_WEBGUI_HOST': 'host',
+    'MUSICDL_WEBGUI_PORT': 'port',
+    'MUSICDL_WEBGUI_KWQQ_API_BASE': 'kwqq_api_base',
+    'MUSICDL_WEBGUI_KWQQ_API_KEY': 'kwqq_api_key',
+}
+
+
+def _apply_env(cfg: dict) -> dict:
+    for env, key in _ENV_OVERRIDES.items():
+        v = os.environ.get(env)
+        if v is None or v == '':
+            continue
+        cfg[key] = int(v) if key == 'port' else v
     return cfg
 
 

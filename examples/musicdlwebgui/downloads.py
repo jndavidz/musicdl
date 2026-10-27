@@ -375,6 +375,9 @@ class DownloadEngine:
                                         ('surround51' if 'surround51' in was_tag else 'master'))
             if not downloaded: raise RuntimeError('下载失败（链接可能已过期），请重新搜索后再试')
             final = downloaded[0]
+            # 容器内以 root 写 Synology 共享会得到 000 权限（ACL 生效），其他服务读不到 → 显式放开
+            with contextlib.suppress(Exception):
+                os.chmod(final.save_path, int(os.environ.get('MUSICDL_DOWNLOAD_FILE_MODE', '644'), 8))
             real_spec = ''
             with contextlib.suppress(Exception):
                 sr, br = getattr(final, 'samplerate', None), getattr(final, 'bitrate', None)

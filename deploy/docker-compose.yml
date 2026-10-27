@@ -1,7 +1,9 @@
 services:
+  # 单镜像双容器：同一 image（musicdl:latest）分别跑 api 与 webgui 两个进程。
+  # webgui 依赖是 server 依赖的子集，合并构建省一次 pip install（DS416play 上很贵）。
   musicdl-api:
     build: ./src
-    image: musicdl-api:latest
+    image: musicdl:latest
     container_name: musicdl-api
     network_mode: host
     volumes:
@@ -20,6 +22,35 @@ services:
       - UNTRUSTED_HOSTS=10.10.10.1   # Lucky router relays all external traffic
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3003/healthz', timeout=5)"]
+      interval: 60s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  musicdl-webgui:
+    image: musicdl:latest          # 复用 api 构建出的同一镜像，不单独 build
+    container_name: musicdl-webgui
+    command: ["python", "examples/musicdlwebgui/app.py", "--host", "0.0.0.0", "--port", "3004"]
+    network_mode: host             # 3004 直绑宿主；回环访问 127.0.0.1:3003 属可信网段，免 key
+    volumes:
+      - /volume1/music:/music                             # 曲库共享（\\10.10.10.2\music），下载落 NAS 本地盘
+      - /volume2/docker/musicdl-webgui:/cfg               # config.json + .state（D2 队列快照）
+    restart: unless-stopped
+    environment:
+      - MUSICDL_WEBGUI_CONFIG=/cfg/config.json
+      - XDG_STATE_HOME=/cfg/state
+      - MUSICDL_WEBGUI_DOWNLOAD_DIR=/music/download       # 覆盖 config.json 内的目录（家庭 PC 路径在容器内无效）
+      - MUSICDL_WEBGUI_KWQQ_API_BASE=http://127.0.0.1:3003
+    depends_on:
+      musicdl-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3004/', timeout=5)"]
       interval: 60s
       timeout: 10s
       start_period: 30s

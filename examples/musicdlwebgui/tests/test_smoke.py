@@ -84,21 +84,26 @@ def main():
     if saved:
         from pathlib import Path
         p = Path(saved)
-        check('file inside fixed download dir', str(p.parent) == os.path.realpath(download_dir) or p.parent == Path(download_dir), str(p.parent))
-        rel = os.path.relpath(os.path.realpath(str(p)), os.path.realpath(download_dir))
-        check('flat layout (no subdirectory)', '/' not in rel and os.sep not in rel and not rel.startswith('..'), rel)
-        stem = p.stem
-        has_sep = ' - ' in stem
-        check('readable multi-segment name', has_sep, stem)
-        # 三要素模板: artist - title - album(可选)
-        pattern = re.escape(template).replace(r'\{artist\}', '.+').replace(r'\{title\}', '.+').replace(r'\{album\}', '.*')
-        check('name matches template', re.fullmatch(pattern.replace('\\ - ', ' - ').replace('.*', '.*'), stem) is not None or has_sep, stem)
-        check('audio ext preserved', p.suffix.lstrip('.').lower() == str(sample['ext']).lower(), p.suffix)
-        siblings = {q.name for q in p.parent.iterdir()}
-        check('no .lrc sidecar by default', not any(n.endswith('.lrc') for n in siblings))
-        check('no .pkl in download dir', not any(n.endswith('.pkl') for n in siblings))
-        size_ok = p.stat().st_size > 100 * 1024
-        check('file size sane (>100KB)', size_ok, f'{p.stat().st_size / 1048576:.1f}MB')
+        if not p.parent.exists():
+            # 远程部署（如 NAS 容器）时 saved_path 指向对端文件系统，本机看不到：只校验路径形状
+            print(f'  [SKIP] 本机不可见该路径（远程分支）：{saved}')
+            check('saved_path 为可读多段命名', ' - ' in p.stem, p.stem)
+        else:
+            check('file inside fixed download dir', str(p.parent) == os.path.realpath(download_dir) or p.parent == Path(download_dir), str(p.parent))
+            rel = os.path.relpath(os.path.realpath(str(p)), os.path.realpath(download_dir))
+            check('flat layout (no subdirectory)', '/' not in rel and os.sep not in rel and not rel.startswith('..'), rel)
+            stem = p.stem
+            has_sep = ' - ' in stem
+            check('readable multi-segment name', has_sep, stem)
+            # 三要素模板: artist - title - album(可选)
+            pattern = re.escape(template).replace(r'\{artist\}', '.+').replace(r'\{title\}', '.+').replace(r'\{album\}', '.*')
+            check('name matches template', re.fullmatch(pattern.replace('\\ - ', ' - ').replace('.*', '.*'), stem) is not None or has_sep, stem)
+            check('audio ext preserved', p.suffix.lstrip('.').lower() == str(sample['ext']).lower(), p.suffix)
+            siblings = {q.name for q in p.parent.iterdir()}
+            check('no .lrc sidecar by default', not any(n.endswith('.lrc') for n in siblings))
+            check('no .pkl in download dir', not any(n.endswith('.pkl') for n in siblings))
+            size_ok = p.stat().st_size > 100 * 1024
+            check('file size sane (>100KB)', size_ok, f'{p.stat().st_size / 1048576:.1f}MB')
 
     print(f'\n== RESULT: {len(PASS)} passed, {len(FAIL)} failed ==')
     if FAIL: print('   failed:', ', '.join(FAIL))

@@ -24,15 +24,16 @@
 
 4. **双轨冒烟**：离线 + live 默认档全 PASS 本机收工；若上游动了音质表/解析链结构 → 追加 `docs/QUALITY-MATRIX.md` 对照检查。
 
-5. **NAS 部署 + `--all` 验收**：`bash deploy/deploy.sh`，然后
-   `XDG_STATE_HOME=$PWD/.state .venv/Scripts/python.exe server/tests/test_smoke.py http://10.10.10.2:3003 --all`
+5. **NAS 部署 + `--all` 验收**：WSL 内 `bash deploy/deploy.sh`（本地构建 → 传镜像 → compose up），然后
+   `XDG_STATE_HOME=$PWD/.state .venv/bin/python server/tests/test_smoke.py http://10.10.10.2:3003 --all`；
+   webgui 侧 `examples/musicdlwebgui/tests/test_smoke.py http://10.10.10.2:3004`
 
 6. **提交**：merge commit 保留（上游版本号写进 merge message，如 `merge upstream v2.15.0`）。
 
 ## 回退
 
 merge 后问题发现于部署前：`git reset --hard ORIG_HEAD`（未 push 时）。
-已部署才发现：NAS 侧回滚走 `deploy/deploy.sh` 的 `musicdl-api:previous` 镜像（脚本探活失败会自动回滚；手动回滚 = retag previous → `docker compose up -d --no-build`）。
+已部署才发现：NAS 侧回滚走 `deploy/deploy.sh` 的 `musicdl:previous` 镜像（脚本探活失败会自动回滚；手动回滚 = retag previous → `docker compose up -d --no-build`）。
 
 ## 关联
 

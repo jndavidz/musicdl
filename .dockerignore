@@ -1,4 +1,5 @@
-# keep build context minimal: only musicdl/, server/, setup.py, README.md, requirements*.txt, MANIFEST.in are needed
+# keep build context minimal: only musicdl/, server/, setup.py, README.md, requirements*.txt, MANIFEST.in
+# are needed for the api image; the webgui image additionally needs examples/musicdlwebgui/ + deploy/webgui/
 .git
 .github
 .venv
@@ -13,12 +14,15 @@ __pycache__
 **/__pycache__
 *.pyc
 docs
-examples
+examples/*
+!examples/musicdlwebgui
 mcp
 scripts
-deploy
+deploy/*
+!deploy/webgui
 musicdl.egg-info
 *.md
 !README.md
 Dockerfile
 docker-compose.yml
+.webgui-downloads

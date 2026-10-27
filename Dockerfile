@@ -19,12 +19,14 @@ COPY setup.py README.md MANIFEST.in ./
 COPY musicdl/ ./musicdl/
 RUN pip install --no-cache-dir .
 
-# api server code
+# api server code + webgui（同一镜像跑两个容器：api:3003 / webgui:3004；
+# webgui 的 fastapi/uvicorn/pydantic 是 server 依赖的子集，不增加体积）
 COPY server/ ./server/
+COPY examples/musicdlwebgui/ ./examples/musicdlwebgui/
 
 RUN mkdir -p /tmp/appstate /tmp/kwqq-kuwo /tmp/kwqq-qq
 
-EXPOSE 3003
+EXPOSE 3003 3004
 
 HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3003/healthz', timeout=5)" || exit 1

@@ -69,12 +69,26 @@ XDG_STATE_HOME=$PWD/.state .venv/bin/python server/tests/test_smoke.py http://12
 ## NAS 部署
 
 ```bash
-bash deploy/deploy.sh     # 双跳 tar 同步 → 预留回滚 tag → compose build → healthz 探活 → 失败自动回滚
+bash deploy/deploy.sh     # WSL 内运行：同步源码 → 本地 docker build → gzip 管道传 NAS → compose up -d --no-build
+                          # → api:3003 / webgui:3004 双探活 → 失败自动回滚（musicdl:previous）
 # 验收（全量档）
-XDG_STATE_HOME=$PWD/.state .venv/Scripts/python.exe server/tests/test_smoke.py http://10.10.10.2:3003 --all
+XDG_STATE_HOME=$PWD/.state .venv/bin/python server/tests/test_smoke.py http://10.10.10.2:3003 --all
+XDG_STATE_HOME=$PWD/.state .venv/bin/python examples/musicdlwebgui/tests/test_smoke.py http://10.10.10.2:3004
 ```
 
-compose 位于 `deploy/docker-compose.yml`（NAS 侧 `/volume2/docker/musicdl-api/docker-compose.yml`），`restart: unless-stopped` + 内置 healthcheck。
+**单镜像双容器（2026-10-28）**：`musicdl:latest` 一个镜像跑两个容器——`musicdl-api`(3003) 与
+`musicdl-webgui`(3004)；webgui 的 fastapi/uvicorn/pydantic 是 server 依赖的子集，不额外增重。
+镜像**在 WSL 侧构建**（DS416play 上构建太慢），经 `docker save | gzip | ssh 'docker load'` 传输；
+不要用 `wsl.exe` 把二进制导到 Windows 再转发（会损坏流）。
+
+compose 位于 `deploy/docker-compose.yml`（NAS 侧 `/volume2/docker/musicdl-api/docker-compose.yml`，
+**两份文件**，NAS 侧保留自己的 `API_KEY` 与 `ENABLE_LOSSLESS=true`），`restart: unless-stopped` + 内置 healthcheck。
+
+**webgui 容器**：`network_mode: host`（3004 直绑宿主，回环调 `127.0.0.1:3003` 属可信网段免 key）；
+卷 `/volume1/music:/music`（下载落 NAS 本地盘）+ `/volume2/docker/musicdl-webgui:/cfg`（`config.json` 与
+`.state` 队列快照）；配置用 `MUSICDL_WEBGUI_*` 环境变量注入，镜像内不含 config.json。
+⚠️ 容器 root 写 Synology 共享会得到 `000` 权限（ACL 生效），webgui 落盘后显式 `chmod 644`
+（`MUSICDL_DOWNLOAD_FILE_MODE` 可调），否则 Lyrion 等下游消费方读不到。
 
 **部署现状注记（2026-10-27）**：NAS 侧实际运行 compose 的 `ENABLE_LOSSLESS=true`（无损档在 NAS 上是活的，含 master/surround51 加密档），与仓库 compose 默认 `false` 不同——以 NAS compose 为准，修改后需同步本注记与 `docs/QUALITY-MATRIX.md` / `docs/API-REFERENCE.md`。
 
