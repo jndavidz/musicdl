@@ -1,6 +1,6 @@
 # T0.4 凭据卫生注记 + quark cookie 轮换
 
-Status: open
+Status: resolved
 Type: task
 
 roadmap §5 0.4：
@@ -11,3 +11,4 @@ roadmap §5 0.4：
 ## Comments
 
 - 2026-10-27: 注记部分完成（commit 9c3920 系）：server/README.md 部署现状注记 + API-REFERENCE 1.5 版本记录。quark cookie 轮换待用户（需账号操作，泄露面=git 历史）。
+- 2026-10-28: **用户裁决：quark cookie 轮换取消，不做，本票收口**。git 历史泄露面维持现状，不再跟踪。
