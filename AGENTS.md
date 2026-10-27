@@ -72,7 +72,7 @@ Makefile 的 `install`/`publish` 是上游 PyPI 发布遗留；本仓库的发�
 - `docs/QUALITY-MATRIX.md` — 四平台（网易/酷狗/酷我/QQ）音质档位总册：官方命名、私有参数、adapter 映射、横向对照。**改任何 QUALITY 映射或新增档位前读它**，改完同步更新。
 - `docs/KUWO-QQ-API-SERVER-PLAN.md` — 设计决策记录。**想知道某处为什么这么设计时读它**，而不是重新发明方案。
 - `examples/musicdlwebgui/README.md` — webgui 功能矩阵与双后端（kwqq-API 六源 + 进程内库）分工说明。
-- `D:\_work\repos\songloft-plugin-kwqq\README.md` — **姊妹工作区**：Songloft 音源插件（本仓库 API 的消费方，roadmap P2）。改 API-REFERENCE 契约或新增源时检查插件是否需要跟随（六源清单、migu copyright 回传、quality 路由）。
+- `D:\_work\repos\songloft\` — **姊妹工作区（jndavidz/songloft，songloft-org/songloft 的 fork）**：手机端播放器 + 服务端（roadmap Track P，D-1 已裁决 Songloft 转正）。kwqq 音源插件在 `plugins/src/kwqq/`（本仓库 API 的消费方）。改 API-REFERENCE 契约或新增源时检查插件是否需要跟随（六源清单、migu copyright 回传、quality 路由）；NAS 兼容构建见其 `Dockerfile.nas`。
 
 ## Agent skills
 
