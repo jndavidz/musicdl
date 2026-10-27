@@ -52,7 +52,7 @@ class Settings:
         # LAN bypass: requests originating from these networks skip the api key check
         # (direct intranet access to the container port). NOTE: the Lucky router IP must be
         # listed in untrusted_hosts, otherwise external traffic relayed through it is trusted too.
-        self.trusted_networks: list = _networks_from(e.get('TRUSTED_NETWORKS', '127.0.0.0/8,10.10.10.0/24,172.16.0.0/12,192.168.0.0/16'))
+        self.trusted_networks: list = _networks_from(e.get('TRUSTED_NETWORKS', '127.0.0.0/8,10.10.10.0/24,10.20.0.0/24,172.16.0.0/12,192.168.0.0/16'))
         self.untrusted_hosts: list = [h.strip() for h in e.get('UNTRUSTED_HOSTS', '10.10.10.1').split(',') if h.strip()]
         # untrusted-client rate limit ("N/second|minute|hour|day", empty = disabled).
         # Trusted-network requests bypass it entirely; all external traffic (which

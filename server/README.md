@@ -46,7 +46,7 @@
 | `URL_CACHE_TTL` / `SEARCH_CACHE_TTL` / `META_CACHE_TTL` | 600/300/86400 | 各缓存 TTL（秒） |
 | `SEARCH_SIZE_DEFAULT` / `SEARCH_SIZE_MAX` | 20/50 | 搜索默认条数 / 上限（超过截断） |
 | `API_KEY` | 空（关闭） | 服务级 API key；`X-API-Key` 或 `Basic base64(KEY+":")` |
-| `TRUSTED_NETWORKS` / `UNTRUSTED_HOSTS` | 内网段 / 10.10.10.1 | 免 key 网段 / 强制走 key 的来源 IP（Lucky 反代必须列入） |
+| `TRUSTED_NETWORKS` / `UNTRUSTED_HOSTS` | 127/8、10.10.10.0/24、10.20.0.0/24、172.16/12、192.168/16 / 10.10.10.1 | 免 key 网段（10.20.0.0/24 = 办公室 WG）/ 强制走 key 的来源 IP（Lucky 反代必须列入） |
 | `RATE_LIMIT` | 120/minute | **仅外网**固定窗口限流（`N/second\|minute\|hour\|day`，空 = 关闭）；可信网段完全豁免，外网（经 Lucky 中继后同源 IP）共享一个桶，429 带 `X-RateLimit-*` + `Retry-After` 头 |
 | `NCM_API_BASE` / `KUGOU_API_BASE` | 10.10.10.2:3000/3001 | NAS 侧 ncm-api / kugou-api 容器地址 |
 | `KUGOU_TOKEN_FILE` / `NETEASE_COOKIE_FILE` | /app/secrets/* | 酷狗 token / 网易 cookie 挂载路径（网易缺省匿名转发） |

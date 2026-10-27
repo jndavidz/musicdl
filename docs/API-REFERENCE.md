@@ -35,7 +35,7 @@ musicdl-api 容器 (FastAPI, host 网络, :3003)
 ### 2.2 规则
 
 - `API_KEY` 非空时启用；`/healthz` 恒豁免
-- **内网免 key**：来源 IP ∈ `TRUSTED_NETWORKS`（默认含 `10.10.10.0/24,172.16/12` 等）且不在 `UNTRUSTED_HOSTS`（默认 `10.10.10.1`=Lucky 入口，防外网借道）
+- **内网免 key**：来源 IP ∈ `TRUSTED_NETWORKS`（默认含 `10.10.10.0/24,10.20.0.0/24`（办公室 WG）,`172.16/12` 等）且不在 `UNTRUSTED_HOSTS`（默认 `10.10.10.1`=Lucky 入口，防外网借道）
 - 其余来源必须携带，二选一：
 
 ```
@@ -231,7 +231,7 @@ GET `/kugou/vip/status` 响应 data 结构：
 |------|------|------|
 | `KWQQ_PORT` | 3003 | 监听端口 |
 | `API_KEY` | 空 | 服务层 Key；空=关闭校验 |
-| `TRUSTED_NETWORKS` | `127/8,10.10.10.0/24,172.16/12,192.168/16` | 内网免 key 来源 |
+| `TRUSTED_NETWORKS` | `127/8,10.10.10.0/24,10.20.0.0/24,172.16/12,192.168/16` | 内网免 key 来源（含办公室 WG 10.20.0.0/24） |
 | `UNTRUSTED_HOSTS` | `10.10.10.1` | 强制要求 key（Lucky 入口） |
 | `RATE_LIMIT` | `120/minute` | 仅外网固定窗口限流（可信网段豁免，空=关闭；429 + `X-RateLimit-*`/`Retry-After` 头） |
 | `ENABLE_LOSSLESS` | false | flac/hires 档总开关 |
@@ -310,6 +310,7 @@ server/tests/test_smoke.py <url> [--auth K:] # 冒烟 15 项
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-10-27 | 1.6 | `TRUSTED_NETWORKS` 默认加入办公室 WG 网段 `10.20.0.0/24`（D-x 定案：办公室免 key / 免限流；代价是该网段内设备均可匿名访问） |
 | 2026-10-27 | 1.5 | +`/metrics`（Prometheus 文本格式，非信封）；+`RATE_LIMIT` 仅外网限流（429 + X-RateLimit 头，内网豁免）；kugou `/lyric` 容器 400（20010）时 fallback 官方歌词链路；部署现状注记：NAS compose `ENABLE_LOSSLESS=true`（仓库默认 false，以 NAS 为准） |
 | 2026-08-12 | 1.0 | 六源中的四源上线（酷我/QQ/千千/咪咕）+ NAS 部署 + 外网验收 |
 | 2026-10-27 | 1.4 | 音质档位知识收敛 `server/quality.py`（ADR-0003）：192k 语义统一（真档优先/就近上取；bilibili 192k 由落 auto 收紧为 320k）、每源白名单/lossless 门单点化、LOSSLESS_EXTS 补齐 8 元素 |

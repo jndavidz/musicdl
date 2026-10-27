@@ -16,7 +16,7 @@ services:
       - PARSER_FAIL_THRESHOLD=3
       - PARSER_COOLDOWN_S=300
       - API_KEY=__SET_ON_NAS__       # keep in sync with the apiKey configured in MusicFree plugins
-      - TRUSTED_NETWORKS=127.0.0.0/8,10.10.10.0/24,192.168.0.0/16
+      - TRUSTED_NETWORKS=127.0.0.0/8,10.10.10.0/24,10.20.0.0/24,192.168.0.0/16   # 10.20.0.0/24 = office WireGuard LAN
       - UNTRUSTED_HOSTS=10.10.10.1   # Lucky router relays all external traffic
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3003/healthz', timeout=5)"]
