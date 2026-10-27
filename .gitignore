@@ -110,6 +110,7 @@ venv.bak/
 # musicdl api-server runtime
 .state/
 .spike_tmp/
+.webgui-downloads/
 
 # local debug artifacts (empty placeholder dumps)
 dl2_manifest.json
