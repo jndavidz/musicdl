@@ -5,6 +5,7 @@
 > 实测方法：真实歌曲 id 直调（QQ mid=0039MnYb0qxYhV《晴天》/ 酷我 rid=228908《晴天》/ 网易 id=108914《江南》/ 网易灰曲 id=186016《晴天》）
 > 最后全量探测：2026-08-24 · 标注 ✅=可用 ⚠️=不稳定 ❌=失效 🔐=需凭证
 > ⬆️ **上游同步基线：musicdl v2.14.2**（merge `74c6ac1`，2026-10-24）。标 ⬆️ 的条目取自上游源码 diff，**本轮未复测**，其存活状态以下一轮探测为准
+> 2026-10-27 补登记：§3.4 网易链重排、§5.4 Apple Music 重构、§5.5 五个网页源的端点修正、§5.2 社区鉴权链——同属 **⬆️ 未复测** 范围
 
 ---
 
@@ -135,6 +136,19 @@
 - 周杰伦等腾讯系版权曲全量灰化（MUSIC_U 也无解），依赖 unblock/qijieya 兜底
 - `/song/url/v1` 对免费曲返回 128k、VIP 曲 level=lossless 返回 944kbps FLAC
 
+### 3.4 解析链位次变化（⬆️ v2.14.2）
+
+| 层 | v2.13.10 | v2.14.2 | 变化 |
+|----|----------|---------|------|
+| l1（svip） | tmetu · xuanluoge · bugpk · kangqiovo · chksz · xunjinlu · xingmian · znnu · xiaoqin · vincentzyu233 · bileizhen（11 项） | tmetu · xuanluoge · kangqiovo · chksz · znnu · xiaoqin · vincentzyu233 · bileizhen · **jfjt**（9 项） | `bugpk`/`xingmian`/`xunjinlu` 降出 l1；`jfjt` 从 l3 升入 l1 末位 |
+| l2（svip 但不稳） | rrvenn · haitangw · guyuei · cunyu（4 项） | **xunjinlu · bugpk · xingmian** · rrvenn · haitangw · guyuei · cunyu（7 项） | 三个原 l1 成员被置于 l2 队首 |
+| l3（vip） | nanorocky · yutangxiaowu · qjqq · cocodownloader · ff · gdstudio · byfuns · xiaot · xcvts · xianyuw · jfjt · lzmhhh（12 项） | nanorocky · yutangxiaowu · cocodownloader · ff · gdstudio · qjqq · byfuns · xiaot · xcvts · xianyuw · lzmhhh（11 项） | 仅 `jfjt` 上移，其余位次微调 |
+| l4 | rxtool · ceseet · manshuo | 未变 | — |
+
+- **与 QQ 链的关键差异**：网易 l1 **没有** `[:2]` 截断（QQ 有，见 §1.4），9 项全跑，故网易侧的抗单点能力弱于表面印象但没有被削池。
+- `_parsewithxunjinluapi` 的 `REQUEST_KEYS` 由 1 把增至 2 把 base64 key（`charlespikachuc2tf…` 与新追加的 `charlespikachuc2st…`）——已计入 §8 第 7 行。
+- 网易出链仍走 `musicdl` 第三方链，带自定义 Cookie 时整链短路（返回 `MUSIC_QUALITIES[-1]` 空结果），与 [AGENTS.md](../AGENTS.md) 「Cookie 与第三方解析链互斥」不变量一致。
+
 ---
 
 ## 4. 酷狗音乐
@@ -196,6 +210,7 @@
 | `https://api.dezalty.com/auth/telegram/guest` → `/download/qobuz/stream?quality_str=Normal` | ⬆️ 全新通道：先拿 Telegram guest token，再解析流；同时被 `deezer.py` 与 `qobuz.py` 复用 | 🧪 未复测 |
 | `https://clashflac.kanjijewels.com/api/qobuz/resolve` + `/api/qobuz/download`（`quality: UHD`） | ⬆️ 全新通道；请求 Origin 头为 `https://clashflac.pages.dev`（前端页与 API 不同域） | 🧪 未复测 |
 | `https://open.qobuz.com/track/{id}` | 保留（元数据） | — |
+| ⬆️ `https://verify.spotbye.qzz.io`（`CommunityClientBase`，`app_version 7.2.0 → 7.2.2`） | ⬆️ Qobuz 与 TIDAL **共用**的社区鉴权/会话兑换链；`401/428` 触发重建会话、`429/502/504` 按瞬态重试（`max_retries=6`，浏览器 opener 走人工验证，超时 300s） | 🧪 未复测 |
 | ⛔ `https://qobuz-tidal-eclipse.cyrusna29.workers.dev/generate` + `/u/{token}/stream/{id}` | 整段移除 | 见 §9 |
 | ⛔ `https://flacdownloader.com/prepare` + `/asset` | 整段移除（原为 X-Dl-Token 动态取链） | 见 §9 |
 
@@ -210,7 +225,31 @@
 | 🧪 `HeishanMusicClient` | `www.163cn.cc`（承接 livepoo） | 新增；`/search.html?` + `/download/{id}.html?t=0|1`，站内链接指向 `https://pan.quark.cn/s/` 夸克网盘 | 🔐 **硬门槛**：无 `quark_parser_config.cookies` 直接 `assert` 抛错，模块无法实例化 |
 | 🧪 `GequkeMusicClient` | `www.gequke.com`（承接 liziyy） | 新增；`/search?s=` + POST `/api/music`，返回 MP3 + 歌词 | 🔐 无 quark cookie 仅能下 MP3，仅 **warning** 不阻断（比 heishan 软） |
 
-> 注：以上三者均只在 **musicdl 库直用**（`MusicClientBuilder`）路径可达，kwqq-api 的六源 adapter 不经过 `thirdpartysites` 模块，故对服务出链无影响。已同步修正 [examples/musicdlwebgui/app.py:129](../examples/musicdlwebgui/app.py#L129) 的源清单（提交 `3c3720b`）。
+> 注：以上三者均只在 **musicdl 库直用**（`MusicClientBuilder`）路径可达，kwqq-api 的六源 adapter 不经过 `thirdpartysites` 模块，故对服务出链无影响。已同步修正 [examples/musicdlwebgui/config.py:108](../examples/musicdlwebgui/config.py#L108) 的源清单（提交 `3c3720b`；D1 模块化后该表已从 `app.py` 迁入 `config.py`）。
+
+### 5.4 Apple Music（⬆️ v2.14.2 重构，上游修 #99/#87/#86）
+
+| 项 | v2.13.10 | v2.14.2 | 状态 |
+|----|----------|---------|------|
+| 搜索/取曲基址 | `https://amp-api-edge.music.apple.com/v1/catalog/{geo}/search` | **`https://amp-api.music.apple.com`**（与 `appleutils.AMP_API_URL` 统一，`-edge` 域弃用） | 🧪 未复测 |
+| 语言参数 | 全线查询串带 `l={language}`（`/v1/me/account`、catalog songs/playlists/search、next-uri、webPlayback、license 六处） | **`l=` 全部移除**；`language` 仅保留在 `POST MZPlay.woa/wa/webPlayback` 的 body（`salableAdamId` + `language`） | 🧪 未复测 |
+| 歌单 | 只走 `getplaylist` | 新增 library 分支 `getlibraryplaylist`（`/v1/me/library/playlists/{id}`）+ `extendapidata` 对 `tracks` 关系逐页扩展 | 🧪 未复测 |
+| wrapper 入口 | `wrapper_account_url` 原样拼接（尾斜杠产生 `//`） | 构造时 `rstrip('/')` | 🧪 未复测 |
+| 加密流链 | `play.itunes.apple.com/.../webPlayback` + `acquireWebPlaybackLicense` | 端点不变，仅去掉 `l=` | — |
+
+> 影响面：Apple Music 只在库直用与 webgui 的「国外流媒体」组可达，kwqq-api 六源不含它；`use_wrapper` 仍默认关（本地 `127.0.0.1:30020` 账户代理），未配 wrapper 时该源出链为空。
+
+### 5.5 保留网页源的端点修正（⬆️ v2.14.2）
+
+| 模块 | 站点变化 | 状态 |
+|------|----------|------|
+| `FangpiMusicClient` | **整站换域** `www.fangpi.net → www.fangpiw.com`（搜索 `/s/{kw}`、Origin/Referer 同步）；出链 `POST /member/common-play-url` 由 JSON 改 **form**，并新增 `purpose=play` | 🧪 未复测 |
+| `GequbaoMusicClient` | 域不变；`POST /member/common-play-url` 同样 JSON → form + `purpose=play` | 🧪 未复测 |
+| `GequhaiMusicClient` | `POST /api/music` 的 `type` 不再固定 `'0'`，改取详情页 `mp3_type`；新增解码字段 `mp3_extra_url2` 且**优先于** `mp3_extra_url` | 🧪 未复测 |
+| `XiagebaMusicClient` | 数据端点 `xiageba.liumingye.cn/music/{id}/_payload.json` → **`https://so.liumingye.cn/api/music/{id}`**；响应改读 `downloads[].url`，歌词直接来自 `lyrics` 字段 | 🧪 未复测 |
+| `FiveSongMusicClient` | 夸克链接不再从 HTML `li[data-url]` 直取，改 `POST https://www.5song.xyz/play/songdown.php`（`{id, terminal:'pc', t: data-t, visitor:''}`，`code==200` 且 URL 前缀 `https://pan.quark.cn/` 才认）；歌词新增 `GET /play/lrc.php?id=` | 🧪 未复测 |
+| `MP3JuiceMusicClient` | 见 §7：`apiKey` 变必填，须先从首页 JS 取 | 🧪 未复测 |
+| `JBSouMusicClient` | 见 §7：搜索前须先取首页并注入 `mk_visit` cookie | 🧪 未复测 |
 
 ---
 
@@ -250,6 +289,7 @@
 | 4 | Lucky WebUI | 管理员 | zxsadmin / Ll_296302 | ⚠️ 已入会话记录建议改密 | 路由器 WebUI | kwqq 反代规则重建时需要 |
 | 5 | lx-music 签名对 | SCRIPT_MD5+SECRET_KEY | `1888f986...` / `JaJ?a7...` | ❌ v4 协议已弃（服务端强制 v5） | ETC 文档留档 | 不可用 |
 | 6 | musicdl 内置免费账户池 | antrahoshi 等 base64 账号 | 见 deezer.py/qobuz.py 源码 | 未知 | musicdl 源码 | Deezer/Qobuz 启用时相关 |
+| 7 | 网易 `xunjinlu` REQUEST_KEYS | base64 请求密钥 | `charlespikachuc2tfZDFh…`（旧）+ `charlespikachuc2stZGRj…`（⬆️ v2.14.2 追加，共 2 把轮用） | 未知 | musicdl/modules/sources/netease.py | 两把同属上游内置，非我方凭证；链失效时先查此处 |
 
 ---
 
