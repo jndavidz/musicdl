@@ -83,14 +83,17 @@ quality.PLATFORM_TAG_TIER = PLATFORM_TAG_TIER
 async def _startup_lifespan(app: FastAPI):
     '''startup side effects moved here from import time (roadmap D1):
     first-run config bootstrap (write default config.json) + download-dir creation.
-    D3: dedupe stats restore on startup + flush on shutdown (window survives restarts).'''
+    D3: dedupe stats restore on startup + flush on shutdown (window survives restarts).
+    D2: download queue restore on startup + flush on shutdown (interrupted items requeue).'''
     if not CONFIG_PATH.exists(): save_config(SETTINGS)
     touch_download_dir()
     load_dedupe_stats()
+    engine.restore()
     try:
         yield
     finally:
         save_dedupe_stats()
+        engine.persist()
 
 
 app = FastAPI(title='musicdl-webgui', version='1.0.0', description='Easy web GUI on top of musicdl',

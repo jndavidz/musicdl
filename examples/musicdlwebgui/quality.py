@@ -146,13 +146,18 @@ _QUALITY_TAG_RE = re.compile(r'^(flac|wav|mp3|aac|ape|无损|hi-?res|hires|320k?
 def normkey(info: SongInfo) -> str:
     '''normalized cross-platform song key; keeps LIVE/DJ/piano etc. version words so
     different renditions are NOT folded together, drops pure quality tags like (FLAC).'''
+    return normkey_text(info.song_name, info.singers)
+
+
+def normkey_text(song_name, singers) -> str:
+    '''same normalization as normkey(), usable when only persisted text fields exist.'''
     def clean(text) -> str:
         text = str(text or '')
         return re.sub(r'[\s\'+·～~!@#$%^&*_+=`,.?;:"’‘“”]+', '', text).lower()
-    raw = str(info.song_name or '')
+    raw = str(song_name or '')
     version_tags = ''.join(t for t in _PAREN_RE.findall(raw) if not _QUALITY_TAG_RE.match(t.strip()))
     core = _PAREN_RE.sub('', raw)
-    first_singer = re.split(r'[/、,&]|feat\.?', str(info.singers or ''))[0]
+    first_singer = re.split(r'[/、,&]|feat\.?', str(singers or ''))[0]
     return f'{clean(core)}~{clean(version_tags)}|{clean(first_singer)}'
 
 

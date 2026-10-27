@@ -17,11 +17,12 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
 from config import SETTINGS, PLATFORM_MAP, REPO_ROOT
-from quality import (serialize_item, render_stem, allocate_path, fmt_mb,
+from quality import (serialize_item, render_stem, allocate_path, fmt_mb, normkey_text,
                      QUALITY_PREF_RANKS, LOSSLESS_MBPM_FLOOR)
-from kwqq_api import api_resolve_into
+from kwqq_api import api_resolve_into, ApiSongInfo, seconds2hms
 from library import (get_client, get_lib_downloader, ProgressStub,
-                     kuwo_vip_enabled, kuwo_vip_resolve, qmc_decrypt_file)
+                     kuwo_vip_enabled, kuwo_vip_resolve, qmc_decrypt_file,
+                     search_platform_sync)
 
 # in-memory store of the latest search results (key -> SongInfo)
 RESULT_STORE: dict = {}
@@ -97,6 +98,112 @@ def _record_dedupe_win(cluster_items: list, best_item: dict) -> None:
         _dedupe_save_due = False
         _dedupe_last_save = time.time()
         save_dedupe_stats()
+
+
+'''download task persistence (roadmap D2): the queue survives a process restart.
+   Direct urls expire (kwqq-api URL_CACHE_TTL = 10min), so only each item's identity
+   is persisted — api channel: api_id + api_source; lib channel: platform + native
+   identifier — and the worker re-resolves a fresh url before downloading. Items that
+   were mid-flight keep their partial path in `_inflight` so a crash-restart can
+   delete that partial file before re-downloading. Same atomic tmp+replace pattern
+   and XDG_STATE_HOME location as the D3 dedupe counters.'''
+TASKS_PATH = Path(os.environ.get('XDG_STATE_HOME', str(REPO_ROOT / '.state'))) / 'download_tasks.json'
+MAX_PERSISTED_TASKS = 20
+TERMINAL_ITEM_STATUSES = {'success', 'skipped', 'failed', 'cancelled'}
+_tasks_write_lock = threading.Lock()
+
+
+def _info_descriptor(info, platform_id: str) -> dict:
+    '''identity-only snapshot of a candidate: enough to re-resolve a url after restart.'''
+    desc = {
+        'origin': 'api' if getattr(info, 'api_id', None) is not None else 'lib',
+        'platform': platform_id,
+        'song_name': str(info.song_name or ''), 'singers': str(info.singers or ''),
+        'album': str(info.album or ''), 'ext': str(info.ext or '').lstrip('.'),
+        'duration_s': getattr(info, 'duration_s', None),
+        'file_size_bytes': getattr(info, 'file_size_bytes', None),
+        'platform_tag': str(getattr(info, 'platform_tag', '') or ''),
+        'cover_url': str(getattr(info, 'cover_url', '') or ''),
+        'root_source': str(getattr(info, 'root_source', '') or ''),
+    }
+    if desc['origin'] == 'api':
+        desc['api_id'] = str(getattr(info, 'api_id', '') or '')
+        desc['api_source'] = str(getattr(info, 'api_source', '') or '')
+        desc['api_extra'] = dict(getattr(info, 'api_extra', {}) or {})
+    else:
+        desc['identifier'] = str(getattr(info, 'identifier', '') or '')
+    return desc
+
+
+def _rehydrate_info(desc: dict):
+    '''rebuild a runnable candidate from its descriptor; None when it can no longer be
+       identified (the item then fails with a "search again" message instead of guessing).'''
+    if not isinstance(desc, dict): return None
+    if desc.get('origin') == 'api':
+        if not desc.get('api_id') or not desc.get('api_source'): return None
+        duration_s = desc.get('duration_s')
+        return ApiSongInfo(
+            song_name=desc.get('song_name') or '', singers=desc.get('singers') or '',
+            album=desc.get('album') or '', ext=str(desc.get('ext') or '').lstrip('.'),
+            file_size_bytes=desc.get('file_size_bytes'), duration_s=duration_s,
+            duration=seconds2hms(duration_s), platform_tag=desc.get('platform_tag') or '',
+            cover_url=desc.get('cover_url') or '', source=desc.get('platform') or '',
+            root_source=desc.get('root_source') or '', download_url=None,
+            api_id=str(desc['api_id']), api_source=str(desc['api_source']),
+            api_extra=dict(desc.get('api_extra') or {}))
+    platform = str(desc.get('platform') or '')
+    if platform not in PLATFORM_MAP or not desc.get('song_name'): return None
+    identifier = str(desc.get('identifier') or '')
+    wanted = normkey_text(desc.get('song_name'), desc.get('singers'))
+    ext = str(desc.get('ext') or '').lower().lstrip('.')
+    queries = [str(desc['song_name'])]
+    singers = str(desc.get('singers') or '').strip()
+    if singers: queries.append(f"{desc['song_name']} {singers}")
+    for query in queries:
+        try:
+            candidates = search_platform_sync(platform, query, 10)
+        except Exception:
+            continue
+        if identifier:
+            for cand in candidates:
+                if str(getattr(cand, 'identifier', '') or '') == identifier and cand.with_valid_download_url:
+                    return cand
+        matches = [c for c in candidates
+                   if normkey_text(c.song_name, c.singers) == wanted and c.with_valid_download_url]
+        same_ext = [c for c in matches if ext and str(c.ext or '').lower().lstrip('.') == ext]
+        hit = same_ext or matches
+        if hit: return hit[0]
+    return None
+
+
+def _task_to_disk(task: dict) -> dict:
+    return {
+        'task_id': task['task_id'], 'created_at': task.get('created_at', ''),
+        'quality_pref': task.get('quality_pref', 'any'), 'dedupe': bool(task.get('dedupe', True)),
+        'cancel_flag': bool(task.get('cancel_flag', False)), 'status': task.get('status', 'running'),
+        'items': [{k: v for k, v in item.items() if k != '_info'} for item in task['items']],
+    }
+
+
+def _write_tasks_file(tasks: list) -> None:
+    '''atomic queue snapshot; silent on any failure (downloads must never break on IO).'''
+    try:
+        TASKS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        payload = {'version': 1, 'saved_at': int(time.time()), 'tasks': tasks}
+        tmp = TASKS_PATH.with_name(TASKS_PATH.name + '.tmp')
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+        tmp.replace(TASKS_PATH)
+    except Exception:
+        pass
+
+
+def _read_tasks_file() -> list:
+    try:
+        raw = json.loads(TASKS_PATH.read_text(encoding='utf-8'))
+        tasks = raw.get('tasks') if isinstance(raw, dict) else None
+        return tasks if isinstance(tasks, list) else []
+    except Exception:
+        return []
 
 
 class DownloadEngine:
@@ -177,7 +284,7 @@ class DownloadEngine:
                 'quality_tier': s['quality_tier'], 'status': status, 'error': error,
                 'progress': 100.0 if status == 'skipped' else 0, 'speed': '',
                 'saved_path': '', 'downloaded_bytes': 0, 'total_bytes': s['file_size_bytes'] or 0,
-                '_info': s['_info'],
+                '_info': s['_info'], '_restore': _info_descriptor(s['_info'], s['source']),
             })
         task = {'task_id': task_id, 'created_at': time.strftime('%H:%M:%S'), 'quality_pref': quality_pref,
                 'dedupe': dedupe, 'cancel_flag': False, 'items': items, 'status': 'running'}
@@ -188,6 +295,7 @@ class DownloadEngine:
         for item in items:
             if item['status'] == 'queued': self.pool.submit(self._run_item, task_id, item['item_id'])
         self._refresh_status(task_id)
+        self.persist()
         return self.snapshot(task_id)
 
     def _run_item(self, task_id: str, item_id: str):
@@ -211,7 +319,12 @@ class DownloadEngine:
 
         save_path = ''
         try:
-            info = copy.deepcopy(item.pop('_info'))
+            info = item.pop('_info', None)
+            if info is None:
+                info = _rehydrate_info(item.get('_restore') or {})
+                if info is None:
+                    raise RuntimeError('服务重启后无法重新解析该条目，请重新搜索后下载')
+            info = copy.deepcopy(info)
             is_api = getattr(info, 'api_id', None) is not None
             vip_ekey = None
             if not is_api and not info.with_valid_download_url: raise RuntimeError('下载链接无效或已过期，请重新搜索')
@@ -242,6 +355,8 @@ class DownloadEngine:
             pid = info.source if info.source in PLATFORM_MAP else item['source']
             stem = render_stem(SETTINGS['naming_template'], info, pid)
             save_path = allocate_path(stem, ext)
+            item['_inflight'] = save_path
+            self.persist()
             info.work_dir = str(Path(save_path).parent)
             info._save_path = save_path
             stub = ProgressStub(on_progress)
@@ -274,7 +389,9 @@ class DownloadEngine:
                     if path.exists() and (not item['total_bytes'] or path.stat().st_size < item['total_bytes']): path.unlink()
         finally:
             item.pop('_info', None)
+            item.pop('_inflight', None)
             self._refresh_status(task_id)
+            self.persist()
 
     def cancel_task(self, task_id: str) -> dict:
         task = self.tasks.get(task_id)
@@ -285,6 +402,7 @@ class DownloadEngine:
                 item['_info'] = None; item['status'] = 'cancelled'; item['error'] = '已取消'
             elif item['status'] == 'downloading': item['status'] = 'cancelling'
         self._refresh_status(task_id)
+        self.persist()
         return self.snapshot(task_id)
 
     def retry_item(self, task_id: str, item_id: str) -> dict:
@@ -295,10 +413,95 @@ class DownloadEngine:
         if item['status'] not in {'failed', 'cancelled', 'cancelling'}: raise ValueError('仅失败或已取消的条目可重试')
         with STORE_LOCK:
             valid = RESULT_STORE.get(item['key'])
-        if valid is None or not valid.with_valid_download_url: raise RuntimeError('原搜索结果已失效，请重新搜索后勾选下载')
-        item.update({'status': 'queued', 'error': '', 'progress': 0, 'speed': '', '_info': valid})
+        if valid is not None and valid.with_valid_download_url:
+            item['_info'] = valid
+        elif not item.get('_restore'):
+            # no live search result and no restart descriptor -> only a fresh search can help
+            raise RuntimeError('原搜索结果已失效，请重新搜索后勾选下载')
+        item.update({'status': 'queued', 'error': '', 'progress': 0, 'speed': '',
+                     'downloaded_bytes': 0})
         self.pool.submit(self._run_item, task_id, item_id)
+        self._refresh_status(task_id)
+        self.persist()
         return self.snapshot(task_id)
+
+    def persist(self) -> None:
+        '''flush the in-memory queue to the runtime state dir (D2); never raises.'''
+        try:
+            with self.tasks_lock:
+                tasks = [_task_to_disk(t) for t in list(self.tasks.values())[-MAX_PERSISTED_TASKS:]]
+            with _tasks_write_lock:
+                _write_tasks_file(tasks)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _rebuild_task(raw: dict):
+        if not isinstance(raw, dict): return None
+        task_id = str(raw.get('task_id') or '')
+        items_raw = raw.get('items')
+        if not task_id or not isinstance(items_raw, list): return None
+        items = []
+        for idx, raw_item in enumerate(items_raw):
+            if not isinstance(raw_item, dict): continue
+            item = {k: v for k, v in raw_item.items() if k != '_info'}
+            item.setdefault('item_id', f'{task_id}-{idx}')
+            item.setdefault('status', 'failed')
+            item.setdefault('progress', 0)
+            item.setdefault('speed', '')
+            item.setdefault('saved_path', '')
+            item.setdefault('downloaded_bytes', 0)
+            item.setdefault('total_bytes', 0)
+            item.setdefault('error', '')
+            if not isinstance(item.get('_restore'), dict):
+                item.update(status='failed', error='任务快照缺少恢复信息，请重新搜索')
+            items.append(item)
+        return {'task_id': task_id, 'created_at': str(raw.get('created_at') or ''),
+                'quality_pref': str(raw.get('quality_pref') or 'any'),
+                'dedupe': bool(raw.get('dedupe', True)),
+                'cancel_flag': bool(raw.get('cancel_flag', False)),
+                'items': items, 'status': str(raw.get('status') or 'running')}
+
+    def restore(self) -> int:
+        '''rehydrate the persisted queue at startup (lifespan). Only tasks that were still
+           running are resubmitted: queued items re-resolve on the worker thread; mid-flight
+           items had their partial file removed and are re-queued; a cancel requested before
+           the restart is honoured. Returns the number of items re-queued.'''
+        requeued = 0
+        for raw in _read_tasks_file()[-MAX_PERSISTED_TASKS:]:
+            try:
+                task = self._rebuild_task(raw)
+                if task is None: continue
+                with self.tasks_lock:
+                    if task['task_id'] in self.tasks: continue
+                    self.tasks[task['task_id']] = task
+                if task['status'] == 'cancelling' or (task['status'] == 'running' and task['cancel_flag']):
+                    for item in task['items']:
+                        if item['status'] not in TERMINAL_ITEM_STATUSES:
+                            item.update(status='cancelled', error='已取消')
+                    self._refresh_status(task['task_id'])
+                    continue
+                if task['status'] != 'running': continue
+                for item in task['items']:
+                    if item['status'] in {'downloading', 'cancelling'}:
+                        inflight = item.pop('_inflight', '')
+                        if inflight:
+                            with contextlib.suppress(Exception):
+                                partial = Path(inflight)
+                                if partial.is_file(): partial.unlink()
+                        item.update(status='queued', error='', progress=0, speed='',
+                                    downloaded_bytes=0)
+                    elif item['status'] == 'queued':
+                        item.update(error='', progress=0, speed='', downloaded_bytes=0)
+                self._refresh_status(task['task_id'])
+                for item in task['items']:
+                    if item['status'] == 'queued':
+                        self.pool.submit(self._run_item, task['task_id'], item['item_id'])
+                        requeued += 1
+            except Exception:
+                continue   # one malformed task must not stop the rest of the queue
+        if requeued: self.persist()
+        return requeued
 
     def _refresh_status(self, task_id: str):
         task = self.tasks.get(task_id)

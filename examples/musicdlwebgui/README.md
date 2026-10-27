@@ -13,7 +13,7 @@
 | 音质级别 | 无损优先 / 仅无损 / 320k / 128k / 不限；跨平台同曲按偏好自动择优 |
 | 单曲单文件 | 歌词 + 封面 + 标题/歌手/专辑标签全部嵌入音频文件（默认不生成 .lrc 外挂） |
 
-其他：SSE 实时进度（百分比/速度）、失败单条重试、整批取消、命名模板自定义、设置持久化。
+其他：SSE 实时进度（百分比/速度）、失败单条重试、整批取消、命名模板自定义、设置持久化、**下载队列持久化**（进程被杀/重启后自动恢复未完成任务，直链按 source+id 重新解析）。
 
 ## 快速开始
 
@@ -29,7 +29,7 @@ uv run python examples/musicdlwebgui/app.py            # 默认 http://127.0.0.1
 --download-dir /mnt/d/MusicDL       # 覆盖并持久化下载目录
 ```
 
-依赖已包含在仓库根 requirements（fastapi/uvicorn）；musicdl 本体以 editable 安装即可。
+依赖见 `examples/musicdlwebgui/requirements.txt`（fastapi/uvicorn/pydantic）与 `server/requirements.txt`；musicdl 本体以 editable 安装即可。
 
 ## 混合架构：kwqq-API 六源 + 进程内库
 
@@ -163,7 +163,7 @@ sudo bash examples/musicdlwebgui/scripts/mount-nas-music.sh --smb  # 或 SMB 回
 | GET  | `/api/tasks` · `/api/tasks/{id}` | 任务列表/快照 |
 | GET  | `/api/tasks/{id}/events` | SSE 实时进度流 |
 | POST | `/api/tasks/{id}/retry` · DELETE `/api/tasks/{id}` | 单条重试 / 整批取消 |
-| GET  | `/api/stats/dedupe` | dedupe 胜出来源计数（仅内存，ADR-0001 兜底通道再议数据） |
+| GET  | `/api/stats/dedupe` | dedupe 胜出来源计数（10min 节流落盘 `.state/dedupe_stats.json`，重启恢复；ADR-0001 兜底通道再议数据） |
 | GET  | `/healthz` | 存活探针 |
 
 ## 设计说明（库耦合契约）
@@ -183,8 +183,13 @@ sudo bash examples/musicdlwebgui/scripts/mount-nas-music.sh --smb  # 或 SMB 回
   用于结果徽章、"仅看无损"过滤与同曲择优。
 - **兜底通道定位**（ADR-0001）：API 为主，六源 lib 直连**冻结保留**为兜底——其重搜索
   （逐候选解析直链）是自足性的来源，不切换 metadata-only 搜索。
-  `GET /api/stats/dedupe` 持续累计"同曲双通道竞争时谁胜出"（仅内存、重启清零）：
+  `GET /api/stats/dedupe` 持续累计"同曲双通道竞争时谁胜出"（10min 节流落盘、停机 flush、启动恢复）：
   若监控窗口内 lib 胜出趋近于零且无 API 故障，可按 ADR-0001 再议条款删除六源 lib 通道。
+- **队列持久化（D2）**：任务快照原子写入 `.state/download_tasks.json`（最近 20 个任务），
+  仅在任务/条目状态跃迁时写盘 + 停机 flush。恢复时只重跑未终结任务：直链不落盘（会过期），
+  api 条目按 `api_id + api_source` 重走 `/song/url`，lib 条目按平台 + 原生 identifier（兜底
+  normkey+ext）重新搜索；`downloading` 条目按 `_inflight` 删除残留半文件后重新入队，重启前已
+  请求的取消照常生效。无法重新标识的条目落为 `failed` 并提示重新搜索，绝不猜测匹配。
 
 ## 冒烟测试
 
