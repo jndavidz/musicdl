@@ -130,10 +130,17 @@ nos = [i.get('track_no') for i in items5]
 check('netease album ordered tracks (P6)', b5['code'] == 200 and len(items5) >= 5
       and nos == list(range(1, len(items5) + 1)), f'{ms5}ms items={len(items5)} nos[:3]={nos[:3]}')
 albums5 = (b5.get('data') or {}).get('albums') or []
+first5 = albums5[0] if albums5 else {}
+detail5 = f"first={first5.get('name')}/{first5.get('artist')}" if albums5 else 'none'
 check('netease album artist-hint ranking', b5['code'] == 200 and albums5
-      and '周杰伦' in (albums5[0].get('artist') or ''), f"first={(albums5[0] or {}).get('name')}/(albums5[0] or {}).get('artist')" if albums5 else 'none')
-b6, _ = get('/kuwo/album?name=x')
-check('album unsupported source -> 501 envelope', b6['code'] == 501, f"code={b6['code']}")
+      and '周杰伦' in (first5.get('artist') or ''), detail5)
+# album on a source without support = capability miss (HTTP 501, not business-miss class)
+try:
+    b6, _ = get('/kuwo/album?name=x')
+    code6 = b6.get('code')
+except urllib.error.HTTPError as e:
+    code6 = e.code
+check('album unsupported source -> 501 envelope', code6 == 501, f"code={code6}")
 
 b, _ = get('/status')
 lossless_enabled = (b.get('data') or {}).get('settings', {}).get('enable_lossless')
