@@ -124,6 +124,14 @@ class FakeAdapter:
                            'ext': 'mp3', 'size_bytes': None, 'duration_s': 180, 'cover': None,
                            'source': self.source_key, 'track_no': i} for i in (1, 2, 3)]}
 
+    async def playlist(self, name, page=1):
+        self.calls.append(('playlist', name, page))
+        return {'playlists': [{'id': 'p1', 'name': name, 'creator': 'fake', 'track_count': 2,
+                               'cover': None, 'source': self.source_key, 'extra': {}}],
+                'items': [{'id': f'p{i}', 'name': f'ptrack{i}', 'singer': None, 'album': None,
+                           'ext': 'mp3', 'size_bytes': None, 'duration_s': 180, 'cover': None,
+                           'source': self.source_key, 'track_no': i} for i in (1, 2)]}
+
 
 print('== offline smoke ==')
 
@@ -161,8 +169,14 @@ st, b = raw(base, '/qq/album?name=%E5%8F%B6%E6%83%A0%E7%BE%8E&artist=%E5%91%A8%E
 nos = [i.get('track_no') for i in (b['data'] or {}).get('items') or []]
 check('album via fake adapter (ordered track_no 1..n)', st == 200 and b['code'] == 200 and nos == [1, 2, 3], f'nos={nos}')
 check('album cached (adapter called once)', len([c for c in fake.calls if c[0] == 'album']) == 1)
-st, b = raw(base, '/qianqian/album?name=x')
+st, b = raw(base, '/kuwo/album?name=x')
 check('album unsupported source -> 501 envelope (HTTP 501, not business-miss class)', st == 501 and b['code'] == 501, f"status={st} code={b.get('code')}")
+st, b = raw(base, '/qq/playlist?name=x')
+pnos = [i.get('track_no') for i in (b['data'] or {}).get('items') or []]
+check('playlist via fake adapter (ordered track_no 1..n)', st == 200 and b['code'] == 200 and pnos == [1, 2], f'nos={pnos}')
+check('playlist cached (adapter called once)', len([c for c in fake.calls if c[0] == 'playlist']) == 1)
+st, b = raw(base, '/kuwo/playlist?name=x')
+check('playlist unsupported source -> 501 envelope', st == 501 and b['code'] == 501, f"status={st} code={b.get('code')}")
 
 # real qianqian adapter lossless gate: raises before any network when ENABLE_LOSSLESS=false
 st, b = raw(base, '/qianqian/song/url?id=whatever&quality=flac')

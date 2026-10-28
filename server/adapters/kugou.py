@@ -55,9 +55,14 @@ class KugouAdapter(SourceAdapter):
             cache = self._cookie_cache = TTLCache(ttl_seconds=self.settings.cookie_refresh_s)
         ck = cache.get('cookie')
         if ck is None:
-            with open(self.settings.kugou_token_file) as fp:
-                tok = json.load(fp)
-            ck = f"token={tok.get('token','')};userid={tok.get('userid','')};dfid={tok.get('dfid','')}"
+            # token file is optional: album/search metadata works anonymously; missing
+            # file must degrade to anonymous, not raise out of the route as 502.
+            try:
+                with open(self.settings.kugou_token_file) as fp:
+                    tok = json.load(fp)
+                ck = f"token={tok.get('token','')};userid={tok.get('userid','')};dfid={tok.get('dfid','')}"
+            except Exception:
+                ck = ''
             cache.set('cookie', ck)
         return ck
 
@@ -94,6 +99,48 @@ class KugouAdapter(SourceAdapter):
         if isinstance(v, list):
             v = v[0] if v else ''
         return str(v or '')
+
+    '''P6 专辑检索：容器 /search?type=album（候选）→ /album/songs（曲目，extend.disc+sort 为官方曲序）。
+       album song 行是嵌套结构（base/audio_info/album_info），需单独映射；id = audio_info.hash。'''
+    async def album(self, name: str, artist: str = '', page: int = 1) -> dict:
+        def _search(kw):
+            data = self._api_get('/search', {'keywords': kw, 'type': 'album',
+                                             'page': page, 'pagesize': 5})
+            return ((data.get('data') or {}).get('lists')) or []
+
+        def _fetch():
+            # name+artist 精度更高；无结果再退 name-only（平台分词差异）
+            lists = _search(f'{name} {artist}'.strip() if artist else name)
+            if not lists and artist:
+                lists = _search(name)
+            albums = []
+            for a in lists:
+                if not a.get('albumid'):
+                    continue
+                albums.append({'id': str(a['albumid']), 'name': a.get('albumname'),
+                               'artist': a.get('singer'), 'size': a.get('songcount'),
+                               'cover': a.get('img'), 'source': self.source_key, 'extra': {}})
+            self.rank_candidates(albums, name, artist)
+            if not albums:
+                return {'albums': [], 'items': []}
+            detail = self._api_get('/album/songs', {'id': albums[0]['id']})
+            songs = ((detail.get('data') or {}).get('songs')) or []
+            def _official_order(pair):
+                ext = pair[1].get('extend') or {}
+                return (int(ext.get('disc') or 1), int(ext.get('sort') or 0), pair[0])
+            items = []
+            for i, (_, s) in enumerate(sorted(enumerate(songs), key=_official_order), 1):
+                base, info, alb = s.get('base') or {}, s.get('audio_info') or {}, s.get('album_info') or {}
+                if not info.get('hash'):
+                    continue
+                cover = (alb.get('cover') or '').replace('{size}', '400') or None
+                items.append({'id': str(info['hash']), 'name': base.get('audio_name'),
+                              'singer': base.get('author_name'), 'album': alb.get('album_name'),
+                              'ext': None, 'size_bytes': None,
+                              'duration_s': int(float(info.get('duration') or 0)) or None,
+                              'cover': cover, 'source': self.source_key, 'track_no': i})
+            return {'albums': albums, 'items': items}
+        return await self.run(_fetch)
 
     async def song_url(self, song_id: str, quality: str) -> dict:
         q = resolve_quality(self.source_key, quality)

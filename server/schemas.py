@@ -73,6 +73,25 @@ class AlbumData(BaseModel):
     total: int = 0
 
 
+class PlaylistEntry(BaseModel):
+    id: str
+    name: Optional[str] = None
+    creator: Optional[str] = None
+    track_count: Optional[int] = None
+    cover: Optional[str] = None
+    source: Optional[str] = None
+    extra: dict = {}
+
+
+class PlaylistData(BaseModel):
+    """P6 歌单检索：playlists = 候选歌单（首个为最优匹配），items = 首选歌单的有序曲目（track_no 1 起）"""
+    source: str
+    name: str
+    playlists: List[PlaylistEntry] = []
+    items: List[SearchItem] = []
+    total: int = 0
+
+
 class SongUrlData(BaseModel):
     id: str
     source: str

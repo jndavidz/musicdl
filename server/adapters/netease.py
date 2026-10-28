@@ -139,11 +139,16 @@ class NeteaseAdapter(SourceAdapter):
        → /album?id=（官方曲序 songs，ar/al/dt 与 cloudsearch 同构，item_from_raw 直接复用）。
        artist 提示用于候选排序（平台专辑搜索常有同名异手专辑）。'''
     async def album(self, name: str, artist: str = '', page: int = 1) -> dict:
-        def _fetch():
-            kw = f'{name} {artist}'.strip() if artist else name
+        def _search(kw):
             search = self._api_get('/cloudsearch', {'keywords': kw, 'type': 10,
                                                     'limit': 5, 'offset': (page - 1) * 5})
-            albums_raw = ((search.get('result') or {}).get('albums')) or []
+            return ((search.get('result') or {}).get('albums')) or []
+
+        def _fetch():
+            # name+artist 精度更高（同名异手专辑多）；无结果再退 name-only
+            albums_raw = _search(f'{name} {artist}'.strip() if artist else name)
+            if not albums_raw and artist:
+                albums_raw = _search(name)
             albums = []
             for a in albums_raw:
                 if not a.get('id'):
@@ -152,10 +157,7 @@ class NeteaseAdapter(SourceAdapter):
                                'artist': (a.get('artist') or {}).get('name'),
                                'size': a.get('size'), 'cover': a.get('picUrl'),
                                'source': self.source_key, 'extra': {}})
-            if artist:
-                # 最优匹配 = 名字含关键词 且 歌手命中提示，其次歌手命中，再退回首个
-                key = artist.lower()
-                albums.sort(key=lambda a: (key in (a.get('artist') or '').lower(),) , reverse=True)
+            self.rank_candidates(albums, name, artist)
             if not albums:
                 return {'albums': [], 'items': []}
             detail = self._api_get('/album', {'id': albums[0]['id']})
@@ -166,4 +168,34 @@ class NeteaseAdapter(SourceAdapter):
                     item['track_no'] = i
                     items.append(item)
             return {'albums': albums, 'items': items}
+        return await self.run(_fetch)
+
+    '''P6 歌单检索：/cloudsearch?type=1000（歌单候选）→ /playlist/track/all（整单曲目）。
+       曲目行与 cloudsearch songs 同构，item_from_raw 直接复用；序号取官方曲序。'''
+    async def playlist(self, name: str, page: int = 1) -> dict:
+        def _fetch():
+            search = self._api_get('/cloudsearch', {'keywords': name, 'type': 1000,
+                                                    'limit': 5, 'offset': (page - 1) * 5})
+            playlists_raw = ((search.get('result') or {}).get('playlists')) or []
+            playlists = []
+            for p in playlists_raw:
+                if not p.get('id'):
+                    continue
+                playlists.append({'id': str(p['id']), 'name': p.get('name'),
+                                  'creator': (p.get('creator') or {}).get('nickname'),
+                                  'track_count': p.get('trackCount'),
+                                  'cover': p.get('coverImgUrl'),
+                                  'source': self.source_key, 'extra': {}})
+            key = name.strip().lower()
+            playlists.sort(key=lambda p: ((p.get('name') or '').strip().lower() == key,), reverse=True)
+            if not playlists:
+                return {'playlists': [], 'items': []}
+            detail = self._api_get('/playlist/track/all', {'id': playlists[0]['id'], 'limit': 1000})
+            items = []
+            for i, raw in enumerate(detail.get('songs') or [], 1):
+                item = self.item_from_raw(raw)
+                if item.get('id'):
+                    item['track_no'] = i
+                    items.append(item)
+            return {'playlists': playlists, 'items': items}
         return await self.run(_fetch)

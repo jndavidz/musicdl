@@ -112,6 +112,69 @@ class MiguAdapter(SourceAdapter):
     async def lyric(self, song_id: str, copyright_id: str = '') -> str:
         return ''
 
+    '''P6 专辑检索：search_all.do（searchSwitch.album=1）→
+       app.c.nf.migu.cn /resource/album/song/v2.0（contentId + copyrightId + 官方曲序）。'''
+    async def album(self, name: str, artist: str = '', page: int = 1) -> dict:
+        from urllib.parse import urlencode
+        def _search(kw):
+            rule = {'text': kw, 'pageNo': page, 'pageSize': 5, 'isCopyright': 1, 'sort': 1,
+                    'searchSwitch': {'song': 0, 'album': 1, 'singer': 0, 'tagSong': 0,
+                                     'mvSong': 0, 'bestShow': 1}}
+            resp = self.client.get('https://c.musicapp.migu.cn/v1.0/content/search_all.do?' + urlencode(rule))
+            return (resp2json_migu(self.client, resp).get('albumResultData') or {}).get('result') or []
+
+        def _fetch():
+            # name+artist 精度更高；无结果再退 name-only（平台分词差异）
+            raw = _search(f'{name} {artist}'.strip() if artist else name)
+            if not raw and artist:
+                raw = _search(name)
+            albums = []
+            for a in raw:
+                if not a.get('id'):
+                    continue
+                imgs = [i.get('img') for i in (a.get('imgItems') or []) if isinstance(i, dict) and i.get('img')]
+                albums.append({'id': str(a['id']), 'name': a.get('name'),
+                               'artist': a.get('singer'), 'size': None,
+                               'cover': imgs[-1] if imgs else None,
+                               'source': self.source_key, 'extra': {}})
+            self.rank_candidates(albums, name, artist)
+            if not albums:
+                return {'albums': [], 'items': []}
+            items, page_no, total = [], 1, None
+            while True:
+                url = ('https://app.c.nf.migu.cn/MIGUM3.0/resource/album/song/v2.0'
+                       f'?albumId={albums[0]["id"]}&pageNo={page_no}&pageSize=100')
+                data = resp2json_migu(self.client, self.client.get(url)).get('data') or {}
+                batch = data.get('songList') or []
+                if total is None:
+                    total = int(data.get('totalCount') or 0)
+                for s in batch:
+                    img = s.get('img3') or s.get('img2') or s.get('img1') or ''
+                    if img and not str(img).startswith('http'):
+                        img = 'https://d.musicapp.migu.cn' + str(img)
+                    items.append({
+                        'id': str(s.get('contentId') or ''), 'name': s.get('songName'),
+                        'singer': ', '.join(x.get('name') for x in (s.get('singerList') or [])
+                                            if isinstance(x, dict) and x.get('name')) or None,
+                        'album': s.get('album') if isinstance(s.get('album'), str) else albums[0]['name'],
+                        'ext': None, 'size_bytes': None,
+                        'duration_s': int(float(s.get('duration') or 0)) or None,
+                        'cover': img or None, 'source': self.source_key,
+                        'extra': {'copyrightId': s.get('copyrightId'),
+                                  'resourceType': s.get('resourceType') or '2',
+                                  'toneFlags': sorted({f.get('formatType')
+                                                       for f in (s.get('audioFormats') or [])
+                                                       if isinstance(f, dict) and f.get('formatType')})},
+                    })
+                if not batch or (total and len(items) >= total):
+                    break
+                page_no += 1
+            items = [it for it in items if it['id']]
+            for i, it in enumerate(items, 1):
+                it['track_no'] = i
+            return {'albums': albums, 'items': items}
+        return await self.run(_fetch)
+
 
 def resp2json_migu(client, resp):
     return client._decryptresp(resp=resp)

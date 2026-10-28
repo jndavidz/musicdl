@@ -75,6 +75,7 @@ DEFAULT_SOURCES = [
     ('qq', '邓紫棋 光年之外', False, True),
     ('migu', '周杰伦 晴天', True, False),
     ('qianqian', '林俊杰 江南', False, False),
+    ('netease', '林俊杰 江南', False, True),   # ncm-api container (NAS); anonymous search/url/lyric
 ]
 ALL_SOURCES = [
     ('kugou', '林俊杰 江南', False, True),       # needs kugou-api container (NAS). Container /lyric
@@ -142,6 +143,31 @@ except urllib.error.HTTPError as e:
     code6 = e.code
 check('album unsupported source -> 501 envelope', code6 == 501, f"code={code6}")
 
+# album on the remaining anonymous sources (official catalog order; qianqian catalog is sparse)
+for _src, _album, _art, _min in (('migu', '叶惠美', '周杰伦', 5), ('qianqian', '逆流而上', '叶勇威', 1)):
+    _q = urllib.parse.quote(_album) + '&artist=' + urllib.parse.quote(_art)
+    b8, ms8 = get(f'/{_src}/album?name={_q}', timeout=40)
+    _d = b8.get('data') or {}
+    _items, _nos = _d.get('items') or [], [i.get('track_no') for i in (_d.get('items') or [])]
+    _first = (_d.get('albums') or [{}])[0]
+    check(f'{_src} album ordered tracks', b8['code'] == 200 and len(_items) >= _min
+          and _nos == list(range(1, len(_items) + 1)),
+          f"{ms8}ms items={len(_items)} first={_first.get('name')}/{_first.get('artist')}")
+
+# P6 playlist (netease-first): one call -> candidates + ordered tracks
+b9, ms9 = get('/netease/playlist?name=' + urllib.parse.quote('叶惠美'), timeout=40)
+_d9 = b9.get('data') or {}
+_items9 = _d9.get('items') or []
+_nos9 = [i.get('track_no') for i in _items9]
+check('netease playlist ordered tracks (P6)', b9['code'] == 200 and len(_items9) >= 5
+      and _nos9 == list(range(1, len(_items9) + 1)), f'{ms9}ms items={len(_items9)}')
+try:
+    bp, _ = get('/kuwo/playlist?name=x')
+    codep = bp.get('code')
+except urllib.error.HTTPError as e:
+    codep = e.code
+check('playlist unsupported source -> 501 envelope', codep == 501, f'code={codep}')
+
 b, _ = get('/status')
 lossless_enabled = (b.get('data') or {}).get('settings', {}).get('enable_lossless')
 b, _ = get('/qq/song/url?id=0039MnYb0qxYhV&quality=flac')
@@ -158,6 +184,12 @@ check('passthrough blocked path', st == 403 and b'blocked' in body, f'status={st
 if ALL:
     for cfg in ALL_SOURCES:
         run_source(*cfg)
+    _qa = urllib.parse.quote('叶惠美') + '&artist=' + urllib.parse.quote('周杰伦')
+    bk, msk = get(f'/kugou/album?name={_qa}', timeout=40)
+    _dk = bk.get('data') or {}
+    _ik, _nk = _dk.get('items') or [], [i.get('track_no') for i in (_dk.get('items') or [])]
+    check('kugou album ordered tracks', bk['code'] == 200 and len(_ik) >= 5
+          and _nk == list(range(1, len(_ik) + 1)), f'{msk}ms items={len(_ik)}')
     st, body = raw('/kugou/api/search?keywords=%E6%9E%97%E4%BF%8A%E6%9D%B0')
     ok_json = st == 200 and body[:1] in (b'{', b'[')
     check('kugou passthrough search', ok_json, f'status={st} bytes={len(body)}')

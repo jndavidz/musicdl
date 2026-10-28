@@ -64,11 +64,27 @@ class SourceAdapter:
     def item_from_raw(raw: dict) -> dict:
         raise NotImplementedError
 
-    '''P6 专辑检索（roadmap）：专辑名 → {'albums': [候选], 'items': [首选专辑有序曲目]}。
+    '''P6 专辑检索：专辑名 → {'albums': [候选], 'items': [首选专辑有序曲目]}。
        items 与 search_items 同构（附加 track_no，1 起）；曲目解析仍走 /song/url by-id（二段式不变）。
        默认不支持——routes 层转 501 envelope；支持源在各自 adapter 覆写。'''
     async def album(self, name: str, artist: str = '', page: int = 1) -> dict:
         raise AdapterError(501, f'album search not supported for source "{self.source_key}"')
+
+    '''候选排序（专辑/歌单共用）：名字精确匹配优先，其次歌手/创建者提示命中。
+       配合各 adapter 的「name+artist 无结果再退 name」检索，抵消平台分词差异造成的漏召回。'''
+    @staticmethod
+    def rank_candidates(entries: list, name: str, artist: str = '') -> list:
+        nk = (name or '').strip().lower()
+        ak = (artist or '').lower()
+        entries.sort(key=lambda e: ((e.get('name') or '').strip().lower() == nk,
+                                    bool(ak) and ak in (e.get('artist') or '').lower()),
+                     reverse=True)
+        return entries
+
+    '''P6 歌单检索：歌单名 → {'playlists': [候选], 'items': [首选歌单有序曲目]}。
+       默认不支持——routes 层转 501 envelope；支持源覆写。'''
+    async def playlist(self, name: str, page: int = 1) -> dict:
+        raise AdapterError(501, f'playlist search not supported for source "{self.source_key}"')
 
     '''SongInfo / direct-dict -> song url dict'''
     def urldata_from_songinfo(self, song_id: str, quality: str, info, elapsed_ms: int, cached: bool = False, platform_tag: str | None = None) -> dict:
