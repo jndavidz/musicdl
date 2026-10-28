@@ -120,6 +120,12 @@
 | **ncm-api 容器 `/cloudsearch?type=10` + `/album?id=`** | 元数据（专辑候选 + 官方曲序，P6 `/{source}/album` netease 实现） | 无（cookie 可选） | ✅ 2026-10-28 实测 | 🟢 P6 主通道 |
 | kuwo `/search.kuwo.cn/r.s?ft=album&itemset=album`（专辑候选）| 元数据 | 无 | ✅ 候选可搜 | 🧪 半通：**曲目列表端点未通**（wapi `/api/www/album/musicList` 需 kw_token cookie，JS 注入 curl 拿不到；nmobi albuminfo 空响应）|
 | QQ `u.y.qq.com musicu.fcg`（匿名）| 元数据 | 无 | ❌ 专辑受限：search_type=3 空结果、`AlbumInfoEx`/`AlbumSongList` code 500003（匿名拒绝） | 💀 未接（除非带登录态） |
+| 咪咕 `search_all.do`（`searchSwitch.album=1`）→ `app.c.nf.migu.cn/MIGUM3.0/resource/album/song/v2.0` | 元数据（专辑候选 + 官方曲序） | 无 | ✅ 2026-10-28 实测（叶惠美 11 曲，以父之名→懦夫→晴天…） | 🟢 P6 album |
+| 千千 `/v1/search type=3` → `/v1/album/info`（曲目 `assetId` 即 TSID，tracklink 直出） | 元数据（专辑候选 + 曲序） | 无（MD5 签名 appid） | ✅ 2026-10-28 实测（逆流而上 1 曲；千千曲库稀疏，热门专辑常缺） | 🟢 P6 album |
+| 酷狗容器 `/search?type=album` → `/album/songs`（`extend.disc+sort` 官方曲序） | 元数据（专辑候选 + 曲序） | 概念版 Cookie（容器；匿名查询亦可） | ✅ 2026-10-28 实测（叶惠美 11 曲） | 🟢 P6 album |
+| netease `cloudsearch?type=1000` → `/playlist/track/all`（P6 `/{source}/playlist`） | 元数据（歌单候选 + 曲序） | 无（cookie 可选） | ✅ 2026-10-28 实测（87 曲） | 🟢 P6 playlist 主通道 |
+| 酷狗容器 `/playlist/detail` + `/playlist/track/all` | 元数据 | 概念版 Cookie | ❌ 容器 error_code 20010 | 💀 未接 |
+| kuwo / QQ / 千千 歌单按名检索 | 元数据 | — | ❌ 无公开按名检索通道（千千仅 `tracklist/info` by id） | 💀 未接 |
 | two-pass unblock mirror（灰色曲目 kuwo CDN） | FLAC（灰曲兜底） | 无 | ✅ 《晴天》灰曲出 FLAC 实测 | 🟢 并行会话实现 |
 | `api.qijieya.cn/meting/?server=netease&br=999000` | **直接音频流 fLaC**（VIP 曲被禁） | 无 | ✅ 流魔数验证 | 🧪 备用未注册 |
 | `oiapi.net/api/Music_163?id=` | 320k | 无 | ✅ code 0 | 🧪 备用未注册 |

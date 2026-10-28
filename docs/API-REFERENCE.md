@@ -94,7 +94,7 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 
 单曲元数据 / LRC 歌词。migu 两端点同样需要 `copyright=`。netease lyric 需容器登录态才有完整翻译/罗马音。
 
-### 4.4 GET /{source}/album — 专辑检索（P6，2026-10-28 v1.7）
+### 4.4 GET /{source}/album — 专辑检索（P6，2026-10-28 v1.8）
 
 专辑名 → 候选专辑 + **首选专辑的有序曲目**，一次调用覆盖"整张连播"场景（消费方：bridge `song_request`、songloft kwqq 插件专辑页）。
 
@@ -107,10 +107,25 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 成功 data：`{source, name, artist, albums: [{id, name, artist, size, cover, source, extra}], items: [<search item 结构> + track_no], total}`。
 
 - **items = 首选专辑的官方曲序**，`track_no` 1 起；item 结构与 `/search` 完全一致 → 曲目解析照走 `/{source}/song/url?id=`（二段式不变）。
-- **逐源能力**（未实现的源返回 **HTTP 501** envelope——能力缺失类，非业务未命中 403/404）：`netease` ✅（ncm-api `/cloudsearch?type=10` → `/album`，官方曲序）；其余六源 ◐ 未接入（适配器已留标准扩展点 `SourceAdapter.album()`，默认 501）。
+- **逐源能力**（未实现的源返回 **HTTP 501** envelope——能力缺失类，非业务未命中 403/404）：`netease` ✅（ncm-api `/cloudsearch?type=10` → `/album`）；`kugou` ✅（容器 `/search?type=album` → `/album/songs`，按 `extend.disc+sort` 官方曲序）；`migu` ✅（`search_all.do` album=1 → `resource/album/song/v2.0`）；`qianqian` ✅（`/v1/search type=3` → `/v1/album/info`，曲库较稀疏）；`kuwo`/`qq` ◐ 未接入（kuwo 曲目列表需 kw_token；QQ 匿名模块 500003）。
+- 候选检索：先用 `name+artist`，无结果自动退 `name`；排序 = 名字精确匹配 + 歌手提示命中。
 - 缓存：meta_cache，键含 name/artist/page。
 
-### 4.5 七源逐源详述
+### 4.5 GET /{source}/playlist — 歌单检索（P6，2026-10-28 v1.8）
+
+歌单名 → 候选歌单 + **首选歌单的有序曲目**（消费方：bridge 歌单意图、播放器歌单视图）。
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| name | ✅ | 歌单名关键词 |
+| page | — | 候选页码 ≥1 |
+
+成功 data：`{source, name, playlists: [{id, name, creator, track_count, cover, source, extra}], items: [<search item 结构> + track_no], total}`。
+
+- **逐源能力**：`netease` ✅（ncm-api `cloudsearch?type=1000` → `/playlist/track/all`，上限 1000 曲）；其余源 501（kuwo/qq/qianqian 无公开歌单搜索通道；kugou 歌单曲目端点容器返回 20010）。
+- items 结构与 `/search` 一致，曲目解析仍走 `/{source}/song/url?id=`。缓存：meta_cache。
+
+### 4.6 七源逐源详述
 
 #### kuwo 酷我
 
@@ -301,7 +316,7 @@ server/
 │   ├── kuwo.py qq.py qianqian.py migu.py   # 四个自研解析 adapter
 │   ├── netease.py kugou.py                 # 容器背书 adapter（账户态出链）
 │   └── deezer.py     # 实验性未注册（解析站失效留档）
-└── tests/test_smoke.py  # 15 项冒烟（--auth 支持外网）
+└── tests/test_smoke.py  # 离线/在线双轨冒烟（--auth 支持外网，--all 追加容器源）
 ```
 
 ### 8.2 核心约定
@@ -317,7 +332,7 @@ server/
 ```bash
 scripts/regress_stage1.py                    # 核心回归 8 项
 .state/instrument_plugin.cjs <插件.js>       # vm 插桩捕获混淆插件真实请求
-server/tests/test_smoke.py <url> [--auth K:] # 冒烟 15 项
+server/tests/test_smoke.py <url> [--auth K:] # 冒烟默认档（含 netease 与专辑/歌单）；--all 追加容器源
 ```
 
 ---
@@ -328,6 +343,7 @@ server/tests/test_smoke.py <url> [--auth K:] # 冒烟 15 项
 |------|------|------|
 | 2026-10-27 | 1.6 | `TRUSTED_NETWORKS` 默认加入办公室 WG 网段 `10.20.0.0/24`（D-x 定案：办公室免 key / 免限流；代价是该网段内设备均可匿名访问） |
 | 2026-10-28 | 1.7 | +`/{source}/album`（P6 专辑检索：候选 + 首选专辑有序曲目 track_no；netease 先行，未实现源 HTTP 501）|
+| 2026-10-28 | 1.8 | +`/{source}/playlist`（P6 歌单检索，netease 先行）；`/{source}/album` 扩至 kugou/migu/qianqian（候选 name+artist 无结果自动退 name-only）；netease 进 live 冒烟常规档 |
 | 2026-10-27 | 1.5 | +`/metrics`（Prometheus 文本格式，非信封）；+`RATE_LIMIT` 仅外网限流（429 + X-RateLimit 头，内网豁免）；kugou `/lyric` 容器 400（20010）时 fallback 官方歌词链路；部署现状注记：NAS compose `ENABLE_LOSSLESS=true`（仓库默认 false，以 NAS 为准） |
 | 2026-08-12 | 1.0 | 六源中的四源上线（酷我/QQ/千千/咪咕）+ NAS 部署 + 外网验收 |
 | 2026-10-27 | 1.4 | 音质档位知识收敛 `server/quality.py`（ADR-0003）：192k 语义统一（真档优先/就近上取；bilibili 192k 由落 auto 收紧为 320k）、每源白名单/lossless 门单点化、LOSSLESS_EXTS 补齐 8 元素 |
