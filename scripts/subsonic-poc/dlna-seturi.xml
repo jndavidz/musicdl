@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/" xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+  <s:Body>
+    <u:SetAVTransportURI xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">
+      <InstanceID>0</InstanceID>
+      <CurrentURI>http://car-er.kuwo.cn/b9f30368efe187bb74ad345d797351e0/6ae019b2/resource/30106/trackmedia/M800000bYDlc2XxKLs.mp3?bitrate$320&amp;format$mp3&amp;source$kwplayerhd_ar_4.3.0.8_tianbao_T1A_qirui.apk&amp;type$convert_url_with_sign&amp;user$0&amp;loginUid$</CurrentURI>
+      <CurrentURIMetaData>&lt;DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"&gt;&lt;item id="1" parentID="0" restricted="1"&gt;&lt;dc:title&gt;晴天&lt;/dc:title&gt;&lt;dc:creator&gt;周杰伦&lt;/dc:creator&gt;&lt;upnp:class&gt;object.item.audioItem.musicTrack&lt;/upnp:class&gt;&lt;res protocolInfo="http-get:*:audio/mpeg:*"&gt;http://car-er.kuwo.cn/b9f30368efe187bb74ad345d797351e0/6ae019b2/resource/30106/trackmedia/M800000bYDlc2XxKLs.mp3?bitrate$320&amp;amp;format$mp3&amp;amp;source$kwplayerhd_ar_4.3.0.8_tianbao_T1A_qirui.apk&amp;amp;type$convert_url_with_sign&amp;amp;user$0&amp;amp;loginUid$&lt;/res&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;</CurrentURIMetaData>
+    </u:SetAVTransportURI>
+  </s:Body>
+</s:Envelope>
