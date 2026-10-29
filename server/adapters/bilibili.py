@@ -36,7 +36,7 @@ class BilibiliAdapter(SourceAdapter):
             cache = self._buvid_cache = TTLCache(ttl_seconds=86400 * 7)
         cookie = cache.get('buvid')
         if cookie is None:
-            resp = self.client.get('https://api.bilibili.com/x/frontend/finger/spi')
+            resp = self.client.get('https://api.bilibili.com/x/frontend/finger/spi', timeout=self.io_timeout)
             d = _json.loads(resp.text) if hasattr(resp, 'text') else {}
             b3 = (d.get('data') or {}).get('b_3', '')
             b4 = (d.get('data') or {}).get('b_4', '')
@@ -50,7 +50,8 @@ class BilibiliAdapter(SourceAdapter):
         if sessdata:
             cookie += f'; SESSDATA={sessdata}'
         resp = self.client.get(url, headers={
-            'User-Agent': self.UA, 'Referer': 'https://www.bilibili.com/', 'Cookie': cookie})
+            'User-Agent': self.UA, 'Referer': 'https://www.bilibili.com/', 'Cookie': cookie},
+                               timeout=self.io_timeout)
         return resp.json() if hasattr(resp, 'json') else {}
 
     '''metadata-only search via web-interface video search — MUST go through

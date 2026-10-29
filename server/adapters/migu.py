@@ -24,7 +24,8 @@ class MiguAdapter(SourceAdapter):
         from urllib.parse import urlencode
         rule = {'text': keywords, 'pageNo': page, 'pageSize': limit, 'isCopyright': 1, 'sort': 1,
                 'searchSwitch': {'song': 1, 'album': 0, 'singer': 0, 'tagSong': 1, 'mvSong': 0, 'bestShow': 1}}
-        resp = self.client.get('https://c.musicapp.migu.cn/v1.0/content/search_all.do?' + urlencode(rule))
+        resp = self.client.get('https://c.musicapp.migu.cn/v1.0/content/search_all.do?' + urlencode(rule),
+                              timeout=self.io_timeout)
         return resp2json_migu(self.client, resp).get('songResultData', {}).get('result', []) or []
 
     @staticmethod
@@ -49,7 +50,8 @@ class MiguAdapter(SourceAdapter):
         headers = {'Content-Type': 'application/json;charset=UTF-8', 'birth': 'h5page', 'signature': '1'}
         params = [('contentId', song_id), ('copyrightId', copyright_id), ('resourceType', resource_type),
                   ('netType', '01'), ('toneFlag', flag), ('scene', ''), ('lowerQualityContentId', song_id)]
-        resp = self.client.get('https://c.musicapp.migu.cn/strategy/listen-url/h5/v2.4', params=params, headers=headers)
+        resp = self.client.get('https://c.musicapp.migu.cn/strategy/listen-url/h5/v2.4', params=params, headers=headers,
+                              timeout=self.io_timeout)
         result = self.client._decryptresp(resp=resp)
         url = ((result.get('data') or {}).get('url')) or ''
         url = re.sub(r'(?<=/)MP3_128_16_Stero(?=/)', 'MP3_320_16_Stero', url) if url else url
@@ -104,7 +106,8 @@ class MiguAdapter(SourceAdapter):
         params = [('contentId', song_id), ('copyrightId', copyright_id), ('resourceType', '2'),
                   ('netType', '01'), ('toneFlag', 'HQ'), ('scene', ''), ('lowerQualityContentId', song_id)]
         def _fetch():
-            resp = self.client.get('https://c.musicapp.migu.cn/strategy/listen-url/h5/v2.4', params=params, headers=headers)
+            resp = self.client.get('https://c.musicapp.migu.cn/strategy/listen-url/h5/v2.4', params=params, headers=headers,
+                              timeout=self.io_timeout)
             return self.client._decryptresp(resp=resp)
         result = await self.run(_fetch)
         song = (result.get('data') or {}).get('song') or {}
@@ -128,7 +131,8 @@ class MiguAdapter(SourceAdapter):
             rule = {'text': kw, 'pageNo': page, 'pageSize': 5, 'isCopyright': 1, 'sort': 1,
                     'searchSwitch': {'song': 0, 'album': 1, 'singer': 0, 'tagSong': 0,
                                      'mvSong': 0, 'bestShow': 1}}
-            resp = self.client.get('https://c.musicapp.migu.cn/v1.0/content/search_all.do?' + urlencode(rule))
+            resp = self.client.get('https://c.musicapp.migu.cn/v1.0/content/search_all.do?' + urlencode(rule),
+                              timeout=self.io_timeout)
             return (resp2json_migu(self.client, resp).get('albumResultData') or {}).get('result') or []
 
         def _fetch():
@@ -152,7 +156,7 @@ class MiguAdapter(SourceAdapter):
             while True:
                 url = ('https://app.c.nf.migu.cn/MIGUM3.0/resource/album/song/v2.0'
                        f'?albumId={albums[0]["id"]}&pageNo={page_no}&pageSize=100')
-                data = resp2json_migu(self.client, self.client.get(url)).get('data') or {}
+                data = resp2json_migu(self.client, self.client.get(url, timeout=self.io_timeout)).get('data') or {}
                 batch = data.get('songList') or []
                 if total is None:
                     total = int(data.get('totalCount') or 0)

@@ -1,9 +1,21 @@
 '''
 Function:
     SourceAdapter base: wraps a musicdl source client for API usage.
+Notes on the execution boundary (K-03):
+    - sync work runs on a per-source ThreadPoolExecutor whose worker count IS the
+      capacity. A caller timeout returns control to the caller, but the pool slot
+      stays occupied until the worker thread really exits (Python cannot kill a
+      running thread, so we stop pretending the timeout freed it).
+    - waiting requests are a bounded, statically partitioned second bucket
+      (MAX_WAITERS per source); an over-full queue answers 503 capacity instead of
+      growing without bound.
+    - results that finish after their caller gave up are dropped, never delivered
+      and never written to a cache.
 '''
 import time
 import asyncio
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from musicdl.modules.sources.base import BaseMusicClient
 from musicdl.modules.utils import AudioLinkTester
 
@@ -11,6 +23,16 @@ from musicdl.modules.utils import AudioLinkTester
 class AdapterError(Exception):
     def __init__(self, code: int, msg: str):
         super().__init__(msg); self.code, self.msg = code, msg
+
+
+class _Job:
+    '''one measured execution: fn + the flags that mark an abandoned caller'''
+    __slots__ = ('fn', 'args', 'kwargs', 'loop', 'started', 'abandoned')
+
+    def __init__(self, fn, args, kwargs, loop):
+        self.fn, self.args, self.kwargs, self.loop = fn, args, kwargs, loop
+        self.started = False
+        self.abandoned = False
 
 
 class SourceAdapter:
@@ -22,21 +44,104 @@ class SourceAdapter:
     def __init__(self, settings, health):
         self.settings = settings
         self.health = health
-        self.semaphore = asyncio.Semaphore(settings.max_concurrency_per_source)
+        self.max_workers = max(1, int(settings.max_concurrency_per_source))
+        self.max_waiters = max(1, int(getattr(settings, 'max_waiters_per_source', self.max_workers * 2)))
+        self._pool = ThreadPoolExecutor(max_workers=self.max_workers,
+                                        thread_name_prefix=f'kwqq-{self.source_key}')
+        self._capacity = asyncio.Semaphore(self.max_workers)
+        self._waiting = 0     # admitted callers queued for a worker slot
+        self._active = 0      # worker slots held (runs until the thread really exits)
+        self._timed_out = 0
+        self._late_dropped = 0
+        self._stats_lock = threading.Lock()
         self.client = health.wrap_client(self._build_client())
 
     '''account cookie value for passthrough injection; default: anonymous (no cookie)'''
     def account_cookie(self) -> str:
         return ''
 
-    '''run a sync callable in a worker thread under the source semaphore + hard timeout'''
+    '''(connect, read) budget for every bare sync upstream call made by an adapter'''
+    @property
+    def io_timeout(self):
+        try:
+            budget = float(getattr(self.settings, 'io_timeout_s', 20))
+        except (TypeError, ValueError):
+            budget = 20.0
+        return (3.0, max(3.0, min(budget, float(self.settings.hard_timeout_s))))
+
+    '''run a sync callable in a worker thread under the source capacity + hard timeout'''
     async def run(self, fn, *args, **kwargs):
         return await self.run_with_timeout(fn, self.settings.hard_timeout_s, *args, **kwargs)
 
     '''same as run() with an explicit timeout (slow resolvers like deezer override this)'''
     async def run_with_timeout(self, fn, timeout, *args, **kwargs):
-        async with self.semaphore:
-            return await asyncio.wait_for(asyncio.to_thread(fn, *args, **kwargs), timeout=timeout)
+        self._admit_waiter()
+        promoted = False
+        try:
+            try:
+                await asyncio.wait_for(self._capacity.acquire(), timeout=timeout)
+            except asyncio.TimeoutError:
+                raise AdapterError(504, f'{self.source_key}: timed out waiting for a worker slot '
+                                        f'({self.max_workers} busy)')
+            with self._stats_lock:
+                self._waiting -= 1
+                self._active += 1
+            promoted = True
+            loop = asyncio.get_running_loop()
+            job = _Job(fn, args, kwargs, loop)
+            try:
+                cf = self._pool.submit(self._execute, job)
+            except RuntimeError:      # pool shut down (lifespan exit)
+                with self._stats_lock:
+                    self._active -= 1
+                self._capacity.release()
+                raise AdapterError(503, f'{self.source_key}: worker pool is shutting down')
+            cf.add_done_callback(self._on_done(job))
+            try:
+                return await asyncio.wait_for(asyncio.wrap_future(cf), timeout=timeout)
+            except asyncio.TimeoutError:
+                job.abandoned = True
+                with self._stats_lock:
+                    self._timed_out += 1
+                raise
+        finally:
+            if not promoted:
+                self._waiting -= 1
+
+    '''worker-thread body; capacity release happens in the done-callback below so a
+       future cancelled BEFORE the worker starts cannot leak a slot'''
+    def _execute(self, job: _Job):
+        job.started = True
+        return job.fn(*job.args, **job.kwargs)
+
+    def _on_done(self, job: _Job):
+        def _release(fut):
+            with self._stats_lock:
+                self._active -= 1
+                if job.started and job.abandoned:
+                    self._late_dropped += 1
+            try:
+                job.loop.call_soon_threadsafe(self._capacity.release)
+            except RuntimeError:
+                pass   # loop already closed during shutdown
+        return _release
+
+    def _admit_waiter(self):
+        # event-loop-thread-only counter: admission check is await-free by design
+        if self._waiting >= self.max_waiters:
+            raise AdapterError(503, f'{self.source_key}: capacity exhausted '
+                                    f'({self.max_workers} busy, {self._waiting} waiting)')
+        self._waiting += 1
+
+    '''live counters for /status and cross-project capacity acceptance'''
+    def runtime_stats(self) -> dict:
+        with self._stats_lock:
+            return {'active': self._active, 'waiting': self._waiting,
+                    'max_workers': self.max_workers, 'max_waiters': self.max_waiters,
+                    'timed_out': self._timed_out, 'late_dropped': self._late_dropped}
+
+    def shutdown(self):
+        self._pool.shutdown(wait=False)
 
     '''SongInfo -> search item dict'''
     @staticmethod

@@ -22,7 +22,7 @@ class QianqianAdapter(SourceAdapter):
         params = self.client._addsignandtstoparams(params={'word': keywords, 'type': '1',
                                                   'pageNo': str(page), 'pageSize': str(limit),
                                                   'appid': self.client.APPID})
-        resp = self.client.get('https://music.91q.com/v1/search', params=params)
+        resp = self.client.get('https://music.91q.com/v1/search', params=params, timeout=self.io_timeout)
         return ((resp.json().get('data') or {}).get('typeTrack')) or []
 
     @staticmethod
@@ -40,7 +40,7 @@ class QianqianAdapter(SourceAdapter):
             params = self.client._addsignandtstoparams(
                 params={'word': kw, 'type': '3', 'pageNo': str(page), 'pageSize': '5',
                         'appid': self.client.APPID})
-            resp = self.client.get('https://music.91q.com/v1/search', params=params)
+            resp = self.client.get('https://music.91q.com/v1/search', params=params, timeout=self.io_timeout)
             return ((resp.json().get('data') or {}).get('typeAlbum')) or []
 
         def _fetch():
@@ -64,7 +64,7 @@ class QianqianAdapter(SourceAdapter):
             params = self.client._addsignandtstoparams(
                 params={'albumAssetCode': albums[0]['id'], 'pageNo': '1', 'pageSize': '200',
                         'appid': self.client.APPID})
-            detail = (self.client.get('https://music.91q.com/v1/album/info', params=params)
+            detail = (self.client.get('https://music.91q.com/v1/album/info', params=params, timeout=self.io_timeout)
                       .json().get('data') or {})
             tracks = list({t.get('assetId'): t for t in (detail.get('trackList') or [])
                            if isinstance(t, dict) and t.get('assetId')}.values())
@@ -83,7 +83,7 @@ class QianqianAdapter(SourceAdapter):
 
     def _tracklink(self, tsid: str, rate: str) -> dict:
         params = self.client._addsignandtstoparams(params={'TSID': tsid, 'appid': self.client.APPID, 'rate': rate})
-        resp = self.client.get('https://music.91q.com/v1/song/tracklink', params=params)
+        resp = self.client.get('https://music.91q.com/v1/song/tracklink', params=params, timeout=self.io_timeout)
         data = (resp.json() or {}).get('data') or {}
         path = data.get('path') or (data.get('trail_audio_info') or {}).get('path') or ''
         # size/format/bits/rate are the server-declared file attributes of THIS link —

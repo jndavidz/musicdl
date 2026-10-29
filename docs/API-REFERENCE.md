@@ -340,7 +340,9 @@ GET `/kugou/vip/status` 响应 data 结构：
 | `COOKIE_REFRESH_S` | 1800 | 酷狗 cookie 本地缓存时长 |
 | `HARD_TIMEOUT_S` | 35 | 默认硬超时（deezer 类慢通道单独 150s） |
 | `TESTER_TIMEOUT` | `3,8` | 直链验证超时 |
-| `MAX_CONCURRENCY` | 4 | 每源并发信号量 |
+| `MAX_CONCURRENCY` | 4 | 每源工作线程数（= 真实并发容量；调用方超时不释放，须等线程真正退出） |
+| `MAX_WAITERS` | `MAX_CONCURRENCY×2` | 每源排队上限，超出返回 503 capacity（静态分区，跨项目验收汇总两侧活跃数） |
+| `IO_TIMEOUT_S` | 20 | 适配器同步请求读超时上限（且 ≤ `HARD_TIMEOUT_S`） |
 | `PARSER_FAIL_THRESHOLD` / `PARSER_COOLDOWN_S` | 3 / 300 | 第三方源熔断参数 |
 | `URL_CACHE_TTL` / `SEARCH_CACHE_TTL` / `META_CACHE_TTL` | 600/300/86400 | 缓存 TTL |
 
@@ -411,6 +413,7 @@ server/tests/test_smoke.py <url> [--auth K:] # 冒烟默认档（含 netease 与
 |------|------|------|
 | 2026-10-29 | 1.9 | +`POST /v2/playback/resolve`（K-01：TrackRef 身份契约、`X-Service-Token` scoped 服务凭证、结构化缓存键含身份/策略/凭据代次）；bilibili v2 支持受验证 cid/page（不再固定 pages[0]），`/song/info` 回传 `extra.cid/page` + `raw.pages`；migu 保留 contentId+copyrightId；v1 全部端点与 ekey 下载契约不变 |
 | 2026-10-29 | 1.10 | v2 严格播放准入（K-02 §4.8）：原始 quality 白名单先于归一化（无损请求 400 而非回落 auto）；FLAC/加密件/>320k 415；AAC 仅 `media:prepare` scope 的 `target=media_prepare` 可进转码准备且 `requires_transcode=true`；`verified` 语义修正（v2 恒 false + `requires_byte_verification=true`，完整验证归 Songloft）；v1 语义不变 |
+| 2026-10-29 | 1.11 | 执行层真实并发（K-03）：每源独立线程池，容量仅在 worker 线程真正退出后释放（调用方超时不释放）；等待队列 `MAX_WAITERS` 有界，满则 503 capacity；所有裸同步请求带 `IO_TIMEOUT_S`；netease 高档 HEAD 移入受测执行边界；迟到结果丢弃不投送；`/status` 新增 `runtime` 逐源计数（active/waiting/timed_out/late_dropped）供跨项目容量验收汇总 |
 | 2026-10-27 | 1.6 | `TRUSTED_NETWORKS` 默认加入办公室 WG 网段 `10.20.0.0/24`（D-x 定案：办公室免 key / 免限流；代价是该网段内设备均可匿名访问） |
 | 2026-10-28 | 1.7 | +`/{source}/album`（P6 专辑检索：候选 + 首选专辑有序曲目 track_no；netease 先行，未实现源 HTTP 501）|
 | 2026-10-28 | 1.8 | +`/{source}/playlist`（P6 歌单检索，netease 先行）；`/{source}/album` 扩至 kugou/migu/qianqian（候选 name+artist 无结果自动退 name-only）；netease 进 live 冒烟常规档 |

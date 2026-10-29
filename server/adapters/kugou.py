@@ -77,7 +77,7 @@ class KugouAdapter(SourceAdapter):
         from urllib.parse import urlencode
         rule = {'format': 'json', 'keyword': keywords, 'platform': 'WebFilter',
                 'page': page, 'pagesize': limit}
-        resp = self.client.get('https://songsearch.kugou.com/song_search_v2?' + urlencode(rule))
+        resp = self.client.get('https://songsearch.kugou.com/song_search_v2?' + urlencode(rule), timeout=self.io_timeout)
         try:
             return ((resp.json() or {}).get('data') or {}).get('lists') or []
         except Exception:

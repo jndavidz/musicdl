@@ -26,7 +26,7 @@ class KuwoAdapter(SourceAdapter):
     '''official anonymous direct link via mobi.s convert_url2 (~100ms), returns dict or None'''
     def _official_direct(self, song_id: str, fmt: str):
         query = f"user=0&corp=kuwo&source=kwplayer_ar_5.1.0.0_B_jiakong_vh.apk&p2p=1&type=convert_url2&sig=0&format={fmt}&rid={song_id}"
-        resp = self.client.get(f"http://mobi.kuwo.cn/mobi.s?f=kuwo&q={KuwoMusicClientUtils.encryptquery(query)}", headers={'user-agent': 'okhttp/3.10.0'})
+        resp = self.client.get(f"http://mobi.kuwo.cn/mobi.s?f=kuwo&q={KuwoMusicClientUtils.encryptquery(query)}", headers={'user-agent': 'okhttp/3.10.0'}, timeout=self.io_timeout)
         text = resp.text or ''
         fields = {}
         for line in text.splitlines():
@@ -45,7 +45,7 @@ class KuwoAdapter(SourceAdapter):
     def _nmobi_direct(self, song_id: str, br: str):
         import json as _json
         url = f"http://nmobi.kuwo.cn/mobi.s?f=web&source=kwplayerhd_ar_4.3.0.8_tianbao_T1A_qirui.apk&user=0&type=convert_url_with_sign&rid={song_id}&br={br}"
-        resp = self.client.get(url, headers={'user-agent': 'okhttp/4.10.0'})
+        resp = self.client.get(url, headers={'user-agent': 'okhttp/4.10.0'}, timeout=self.io_timeout)
         payload = resp.json() if resp and hasattr(resp, 'json') else {}
         data = payload.get('data') or {}
         cdn = data.get('url')
@@ -97,7 +97,7 @@ class KuwoAdapter(SourceAdapter):
         rule = {"vipver": "1", "client": "kt", "ft": "music", "cluster": "0", "strategy": "2012", "encoding": "utf8",
                 "rformat": "json", "mobi": "1", "issubtitle": "1", "show_copyright_off": "1",
                 "pn": str(page - 1), "rn": str(limit), "all": keywords}
-        resp = self.client.get('http://www.kuwo.cn/search/searchMusicBykeyWord?' + urlencode(rule))
+        resp = self.client.get('http://www.kuwo.cn/search/searchMusicBykeyWord?' + urlencode(rule), timeout=self.io_timeout)
         return resp.json().get('abslist') or []
 
     @staticmethod

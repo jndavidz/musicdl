@@ -43,7 +43,9 @@
 | `ENABLE_LOSSLESS` | false | 无损档总开关（插件场景保持 false，封顶 320kbps） |
 | `HARD_TIMEOUT_S` | 35 | 单请求硬超时 |
 | `TESTER_TIMEOUT` | 3,8 | 直链 HEAD/GET 探测超时（连接,读取） |
-| `MAX_CONCURRENCY` | 4 | 每源并发信号量 |
+| `MAX_CONCURRENCY` | 4 | 每源工作线程数（= 该源真实并发容量） |
+| `MAX_WAITERS` | `MAX_CONCURRENCY×2` | 每源排队等待上限；超出直接 503 capacity（静态分区，不共享全局池） |
+| `IO_TIMEOUT_S` | 20 | 适配器裸同步请求的（连接,读取）读超时上限，且不超过 `HARD_TIMEOUT_S` |
 | `PARSER_FAIL_THRESHOLD` | 3 | 连续失败 N 次进入冷却 |
 | `PARSER_COOLDOWN_S` | 300 | 冷却时长（期间该 parser 被跳过） |
 | `URL_CACHE_TTL` / `SEARCH_CACHE_TTL` / `META_CACHE_TTL` | 600/300/86400 | 各缓存 TTL（秒） |

@@ -40,6 +40,11 @@ class Settings:
         self.hard_timeout_s: float = float(e.get('HARD_TIMEOUT_S', '35'))
         # concurrency
         self.max_concurrency_per_source: int = int(e.get('MAX_CONCURRENCY', '4'))
+        # bounded waiter bucket per source: over-full -> 503 capacity, never unbounded growth.
+        # static partition (K-03): each source owns workers + waiters, no shared global pool.
+        self.max_waiters_per_source: int = int(e.get('MAX_WAITERS', str(self.max_concurrency_per_source * 2)))
+        # per-request socket/read timeout handed to every sync upstream call
+        self.io_timeout_s: float = float(e.get('IO_TIMEOUT_S', '20'))
         # parser health (cooldown skipping for dead parsers)
         self.parser_fail_threshold: int = int(e.get('PARSER_FAIL_THRESHOLD', '3'))
         self.parser_cooldown_s: int = int(e.get('PARSER_COOLDOWN_S', '300'))

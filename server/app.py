@@ -52,8 +52,15 @@ async def status(request: Request):
         'parsers': s.health.snapshot(),   # keys are "<source>:<parser_name>"
         'caches': {'url': s.url_cache.stats(), 'search': s.search_cache.stats(), 'meta': s.meta_cache.stats(),
                    'lyric': s.lyric_cache.stats(), 'v2_url': s.v2_url_cache.stats()},
+        # per-source real-work counters (active = threads still running, waiters = admitted
+        # callers queued for a slot). Cross-project acceptance sums these with Songloft's.
+        'runtime': {key: a.runtime_stats() for key, a in s.adapters.items()
+                    if hasattr(a, 'runtime_stats')},
         'settings': {'enable_lossless': s.settings.enable_lossless, 'tester_timeout': s.settings.tester_timeout,
-                     'hard_timeout_s': s.settings.hard_timeout_s, 'max_concurrency_per_source': s.settings.max_concurrency_per_source},
+                     'hard_timeout_s': s.settings.hard_timeout_s,
+                     'max_concurrency_per_source': s.settings.max_concurrency_per_source,
+                     'max_waiters_per_source': s.settings.max_waiters_per_source,
+                     'io_timeout_s': s.settings.io_timeout_s},
     })
 
 
@@ -62,7 +69,12 @@ async def _lifespan(app: FastAPI):
     st = app.state.settings
     for key, cls in ADAPTER_CLASSES.items():
         app.state.adapters[key] = cls(st, app.state.health)
-    yield
+    try:
+        yield
+    finally:
+        for adapter in app.state.adapters.values():
+            if hasattr(adapter, 'shutdown'):
+                adapter.shutdown()
 
 
 def create_app(st=None) -> FastAPI:

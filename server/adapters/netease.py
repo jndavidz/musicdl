@@ -82,11 +82,9 @@ class NeteaseAdapter(SourceAdapter):
             size_b = float(entry.get('size') or 0)
             dur_s = float(entry.get('time') or 0) / 1000
             if level in high_tiers:
-                try:
-                    import requests as _rq
-                    h = _rq.head(url, timeout=(3, 15), allow_redirects=True)
-                    size_b = int(h.headers.get('Content-Length', 0) or 0) or size_b
-                except Exception: pass
+                # HEAD is blocking sync I/O: run it inside the measured execution
+                # boundary (worker slot + timeout), never on the event loop (K-03)
+                size_b = await self.run(self._head_size, url, size_b)
                 mbpm = (round(size_b / 1048576 / (dur_s / 60), 1)
                         if size_b > 0 and dur_s > 0 else None)
                 if not ((mbpm is not None and mbpm >= premium_floor_mbpm)
@@ -109,6 +107,16 @@ class NeteaseAdapter(SourceAdapter):
                                  parser='ffapi.relay',
                                  elapsed_ms=round((time.perf_counter() - t0) * 1000))
         raise AdapterError(404, f'no playable url at levels={levels} (official + unblock + ffapi exhausted)')
+
+    '''official CDN HEAD used for the premium-tier payload floor; blocking, so it
+       always runs through self.run() with its own socket budget'''
+    def _head_size(self, url: str, fallback) -> float:
+        try:
+            import requests as _rq
+            h = _rq.head(url, timeout=self.io_timeout, allow_redirects=True)
+            return int(h.headers.get('Content-Length', 0) or 0) or fallback
+        except Exception:
+            return fallback
 
     async def song_info(self, song_id: str) -> dict:
         data = await self.run(self._api_get, '/song/detail', {'ids': str(song_id)})

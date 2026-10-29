@@ -66,7 +66,8 @@ class QQAdapter(SourceAdapter):
             params={'searchid': QQMusicClientUtils.randomsearchid(), 'query': keywords, 'search_type': SearchType.SONG.value,
                     'num_per_page': limit, 'page_num': page, 'highlight': 0, 'grp': 1},
             module="music.search.SearchCgiService", method="DoSearchForQQMusicMobile", credential=Credential())
-        resp = self.client.post(QQMusicClientUtils.endpoint, data=_json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+        resp = self.client.post(QQMusicClientUtils.endpoint, data=_json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+                                timeout=self.io_timeout)
         return ((resp.json().get('music.search.SearchCgiService.DoSearchForQQMusicMobile', {}).get('data', {}).get('body', {}) or {}).get('item_song')) or []
 
     @staticmethod
