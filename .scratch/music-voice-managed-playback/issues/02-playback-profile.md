@@ -39,3 +39,7 @@ External blocked by: —
   证据：`server/tests/test_contract.py` 54 项 PASS（假后缀/MIME、FLAC/M4A-AAC、加密件、>320k、真实降档、
   透传档位、AAC 直投与其他 scope 拒绝、拒绝候选不入缓存）；v1 回归 `test_offline.py` 46 项；commit `7a71724`。
   NOT RUN：Songloft 准备链（S-03）联调、真实上游与 NAS 验收。
+- 2026-10-29 实网复验补充：bilibili 的 AAC 转码输入准入偶发 415——`AudioLinkTester`
+  推断不出编解码时返回字符串 `"NULL"`，被当成真实 ext。已修为三点：`SourceAdapter.clean_ext`
+  单点把哨兵归一为 null、bilibili 探测带上 CDN 要求的 Referer、并由 DASH 轨 id 兜底
+  （30251=flac / 30250=ec3 / 其余 m4a）。commit `f29d0f3`；实网验收 24/24 通过。
