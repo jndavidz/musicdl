@@ -158,6 +158,12 @@ class PlaybackResolveBody(BaseModel):
     freshness: str = 'allow_cache'   # allow_cache | revalidate
 
 
+class InvalidateBody(BaseModel):
+    '''scoped cache invalidation: exact identity + policy of the caller's generation'''
+    track_ref: TrackRefBody
+    profile: ProfileBody = ProfileBody()
+
+
 class TrackRefData(BaseModel):
     kind: str = 'remote'
     provider: str = 'kwqq'

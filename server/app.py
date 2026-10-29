@@ -114,7 +114,13 @@ def create_app(st=None) -> FastAPI:
 
     @app.exception_handler(AdapterError)
     async def adapter_error_handler(request: Request, exc: AdapterError):
-        return err(exc.code, exc.msg)
+        resp = err(exc.code, exc.msg)
+        if exc.code == 429:
+            # upstream throttling is classified separately from the local rate limiter
+            resp.headers['X-RateLimit-Scope'] = 'upstream'
+            if exc.retry_after:
+                resp.headers['Retry-After'] = str(int(exc.retry_after))
+        return resp
 
     @app.exception_handler(ScopeDenied)
     async def scope_denied_handler(request: Request, exc: ScopeDenied):
@@ -137,6 +143,7 @@ def create_app(st=None) -> FastAPI:
     R('/{source}/album', resolve.album, methods=['GET'], response_model=Envelope, summary='album search: ordered tracks (P6)')
     R('/{source}/playlist', resolve.playlist, methods=['GET'], response_model=Envelope, summary='playlist search: ordered tracks (P6)')
     R('/v2/playback/resolve', playback.resolve, methods=['POST'], response_model=Envelope, summary='v2 managed playback: TrackRef -> resolved candidate')
+    R('/v2/cache/invalidate', playback.invalidate, methods=['POST'], response_model=Envelope, summary='v2 scoped invalidation of one cached candidate')
     R('/kugou/vip/day', kugou_vip.vip_day, methods=['POST'], summary='claim today concept listening VIP')
     R('/kugou/vip/upgrade', kugou_vip.vip_upgrade, methods=['POST'], summary='upgrade concept vip reward')
     R('/kugou/vip/status', kugou_vip.vip_status, methods=['GET'], summary='structured vip entitlements + monthly claim records')

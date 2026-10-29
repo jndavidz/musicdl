@@ -70,26 +70,23 @@ class KuwoAdapter(SourceAdapter):
         return self.client._parsewiththirdpartapis({'musicrid': f'MUSIC_{song_id}'}, {})
 
     '''haitangw relay with corrected path /music/kw.php (plugin ships dead /music1/, verified live 2026-08-23).
-       level: exhigh -> 320k mp3, lossless -> FLAC via kuwo CDN.'''
+       level: exhigh -> 320k mp3, lossless -> FLAC via kuwo CDN. 429s cool the LOGICAL
+       relay name (kuwo:relay.haitangw) and are re-raised, never swallowed.'''
     def _via_haitangw(self, song_id: str, quality: str):
-        import time as _time
         level = 'lossless' if quality in {'flac', 'hires'} else 'exhigh'
-        t0 = _time.perf_counter()
         try:
-            resp = self.client.get('https://music.haitangw.cc/music/kw.php',
-                                   params={'id': song_id, 'level': level}, timeout=(3, 10))
-            payload = resp.json() if resp and hasattr(resp, 'json') else {}
-            url = ((payload.get('data') or {}).get('url')) or ''
-            ok = payload.get('code') == 200 and str(url).startswith('http')
-            self.health.record('haitangw.relay.kw', ok, (_time.perf_counter() - t0) * 1000,
-                               None if ok else f"code={payload.get('code')} msg={payload.get('msg')}")
-            if not ok: return None
-            status = self.client.audio_link_tester.test(url)
-            if not status.get('ok'): return None
-            return status
-        except Exception as err:
-            self.health.record('haitangw.relay.kw', False, (_time.perf_counter() - t0) * 1000, err)
+            resp = self.guarded_sync('kuwo:relay.haitangw', self.client.get,
+                                     'https://music.haitangw.cc/music/kw.php',
+                                     params={'id': song_id, 'level': level}, timeout=(3, 10))
+        except AdapterError:
+            raise            # 429/cooldown: surfaced, never silently skipped
+        except Exception:
             return None
+        payload = resp.json() if resp and hasattr(resp, 'json') else {}
+        url = ((payload.get('data') or {}).get('url')) or ''
+        if not (payload.get('code') == 200 and str(url).startswith('http')): return None
+        status = self.client.audio_link_tester.test(url)
+        return status if status.get('ok') else None
 
     '''metadata-only search via searchMusicBykeyWord (single GET, no parse chain)'''
     def _search_raw(self, keywords: str, limit: int, page: int) -> list:
@@ -127,21 +124,25 @@ class KuwoAdapter(SourceAdapter):
                              ekey=direct.get('ekey') or None,
                              elapsed_ms=round((time.perf_counter() - t0) * 1000))
 
-    '''xcloudv relay (upstream v2.13.10 new source, POST protocol, verified FLAC 2000k)'''
+    '''xcloudv relay (upstream v2.13.10 new source, POST protocol, verified FLAC 2000k).
+       429/cooldown is tracked under the logical relay name, not the host string.'''
     def _via_xcloudv(self, song_id: str):
         import requests as _rq
         try:
-            r = _rq.post('https://music.xcloudv.top/php/kuwo_backup_source.php',
-                         data={'action': 'url', 'songid': song_id, 'yz': '5'},
-                         headers={'User-Agent': 'Mozilla/5.0 Chrome/131'}, timeout=15)
-            d = r.json()
-            url = d.get('raw') or ''
-            if not (d.get('success') and str(url).startswith('http')): return None
-            status = self.client.audio_link_tester.test(url)
-            if not status.get('ok'): return None
-            return {'url': status.get('download_url') or url, 'ext': status.get('ext')}
+            r = self.guarded_sync('kuwo:relay.xcloudv', _rq.post,
+                                  'https://music.xcloudv.top/php/kuwo_backup_source.php',
+                                  data={'action': 'url', 'songid': song_id, 'yz': '5'},
+                                  headers={'User-Agent': 'Mozilla/5.0 Chrome/131'}, timeout=self.io_timeout)
+        except AdapterError:
+            raise
         except Exception:
             return None
+        d = r.json()
+        url = d.get('raw') or ''
+        if not (d.get('success') and str(url).startswith('http')): return None
+        status = self.client.audio_link_tester.test(url)
+        if not status.get('ok'): return None
+        return {'url': status.get('download_url') or url, 'ext': status.get('ext')}
 
     '''quality routing per plan §3.4 (revised by stage-0 spike + 2026-08-12 endpoint probe;
        + zhenpin tiers 2026-09-07, docs/KUWO-ZHENPIN-PROBE.md):

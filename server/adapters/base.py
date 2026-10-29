@@ -18,11 +18,13 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from musicdl.modules.sources.base import BaseMusicClient
 from musicdl.modules.utils import AudioLinkTester
+from server.parsers_health import is_rate_limited, retry_after_from
 
 
 class AdapterError(Exception):
-    def __init__(self, code: int, msg: str):
-        super().__init__(msg); self.code, self.msg = code, msg
+    def __init__(self, code: int, msg: str, retry_after: int = None):
+        super().__init__(msg)
+        self.code, self.msg, self.retry_after = code, msg, retry_after
 
 
 class _Job:
@@ -72,6 +74,40 @@ class SourceAdapter:
     '''run a sync callable in a worker thread under the source capacity + hard timeout'''
     async def run(self, fn, *args, **kwargs):
         return await self.run_with_timeout(fn, self.settings.hard_timeout_s, *args, **kwargs)
+
+    '''one logical upstream entry point (primary host, container, relay/mirror).
+       `name` is host-agnostic by contract: every alias of the same logical parser
+       shares it, so a 429 cooldown cannot be reset by switching hosts.'''
+    async def run_guarded(self, name, fn, *args, **kwargs):
+        remaining = self.health.cooldown_remaining(name)
+        if remaining > 0:
+            raise AdapterError(429, f'{self.source_key}: {name} is cooling down after an upstream '
+                                    f'rate limit ({int(round(remaining))}s left)',
+                               retry_after=int(round(remaining)) or 1)
+        try:
+            return await self.run(fn, *args, **kwargs)
+        except Exception as err:
+            if is_rate_limited(err):
+                wait = self.health.record_throttle(name, retry_after_from(err), err)
+                raise AdapterError(429, f'{self.source_key}: upstream rate limited ({name})',
+                                   retry_after=int(round(wait)) or 1)
+            raise
+
+    '''sync-side counterpart of run_guarded, for helpers already inside a worker thread'''
+    def guarded_sync(self, name, fn, *args, **kwargs):
+        remaining = self.health.cooldown_remaining(name)
+        if remaining > 0:
+            raise AdapterError(429, f'{self.source_key}: {name} is cooling down after an upstream '
+                                    f'rate limit ({int(round(remaining))}s left)',
+                               retry_after=int(round(remaining)) or 1)
+        try:
+            return fn(*args, **kwargs)
+        except Exception as err:
+            if is_rate_limited(err):
+                wait = self.health.record_throttle(name, retry_after_from(err), err)
+                raise AdapterError(429, f'{self.source_key}: upstream rate limited ({name})',
+                                   retry_after=int(round(wait)) or 1)
+            raise
 
     '''same as run() with an explicit timeout (slow resolvers like deezer override this)'''
     async def run_with_timeout(self, fn, timeout, *args, **kwargs):

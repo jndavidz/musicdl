@@ -30,7 +30,9 @@ class NeteaseAdapter(SourceAdapter):
         mu = self.account_cookie()
         if mu:
             params['cookie'] = 'os=pc; ' + mu
-        return requests_get(f'{self.settings.ncm_api_base}{path}', params)
+        # logical name keeps the cooldown host-agnostic (NCM_API_BASE alias switching
+        # must not reset an upstream 429 cooldown)
+        return self.guarded_sync('netease:ncm-api', requests_get, f'{self.settings.ncm_api_base}{path}', params)
 
     '''raw cookie value (e.g. MUSIC_U=xxx); public interface for the generic passthrough
        (cookie-optional injection: absent file -> anonymous request)'''
@@ -132,8 +134,9 @@ class NeteaseAdapter(SourceAdapter):
     '''ffapi 128k last-resort (official CDN, anonymous, works after VIP expiry)'''
     def _via_ffapi(self, song_id: str) -> dict:
         import requests as _rq
-        r = _rq.get(f'https://ffapi.cn/int/v1/netease_url?id={song_id}&level=standard',
-                    headers={'User-Agent': 'Mozilla/5.0 Chrome/131'}, timeout=12)
+        r = self.guarded_sync('netease:ffapi', _rq.get,
+                              f'https://ffapi.cn/int/v1/netease_url?id={song_id}&level=standard',
+                              headers={'User-Agent': 'Mozilla/5.0 Chrome/131'}, timeout=self.io_timeout)
         d = r.json()
         url = (d.get('data') or d).get('url') or ''
         if not str(url).startswith('http'): return None

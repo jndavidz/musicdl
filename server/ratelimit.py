@@ -76,6 +76,7 @@ def install_ratelimit(app, st) -> None:
             resp = JSONResponse(envelope(429, 'rate limit exceeded, slow down', None), status_code=429)
             resp.headers.update({
                 'Retry-After': str(retry_after),
+                'X-RateLimit-Scope': 'local',   # distinct from upstream 429 (X-RateLimit-Scope: upstream)
                 'X-RateLimit-Limit': str(limiter.count),
                 'X-RateLimit-Remaining': '0',
                 'X-RateLimit-Reset': str(int(reset)),

@@ -66,11 +66,13 @@ class KugouAdapter(SourceAdapter):
             cache.set('cookie', ck)
         return ck
 
-    '''raw GET against the sibling kugou-api container with cookie attached'''
+    '''raw GET against the sibling kugou-api container with cookie attached.
+       cooldown is keyed by the LOGICAL endpoint (kugou:container), so a 429 on the
+       container is not bypassed by re-pointing KUGOU_API_BASE at an alias.'''
     def _api_get(self, path: str, params: dict = None) -> dict:
         params = dict(params or {})
         params['cookie'] = self.account_cookie()
-        return requests_get(f'{self.settings.kugou_api_base}{path}', params)
+        return self.guarded_sync('kugou:container', requests_get, f'{self.settings.kugou_api_base}{path}', params)
 
     '''metadata-only search via musicdl's anonymous search endpoint (stable JSON)'''
     def _search_raw(self, keywords: str, limit: int, page: int) -> list:

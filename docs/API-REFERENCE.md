@@ -158,7 +158,7 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 | `track_ref.extra` | **只保留影响身份的字段**：migu `copyrightId`；bilibili `cid` 和/或 `page`。其余键一律丢弃（伪造 ekey/URL 不进入缓存键） |
 | `profile.quality` | 原始拼写；v2 先按白名单校验再归一化（§4.8） |
 | `profile.target` | `device`（托管播放）或 `media_prepare`（仅 Songloft 媒体准备，需 `media:prepare` scope） |
-| `freshness` | `allow_cache`（默认）/ `revalidate`（跳过读缓存，仍写回） |
+| `freshness` | `allow_cache`（默认）/ `revalidate`（跳过读缓存，仅重解析**一次**，仍写回） |
 
 **身份硬约束（缺字段明确拒绝，HTTP 400）**：
 
@@ -172,7 +172,9 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 - `verified` 在 v2 **恒为 false**：kwqq 只能声明上游说法或部分字节证据，完整文件验证由 Songloft 准备链完成（`verification.level` ∈ `declared`/`partial`，`requires_byte_verification` 恒 true）。
 - 缓存键 = 结构化身份 + 播放策略 + 凭据代次（`v2:` 命名空间，独立于 v1 url_cache）。
 
-### 4.7 七源逐源详述#### kuwo 酷我
+### 4.7 七源逐源详述
+
+#### kuwo 酷我
 
 | 项 | 说明 |
 |----|------|
@@ -262,6 +264,28 @@ v2 与 v1 共用 adapter 出链能力，但**准入判断独立且更严**。以
 
 ---
 
+
+### 4.9 POST /v2/cache/invalidate — 受限缓存失效（K-04）
+
+当成功缓存但已陈旧（上游直链换签）时，媒体服务用独立 scope 主动失效**当前身份**，随后按 `freshness=revalidate` 重解析。
+
+```json
+{"track_ref": {"source": "bilibili", "id": "BV1xx", "extra": {"page": 2}},
+ "profile": {"quality": "320k", "target": "device"}}
+```
+
+- 需要 `cache:invalidate` scope（`playback:issue` token 调用 → 403）。
+- 只删除「该身份 + 该策略 + 该 token 代次」的精确键：无通配符、无跨身份、无跨代次；返回 `{invalidated, identity_digest, generation, profile}`。
+- 重解析预算：一次失效后最多一次受控重解析（并发同键由 singleflight 合并）；端到端重试预算由最外层命令持有，kwqq 不叠加自己的多轮重试。
+
+### 4.10 singleflight、限流冷却与错误分类（K-04）
+
+- **singleflight**：同一结构化键的并发请求只有一个 leader 执行上游解析，其余等待者共享结果；等待者取消不影响 leader 与其他等待者；leader 失败不写负缓存，后续请求可自行重试。
+- **上游 429 冷却**：冷却按**逻辑入口**（如 `kuwo:relay.haitangw`、`netease:ncm-api`、`kugou:container`）记账，与 host 别名/内外网入口无关——换 host、换备用入口都不重置同一冷却，冷却期内备用入口**零请求**；保留上游 `Retry-After`；429 结果永不作为成功缓存。
+- **限流分类**：本地限流器 429 带 `X-RateLimit-Scope: local`；上游 429 带 `X-RateLimit-Scope: upstream` + `Retry-After`。两者都是 HTTP 429 + 信封 `code=429`。
+- `/status` 的 `parsers` 快照新增 `cooldown_remaining_s`、`throttled`。
+
+---
 
 ## 5. 透传端点（酷狗/网易云全量能力）
 
@@ -414,6 +438,7 @@ server/tests/test_smoke.py <url> [--auth K:] # 冒烟默认档（含 netease 与
 | 2026-10-29 | 1.9 | +`POST /v2/playback/resolve`（K-01：TrackRef 身份契约、`X-Service-Token` scoped 服务凭证、结构化缓存键含身份/策略/凭据代次）；bilibili v2 支持受验证 cid/page（不再固定 pages[0]），`/song/info` 回传 `extra.cid/page` + `raw.pages`；migu 保留 contentId+copyrightId；v1 全部端点与 ekey 下载契约不变 |
 | 2026-10-29 | 1.10 | v2 严格播放准入（K-02 §4.8）：原始 quality 白名单先于归一化（无损请求 400 而非回落 auto）；FLAC/加密件/>320k 415；AAC 仅 `media:prepare` scope 的 `target=media_prepare` 可进转码准备且 `requires_transcode=true`；`verified` 语义修正（v2 恒 false + `requires_byte_verification=true`，完整验证归 Songloft）；v1 语义不变 |
 | 2026-10-29 | 1.11 | 执行层真实并发（K-03）：每源独立线程池，容量仅在 worker 线程真正退出后释放（调用方超时不释放）；等待队列 `MAX_WAITERS` 有界，满则 503 capacity；所有裸同步请求带 `IO_TIMEOUT_S`；netease 高档 HEAD 移入受测执行边界；迟到结果丢弃不投送；`/status` 新增 `runtime` 逐源计数（active/waiting/timed_out/late_dropped）供跨项目容量验收汇总 |
+| 2026-10-29 | 1.12 | singleflight + 限流冷却 + 受限失效（K-04）：同结构化键并发只解析一次（等待者取消隔离、失败不写负缓存）；上游 429 按逻辑入口冷却并保留 Retry-After，换 host/备用入口零请求、429 不入成功缓存；+`POST /v2/cache/invalidate`（`cache:invalidate` scope，精确身份失效，一次受控重解析）；`freshness` 仅接受 allow_cache/revalidate；本地/上游 429 以 `X-RateLimit-Scope` 区分 |
 | 2026-10-27 | 1.6 | `TRUSTED_NETWORKS` 默认加入办公室 WG 网段 `10.20.0.0/24`（D-x 定案：办公室免 key / 免限流；代价是该网段内设备均可匿名访问） |
 | 2026-10-28 | 1.7 | +`/{source}/album`（P6 专辑检索：候选 + 首选专辑有序曲目 track_no；netease 先行，未实现源 HTTP 501）|
 | 2026-10-28 | 1.8 | +`/{source}/playlist`（P6 歌单检索，netease 先行）；`/{source}/album` 扩至 kugou/migu/qianqian（候选 name+artist 无结果自动退 name-only）；netease 进 live 冒烟常规档 |

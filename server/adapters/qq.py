@@ -26,32 +26,31 @@ class QQAdapter(SourceAdapter):
         return self.client._parsewiththirdpartapis({'mid': song_id}, {})
 
     '''yuanli SVIP relay (175.27.166.236/kgqq1, verified live 2026-08-23 via plugin instrumentation).
-       level: exhigh -> 320k mp3, lossless -> FLAC. Note it resolves via kuwo CDN.'''
+       level: exhigh -> 320k mp3, lossless -> FLAC. Note it resolves via kuwo CDN.
+       429 cools the logical relay name (qq:relay.yuanli) and is re-raised.'''
     def _via_yuanli(self, song_id: str, quality: str):
-        import time as _time
         level = 'lossless' if quality in {'flac', 'hires'} else 'exhigh'
-        t0 = _time.perf_counter()
         try:
-            resp = self.client.get('http://175.27.166.236/kgqq1/qq.php',
-                                   params={'id': song_id, 'type': 'json', 'level': level}, timeout=(3, 10))
-            payload = resp.json() if resp and hasattr(resp, 'json') else {}
-            url = ((payload.get('data') or {}).get('url')) or ''
-            ok = payload.get('code') == 200 and str(url).startswith('http')
-            self.health.record('yuanli.relay.qq', ok, (_time.perf_counter() - t0) * 1000,
-                               None if ok else f"code={payload.get('code')}")
-            if not ok: return None
-            status = self.client.audio_link_tester.test(url)
-            if not status.get('ok'): return None
-            return status
-        except Exception as err:
-            self.health.record('yuanli.relay.qq', False, (_time.perf_counter() - t0) * 1000, err)
+            resp = self.guarded_sync('qq:relay.yuanli', self.client.get,
+                                     'http://175.27.166.236/kgqq1/qq.php',
+                                     params={'id': song_id, 'type': 'json', 'level': level}, timeout=(3, 10))
+        except AdapterError:
+            raise            # 429/cooldown: surfaced, never silently skipped
+        except Exception:
             return None
+        payload = resp.json() if resp and hasattr(resp, 'json') else {}
+        url = ((payload.get('data') or {}).get('url')) or ''
+        if not (payload.get('code') == 200 and str(url).startswith('http')): return None
+        status = self.client.audio_link_tester.test(url)
+        return status if status.get('ok') else None
 
     '''last-resort aggregate relay (music.3e0.cn, verified live 2026-08-12).
        Returns its own proxy stream (not a CDN direct link) — 320k-class only.'''
     def _via_3e0(self, song_id: str):
-        resp = self.client.get('https://music.3e0.cn', params={'server': 'tencent', 'type': 'url', 'id': song_id},
-                               headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}, timeout=(3, 10))
+        resp = self.guarded_sync('qq:relay.3e0', self.client.get, 'https://music.3e0.cn',
+                                 params={'server': 'tencent', 'type': 'url', 'id': song_id},
+                                 headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'},
+                                 timeout=(3, 10))
         url = (resp.text or '').strip()
         if not url.startswith('http'): return None
         status = self.client.audio_link_tester.test(url)

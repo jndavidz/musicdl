@@ -5,6 +5,12 @@ Function:
 import time
 import threading
 
+from server.singleflight import SingleFlight
+
+'''process-wide leader registry: keys are (id(cache), cache_key) so caches that
+   happen to share a textual key never merge'''
+_flight = SingleFlight()
+
 
 class TTLCache:
     def __init__(self, ttl_seconds: int, max_items: int = 2048):
@@ -39,6 +45,13 @@ class TTLCache:
                         self._store.pop(k, None)
             self._store[key] = (time.monotonic() + self.ttl, value)
 
+    def delete(self, key: str) -> bool:
+        '''scoped invalidation: evict one exact key (returns whether it existed)'''
+        with self._lock:
+            existed = self._store.pop(key, None) is not None
+            if not existed: self._misses += 1
+            return existed
+
     def stats(self) -> dict:
         with self._lock:
             total = self._hits + self._misses
@@ -50,11 +63,18 @@ class TTLCache:
 async def cached(cache: TTLCache, key_parts: tuple, fn) -> tuple:
     '''single cache idiom for all routes: key_parts joined by ':'; fn is the async
        resolver. Returns (value, hit). Note the store-treats-''-as-hit asymmetry is
-       intentional: lyric '' is a valid cached value, hence `is not None` checks.'''
+       intentional: lyric '' is a valid cached value, hence `is not None` checks.
+       Concurrent misses on the same key share ONE leader execution (singleflight);
+       a failed leader stores nothing, so the next caller may retry.'''
     key = ':'.join(str(p) for p in key_parts)
     hit = cache.get(key)
     if hit is not None:
         return hit, True
-    value = await fn()
-    cache.set(key, value)
+
+    async def _compute_and_store():
+        value = await fn()
+        cache.set(key, value)
+        return value
+
+    value = await _flight.run((id(cache), key), _compute_and_store)
     return value, False
