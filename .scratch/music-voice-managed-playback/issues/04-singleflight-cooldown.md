@@ -1,6 +1,6 @@
 # K-04: 实现结构化缓存 singleflight 与一致冷却
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: 01, 03
 External blocked by: —
@@ -30,3 +30,15 @@ External blocked by: —
 仅进程内实现与离线测试；不调用真实上游制造 429。
 
 ## Comments
+
+- 2026-10-29 完成（离线）：新增 `server/singleflight.py`（同键一个 leader，等待者经 `asyncio.shield`
+  共享，取消互不波及；leader 失败不写负缓存）；`server/cache.py` 全部路由共用 `cached()`，flight 键用
+  TTLCache 稳定 `uid`（避免 `id()` 复用串扰）。`server/parsers_health.py` 429 按**逻辑入口**冷却并
+  保留 Retry-After、429 永不入成功缓存，识别收紧为 HTTP 状态/明确措辞（id/URL 含 "429" 不再误冷却）；
+  透传端点（`routes/passthrough.py`）与 netease search 复用同一逻辑入口，429 不再被旁路。
+  `POST /v2/cache/invalidate` 按当前身份 + 策略 + 代次精确失效（无通配、跨 scope 403）；
+  `freshness=revalidate` 先失效再经 singleflight 重解析一次并把新值写回；kwqq 自身不叠加重试。
+  证据：`server/tests/test_resilience.py` 35 项 PASS（并发计数、等待者取消隔离、失败后重试、身份
+  永不合并、429 跨 host 零请求、Retry-After 保留、本地/上游分类、失效精确性、revalidate 刷新）；
+  commits `3c8e76a` + `ff68005`。
+  NOT RUN：真实上游 429（授权禁止制造）。

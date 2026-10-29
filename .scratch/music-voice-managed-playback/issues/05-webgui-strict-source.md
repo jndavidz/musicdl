@@ -1,6 +1,6 @@
 # K-05: 实现 WebGUI 严格来源与身份快照
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: 01, 02
 External blocked by: —
@@ -30,3 +30,15 @@ External blocked by: —
 不改下载目录、用户配置或 NAS 文件；真实浏览器与部署验收另行批准。
 
 ## Comments
+
+- 2026-10-29 完成（离线）：webgui 新增 `kwqq_only` 严格来源（`library.py` 来源策略，搜索/创建/恢复/
+  重试同一判据，严格模式禁用六源进程内兜底；未开启时旧兜底保持冻结）；下载任务快照升级为身份白名单
+  （TrackRef / 平台+identifier，不落 URL/Cookie/ekey/api_extra），无法识别或违反策略的条目暂停
+  `paused` 而非自动重跑；下载走同文件系统 `.tmp/` 隔离件 + 单次 `os.replace` 原子发布，中断与取消
+  都不留半文件（审查补：按同一 stem 全量清理临时件、取消后重试可用）；`outbox.py` 有界幂等 completed
+  通知 + `GET /api/outbox`；入站 `api_key` 与出站 `kwqq_api_key` 分离，匿名写 401；队列
+  `max_queued_items` 有界（满 503）；条目字段创建时定型，`/api/tasks` 快照不再有 dict 尺寸变化风险。
+  证据：`examples/musicdlwebgui/tests/test_offline.py` 34 项 PASS（API 成功、显式 fallback、kwqq_only、
+  伪造身份、旧快照暂停、敏感字段不落地、路径穿越、中断清理、重复 outbox、鉴权、取消/重试回归）；
+  commits `0a25b83` + `ff68005`。
+  NOT RUN：真实浏览器与 NAS 部署验收（需单独授权）。

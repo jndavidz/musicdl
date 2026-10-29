@@ -1,6 +1,6 @@
 # K-06: 迁移七插件兼容门面并收口消费方验收
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: 01, 02, 04, 05
 External blocked by: open-xiaoai B-05/B-06，Songloft S-03（跨区联调）
@@ -31,3 +31,19 @@ External blocked by: open-xiaoai B-05/B-06，Songloft S-03（跨区联调）
 不改 MusicFree 宿主、不发布插件、不刷新真实 Cookie、不调用账号写接口；发布与真实上游另行批准。
 
 ## Comments
+
+- 2026-10-29 完成（本地范围）：七插件（网易/酷狗/QQ/酷我/咪咕/千千/B站）`getMediaSource` 改为 v2 优先，
+  回传完整 TrackRef；未配置 `serviceToken` 或旧服务端回落 v1 迁移窗口；回落只在 **HTTP 404**（路由缺失）
+  发生，业务未命中是 `200 + code 404`；429 直接暴露并冷却、不换 host、不回落；酷狗不再回落 FLAC、
+  兼容链拒绝非 mp3；B站 cid/page 进 TrackRef（多分 P 展开保留身份、身份缺失明确报错、v1 路径回传
+  cid/page），咪咕 copyrightId 必带；v2 解析不带平台 cookie（身份只由 TrackRef 表达）；官方元数据/
+  歌词/榜单/评论直连全部保留，未迁移项见清单。
+  文档：姊妹仓 `docs/PLUGIN-COMPAT.md`（方法清单 / 未迁移项 / 许可开放项）、`docs/API-REFERENCE.md`
+  §4.6–4.10 + 变更记录、`docs/QUALITY-MATRIX.md`、ADR-0004。
+  证据：`node tests/run.js` 152 项 PASS（TrackRef 往返、分 P、AAC、FLAC 最终失败、非 MP3、业务 404、
+  429 备用 host 零请求、网络故障切 host、v1 分 P、v2 不带 cookie）；`node shared/build.js` 后产物与
+  源码一致（diff 无残留）；commits `5cde8ed` + `de4a6db`（musicfree-plugins）。
+  NOT RUN（不计为通过）：`music_ecosystem` runner 的 `consumers-seven`/`quality-profile`/`singleflight`/
+  `download-identity` 跨项目 case（依赖 open-xiaoai B-01 与 B-05/B-06、Songloft S-03）；插件发布与
+  真实客户端在线验收。
+  许可：PolyForm NC 与 README 分发表述的冲突、实际 AGPL 组件源码提供义务仍为开放项（PLUGIN-COMPAT §6）。

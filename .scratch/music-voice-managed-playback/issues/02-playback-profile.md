@@ -1,6 +1,6 @@
 # K-02: 实施严格 v2 播放 profile 与真实质量声明
 
-Status: ready-for-agent
+Status: resolved
 Type: task
 Blocked by: 01
 External blocked by: —
@@ -29,3 +29,13 @@ External blocked by: —
 不新增转码服务、不改 Lyrion；真实上游与 NAS 验收另行批准。
 
 ## Comments
+
+- 2026-10-29 完成（离线）：新增 `server/playback_profile.py`——原始 quality 拼写先过白名单再归一化
+  （`flac`/`hires`/`master`/`surround51` 请求 400，不回落 auto）；候选侧 FLAC/加密件(ekey)/>320k/
+  非 mp3 一律 415；AAC 家族仅 `target=media_prepare` 且持 `media:prepare` scope 时作为转码输入放行
+  （`requires_transcode=true`、`ready=false`、`delivered_quality=null`）。`server/playback.py` 中 v2
+  `verified` 恒 false、`requires_byte_verification` 恒 true，`delivery_quality` 由实测码率推出并如实
+  标注 `downgraded` / 证据不足。v1 质量、无损与 ekey 语义不变，质量知识仍只在 server。
+  证据：`server/tests/test_contract.py` 54 项 PASS（假后缀/MIME、FLAC/M4A-AAC、加密件、>320k、真实降档、
+  透传档位、AAC 直投与其他 scope 拒绝、拒绝候选不入缓存）；v1 回归 `test_offline.py` 46 项；commit `7a71724`。
+  NOT RUN：Songloft 准备链（S-03）联调、真实上游与 NAS 验收。
