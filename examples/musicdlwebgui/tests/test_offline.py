@@ -364,6 +364,38 @@ retried = (snap.get('items') or [{}])[0]
 check('retried item succeeds (cancel flag cleared)', retried.get('status') == 'success',
       f"status={retried.get('status')} error={retried.get('error', '')}")
 
+# ---- I: retry one item while a sibling is still winding down (K-05 regression) ----
+print('[I] retry during a still-winding-down cancel')
+_eng = downloads.DownloadEngine.__new__(downloads.DownloadEngine)
+_eng.tasks, _eng.tasks_lock, _eng.pool = {}, threading.Lock(), type(
+    'P', (), {'submit': lambda self, fn, *a: None})()
+_info = kwqq_api.ApiSongInfo(song_name='尾戒', singers='测试歌手', album='测试专辑', ext='mp3',
+                             duration_s=180, source='kuwo', root_source='kuwo@api',
+                             download_url=None, api_id='song-x', api_source='kuwo',
+                             api_extra={}, cover_url='')
+_desc = downloads._info_descriptor(_info, 'kuwo')
+_base_item = {'song_name': '尾戒', 'singers': '测试歌手', 'album': '测试专辑',
+              'source': 'kuwo', 'ext': 'mp3', 'quality_tier': 'mp3', 'progress': 0,
+              'speed': '', 'downloaded_bytes': 0, 'total_bytes': 0, 'error': '',
+              'saved_path': '', 'platform_tag': '', 'api_note': '', 'real_spec': '',
+              '_inflight': None, '_info': None}
+_sibling = dict(_base_item, item_id='a', key='k:a', status='cancelling', _cancel=True)
+_retried = dict(_base_item, item_id='b', key='k:b', status='cancelled', _cancel=True,
+                _restore=_desc)
+_task = {'task_id': 'tw', 'created_at': '', 'quality_pref': 'any', 'dedupe': False,
+         'cancel_flag': True, 'status': 'running', 'items': [_sibling, _retried]}
+_eng.tasks['tw'] = _task
+downloads.get_lib_downloader = lambda: FakeDownloader()
+_eng.retry_item('tw', 'b')
+check('retry re-arms only the retried item',
+      _retried['_cancel'] is False and _sibling['_cancel'] is True,
+      f"retried={_retried['_cancel']} sibling={_sibling['_cancel']}")
+check('retry clears the task cancel flag', _task['cancel_flag'] is False)
+_eng._run_item('tw', 'b')
+check('retried item is not swallowed by the winding-down sibling',
+      _retried['status'] == 'success', f"status={_retried['status']} error={_retried.get('error')}")
+check('the winding-down sibling stays cancelled', _sibling['status'] == 'cancelling')
+
 server.should_exit = True
 
 # ---- G: inbound auth ----

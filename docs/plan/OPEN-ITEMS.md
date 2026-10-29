@@ -1,7 +1,7 @@
 # musicdl 未完成事项（本仓）
 
 > 范围：**仅 musicdl 仓库**（库层 / server / webgui / docs / scripts）。songloft、open-xiaoai 侧事项不入本文。
-> 快照：2026-10-29；离线冒烟 = server 46+54+13+35 项、webgui 34 项全 PASS（七插件 152 项在姊妹仓）。
+> 快照：2026-10-29；离线冒烟 = server 46+58+13+37 项、webgui 38 项全 PASS（七插件 153 项在姊妹仓）。
 > 进度与跨区契约以 `D:\_work\dev\docs\projects\MUSICDL\music-ecosystem-roadmap.md` 为准；本文只列"还没做完"。
 
 ## P0 · v2 托管播放（K-01…K-06 已离线 + NAS 实网验收）
@@ -14,7 +14,7 @@
 
 | 项 | 值 |
 |---|---|
-| 源代码 | `api-server` HEAD `4d6b252`（含 K-01…K-06 与审查修复） |
+| 源代码 | `api-server` `4d6b252`（含 K-01…K-06 与审查修复）；**不含其后的评审修复**（缓存键归一化、非 ASCII token、bilibili search 429），该批仅离线验证，下次部署需重跑实网验收 |
 | 镜像 | 部署前 `ead4f0a67c94`（v2 返回 404）→ 部署后 `b19e5f6ca09d`；`musicdl:previous` = `ead4f0a67c94` |
 | 容器 | `musicdl-api` healthy / `musicdl-webgui` running（同一镜像重建） |
 | 回滚 | `docker tag musicdl:previous musicdl:latest && docker compose up -d --no-build`（旧镜像忽略 `SERVICE_TOKENS`，回滚安全） |

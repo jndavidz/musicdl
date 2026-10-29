@@ -102,7 +102,8 @@ def digest(ref: dict) -> str:
 
 
 def canonical_policy(profile: dict) -> str:
-    '''playback policy part of the cache key (quality + target profile)'''
+    '''playback policy part of the cache key. Callers pass the NORMALIZED policy
+       (per-source tier + target), so alias spellings of one tier share a key.'''
     payload = {'quality': str((profile or {}).get('quality') or 'auto').strip().lower(),
                'target': str((profile or {}).get('target') or 'device').strip().lower()}
     return json.dumps(payload, sort_keys=True, separators=(',', ':'))

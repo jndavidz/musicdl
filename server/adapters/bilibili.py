@@ -11,6 +11,7 @@ import urllib.request
 import urllib.parse
 from .base import SourceAdapter, AdapterError
 from ..cache import TTLCache
+from ..parsers_health import is_rate_limited, retry_after_from
 from ..quality import resolve as resolve_quality, requires_lossless
 
 
@@ -63,7 +64,13 @@ class BilibiliAdapter(SourceAdapter):
         try:
             data = self._api_get('https://api.bilibili.com/x/web-interface/search/type?' + urlencode(rule))
             return ((data.get('data') or {}).get('result')) or []
-        except Exception:
+        except Exception as err:
+            if is_rate_limited(err):
+                # an anti-bot/429 window is NOT "no results": cooling the logical
+                # entry keeps the 5-minute empty-list cache from masquerading as truth
+                wait = self.health.record_throttle('bilibili:search', retry_after_from(err), err)
+                raise AdapterError(429, 'bilibili: search rate limited',
+                                   retry_after=int(round(wait)) or 1)
             return []
 
     @staticmethod

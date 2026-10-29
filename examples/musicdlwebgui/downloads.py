@@ -403,7 +403,7 @@ class DownloadEngine:
                 # every field a worker may touch exists from birth: item dicts never
                 # change size while /api/tasks snapshots iterate them
                 'platform_tag': '', 'api_note': '', 'real_spec': '',
-                '_inflight': None,
+                '_inflight': None, '_cancel': False,
                 '_info': s['_info'], '_restore': _info_descriptor(s['_info'], s['source']),
             })
         task = {'task_id': task_id, 'created_at': time.strftime('%H:%M:%S'), 'quality_pref': quality_pref,
@@ -422,7 +422,9 @@ class DownloadEngine:
         task = self.tasks.get(task_id)
         item = next((i for i in task['items'] if i['item_id'] == item_id), None) if task else None
         if not item or item['status'] != 'queued': return
-        if task['cancel_flag']:
+        # per-item cancel (not the task flag): retrying ONE item must still work
+        # while a sibling is winding down from an earlier cancel
+        if item.get('_cancel'):
             item['status'] = 'cancelled'; self._refresh_status(task_id); return
         item['status'] = 'downloading'
         last_speed_tick, start_ts = [time.time()], time.time()
@@ -497,7 +499,7 @@ class DownloadEngine:
                 item['quality_tier'] = ('hires' if 'VIP' in was_tag else
                                         ('surround51' if 'surround51' in was_tag else 'master'))
             if not downloaded: raise RuntimeError('下载失败（链接可能已过期），请重新搜索后再试')
-            if task.get('cancel_flag') or item.get('status') == 'cancelling':
+            if item.get('_cancel') or item.get('status') == 'cancelling':
                 raise _Aborted('已取消')
             produced = downloaded[0]
             # publish name follows the FINAL bytes (a decrypted mflac/mgg becomes .flac),
@@ -547,8 +549,10 @@ class DownloadEngine:
         task['cancel_flag'] = True
         for item in task['items']:
             if item['status'] == 'queued':
-                item['_info'] = None; item['status'] = 'cancelled'; item['error'] = '已取消'
-            elif item['status'] == 'downloading': item['status'] = 'cancelling'
+                item['_info'] = None; item['_cancel'] = True
+                item['status'] = 'cancelled'; item['error'] = '已取消'
+            elif item['status'] == 'downloading':
+                item['_cancel'] = True; item['status'] = 'cancelling'
         self._refresh_status(task_id)
         self.persist()
         return self.snapshot(task_id)
@@ -559,8 +563,10 @@ class DownloadEngine:
         item = next((i for i in task['items'] if i['item_id'] == item_id), None)
         if not item: raise KeyError(f'unknown item {item_id}')
         if item['status'] not in {'failed', 'cancelled', 'cancelling'}: raise ValueError('仅失败或已取消的条目可重试')
-        if not any(i['status'] in {'cancelling', 'downloading'} for i in task['items']):
-            task['cancel_flag'] = False   # otherwise every retry would be re-cancelled on entry
+        # the retry only re-arms THIS item; siblings that are still winding down keep
+        # their own cancel marker, and the task flag no longer gates new work
+        item['_cancel'] = False
+        task['cancel_flag'] = False
         # retry re-resolves from the identity snapshot; an unusable/forged snapshot
         # pauses instead of guessing what the user meant
         desc = item.get('_restore') or {}
@@ -616,6 +622,7 @@ class DownloadEngine:
             item.setdefault('real_spec', '')
             item.setdefault('_inflight', None)
             item.setdefault('_info', None)
+            item.setdefault('_cancel', False)
             if not isinstance(item.get('_restore'), dict):
                 item.update(status='paused', error='任务快照缺少可识别身份，已暂停（请重新搜索）')
             items.append(item)
@@ -641,7 +648,7 @@ class DownloadEngine:
                 if task['status'] == 'cancelling' or (task['status'] == 'running' and task['cancel_flag']):
                     for item in task['items']:
                         if item['status'] not in TERMINAL_ITEM_STATUSES:
-                            item.update(status='cancelled', error='已取消')
+                            item.update(status='cancelled', error='已取消', _cancel=True)
                     self._refresh_status(task['task_id'])
                     continue
                 if task['status'] != 'running': continue
@@ -654,7 +661,7 @@ class DownloadEngine:
                                 partial = Path(inflight)
                                 if partial.is_file(): partial.unlink()
                         item.update(status='queued', error='', progress=0, speed='',
-                                    downloaded_bytes=0)
+                                    downloaded_bytes=0, _cancel=False)
                     elif item['status'] == 'queued':
                         item.update(error='', progress=0, speed='', downloaded_bytes=0)
                 self._refresh_status(task['task_id'])

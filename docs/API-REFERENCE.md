@@ -171,7 +171,7 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 
 - `track_ref` = 原请求身份（经校验并回填已解析 cid/page）；`resolved_source` = 实际出链来源。
 - `verified` 在 v2 **恒为 false**：kwqq 只能声明上游说法或部分字节证据，完整文件验证由 Songloft 准备链完成（`verification.level` ∈ `declared`/`partial`，`requires_byte_verification` 恒 true）。
-- 缓存键 = 结构化身份 + 播放策略 + 凭据代次（`v2:` 命名空间，独立于 v1 url_cache）。
+- 缓存键 = 结构化身份 + **归一化**播放策略（per-source tier + target）+ 凭据代次（`v2:` 命名空间，独立于 v1 url_cache）。因此 `high`/`super`/`320k` 这类同一档位的不同拼写共用一个缓存项，失效时也不必复刻调用方的拼写。
 
 ### 4.7 七源逐源详述
 
@@ -276,7 +276,8 @@ v2 与 v1 共用 adapter 出链能力，但**准入判断独立且更严**。以
 ```
 
 - 需要 `cache:invalidate` scope（`playback:issue` token 调用 → 403）。
-- 只删除「该身份 + 该策略 + 该 token 代次」的精确键：无通配符、无跨身份、无跨代次；返回 `{invalidated, identity_digest, generation, profile}`。
+- 只删除「该身份 + 该策略 + 该 token 代次」的精确键：无通配符、无跨身份、无跨代次；返回 `{invalidated, identity_digest, generation, profile}`，其中 `profile` 回显 `{quality（原拼写）, target, tier（归一化档位）}`。
+- `profile.quality` 走与 resolve 相同的白名单与归一化（无损请求 400），因此用别名拼写也能失效到对应档位的缓存项。
 - 重解析预算：一次失效后最多一次受控重解析（并发同键由 singleflight 合并）；端到端重试预算由最外层命令持有，kwqq 不叠加自己的多轮重试。
 
 ### 4.10 singleflight、限流冷却与错误分类（K-04）
@@ -448,6 +449,7 @@ server/tests/test_smoke.py <url> [--auth K:] # 冒烟默认档（含 netease 与
 | 2026-10-29 | 1.10 | v2 严格播放准入（K-02 §4.8）：原始 quality 白名单先于归一化（无损请求 400 而非回落 auto）；FLAC/加密件/>320k 415；AAC 仅 `media:prepare` scope 的 `target=media_prepare` 可进转码准备且 `requires_transcode=true`；`verified` 语义修正（v2 恒 false + `requires_byte_verification=true`，完整验证归 Songloft）；v1 语义不变 |
 | 2026-10-29 | 1.11 | 执行层真实并发（K-03）：每源独立线程池，容量仅在 worker 线程真正退出后释放（调用方超时不释放）；等待队列 `MAX_WAITERS` 有界，满则 503 capacity；所有裸同步请求带 `IO_TIMEOUT_S`；netease 高档 HEAD 移入受测执行边界；迟到结果丢弃不投送；`/status` 新增 `runtime` 逐源计数（active/waiting/timed_out/late_dropped）供跨项目容量验收汇总 |
 | 2026-10-29 | 1.13 | 消费方收口（K-06）：七 MusicFree 插件改为 v2 优先（配置 `serviceToken` 时走 `/v2/playback/resolve`，未配置/旧服务端回落 v1 迁移窗口）；B站 cid/page、咪咕 copyrightId 进 TrackRef；酷狗播放不再回落 FLAC、兼容链拒绝非 mp3；插件 runtime 对 HTTP 429 不换 host（保留 Retry-After、冷却期零请求）；清单与许可开放项见姊妹仓 `docs/PLUGIN-COMPAT.md` |
+| 2026-10-29 | 1.15 | 评审修复：v2 缓存键改用归一化策略（别名拼写共享一项、失效不必复刻拼写）；v2 `cache/invalidate` 同样做 quality 白名单校验；非 ASCII `X-Service-Token` 返回 401（不再 500）；bilibili search 遇 429 不再缓存空结果并按逻辑入口冷却；七插件 v2 超时不换 host 重跑 |
 | 2026-10-29 | 1.14 | 审查修复：`/{source}/song/url` 新增可选 `cid`/`page`（bilibili 分 P 身份进 v1 缓存键）；透传与 netease search 共用逻辑入口冷却（429 不再被旁路）；`freshness=revalidate` 先失效再经 singleflight 重解析并把新值写回；singleflight 键改用稳定 uid；bilibili buvid 取指纹移入受测执行边界 |
 | 2026-10-29 | 1.12 | singleflight + 限流冷却 + 受限失效（K-04）：同结构化键并发只解析一次（等待者取消隔离、失败不写负缓存）；上游 429 按逻辑入口冷却并保留 Retry-After，换 host/备用入口零请求、429 不入成功缓存；+`POST /v2/cache/invalidate`（`cache:invalidate` scope，精确身份失效，一次受控重解析）；`freshness` 仅接受 allow_cache/revalidate；本地/上游 429 以 `X-RateLimit-Scope` 区分 |
 | 2026-10-27 | 1.6 | `TRUSTED_NETWORKS` 默认加入办公室 WG 网段 `10.20.0.0/24`（D-x 定案：办公室免 key / 免限流；代价是该网段内设备均可匿名访问） |

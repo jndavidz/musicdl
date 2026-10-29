@@ -31,6 +31,12 @@ class ScopeDenied(Exception):
         self.code, self.msg = code, msg
 
 
+def _same(left: str, right: str) -> bool:
+    '''constant-time compare that tolerates non-ASCII header values (compare_digest
+       rejects str with non-ASCII, which would surface as a 500 instead of 401)'''
+    return hmac.compare_digest(left.encode('utf-8'), right.encode('utf-8'))
+
+
 class ScopeRegistry:
     def __init__(self, raw: str, download_key: str = '', default_generation: int = 1):
         self._download_key = str(download_key or '')
@@ -67,7 +73,7 @@ class ScopeRegistry:
 
     def _lookup(self, token: str):
         for known, scopes, generation in self._grants:
-            if hmac.compare_digest(token, known):
+            if _same(token, known):
                 return {'scopes': scopes, 'generation': generation}
         return None
 
@@ -77,7 +83,7 @@ class ScopeRegistry:
         token = str(token or '')
         if not token:
             raise ScopeDenied(401, 'missing service credential (X-Service-Token)')
-        if self._download_key and hmac.compare_digest(token, self._download_key):
+        if self._download_key and _same(token, self._download_key):
             raise ScopeDenied(403, 'the download API key does not grant playback service scopes')
         grant = self._lookup(token)
         if grant is None:

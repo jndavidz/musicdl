@@ -24,6 +24,11 @@ from server.config import SOURCES
 FRESHNESS = frozenset({'allow_cache', 'revalidate'})
 
 
+def _policy(prepared: dict) -> dict:
+    '''cache-key policy: the per-source normalized tier, not the caller's spelling'''
+    return {'quality': prepared['tier'], 'target': prepared['target']}
+
+
 def _ref_from(body):
     '''shared request validation for resolve + invalidate (400 on bad identity)'''
     try:
@@ -48,8 +53,10 @@ async def resolve(request: Request, body: PlaybackResolveBody):
     allow_normalize = prepared['target'] == 'media_prepare'
     if allow_normalize and not s.scopes.has_scope(grant, MEDIA_PREPARE):
         raise ScopeDenied(403, 'profile.target=media_prepare requires the "media:prepare" scope')
-    profile = body.profile.model_dump()
-    key = trackref.cache_key(ref, profile, grant['generation'])
+    # the key carries the NORMALIZED policy: `high`/`super`/`320k` all mean the same
+    # tier, so they share one entry (otherwise one spelling could never invalidate
+    # what another spelling cached).
+    key = trackref.cache_key(ref, _policy(prepared), grant['generation'])
 
     async def _resolve():
         kwargs = adapter.identity_kwargs(ref['extra'])
@@ -82,8 +89,13 @@ async def invalidate(request: Request, body: InvalidateBody):
     s = request.app.state
     grant = s.scopes.authorize(request.headers.get('x-service-token', ''), CACHE_INVALIDATE)
     ref = _ref_from(body)
-    profile = body.profile.model_dump()
-    key = trackref.cache_key(ref, profile, grant['generation'])
+    try:
+        prepared = normalize_request(ref['source'], body.profile.quality, body.profile.target)
+    except ProfileError as err:
+        raise AdapterError(err.code, err.msg)
+    key = trackref.cache_key(ref, _policy(prepared), grant['generation'])
     removed = s.v2_url_cache.delete(key)
     return ok({'invalidated': removed, 'identity_digest': trackref.digest(ref),
-               'generation': grant['generation'], 'profile': profile})
+               'generation': grant['generation'],
+               'profile': {'quality': prepared['requested_quality'],
+                           'target': prepared['target'], 'tier': prepared['tier']}})

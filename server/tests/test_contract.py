@@ -171,6 +171,9 @@ st, b = v2(base, {'source': 'qq', 'id': 's1'}, token='download-key')
 check('download API key does NOT grant playback scope -> 403', st == 403 and b.get('code') == 403, f'status={st}')
 st, b = v2(base, {'source': 'qq', 'id': 's1'}, token='inv-tok')
 check('token without playback:issue -> 403', st == 403 and b.get('code') == 403, f'status={st}')
+st, b = v2(base, {'source': 'qq', 'id': 's1'}, token='tök3n')
+check('non-ASCII service token -> 401 (never a 500)', st == 401 and b.get('code') == 401,
+      f'status={st} code={b.get("code")}')
 
 # ---- C: resolve through HTTP ----
 print('[C] POST /v2/playback/resolve')
@@ -199,6 +202,24 @@ check('different policy -> separate resolve', len(mfake.calls) == 3 and b['code'
 st, b = v2(base, {'source': 'migu', 'id': '600902', 'extra': {'copyrightId': 'C1'}}, token='play-tok-g2')
 check('new credential generation -> separate resolve', len(mfake.calls) == 4 and b['code'] == 200,
       f"calls={len(mfake.calls)} status={st} code={b.get('code')}")
+
+# the cache key carries the NORMALIZED policy: aliases of one tier share an entry,
+# so whichever spelling invalidates, the dead URL is really gone
+mfake_calls = len(mfake.calls)
+st, b = v2(base, {'source': 'migu', 'id': '600902', 'extra': {'copyrightId': 'C1'}}, quality='high')
+check('alias spelling of the same tier hits the same cache entry',
+      len(mfake.calls) == mfake_calls and (b.get('data') or {}).get('cached') is True,
+      f'calls={len(mfake.calls)} cached={(b.get("data") or {}).get("cached")}')
+st, b = call(base, '/v2/cache/invalidate', 'POST',
+             {'track_ref': {'source': 'migu', 'id': '600902', 'extra': {'copyrightId': 'C1'}},
+              'profile': {'quality': 'high', 'target': 'device'}},
+             {'X-Service-Token': 'inv-tok'})
+check('invalidate accepts an alias spelling and evicts that tier',
+      st == 200 and (b.get('data') or {}).get('invalidated') is True,
+      f'status={st} data={b.get("data")}')
+st, b = v2(base, {'source': 'migu', 'id': '600902', 'extra': {'copyrightId': 'C1'}})
+check('the other spelling re-resolves after that eviction', len(mfake.calls) == mfake_calls + 1,
+      f'calls={len(mfake.calls)}')
 
 st, b = v2(base, {'source': 'bilibili', 'id': 'BV1', 'extra': {'page': 2}})
 d = b.get('data') or {}

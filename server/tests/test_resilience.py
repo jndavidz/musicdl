@@ -326,6 +326,34 @@ check('local limiter is classified as local', st == 429 and h2.get('x-ratelimit-
       f'status={st} scope={h2.get("x-ratelimit-scope")}')
 server2.should_exit = True
 
+# ---- D2: adapter-level search must not turn an upstream 429 into cached "no results"
+print('[D2] search 429 vs empty results')
+
+
+class _R429(Exception):
+    def __init__(self):
+        super().__init__('HTTP 429 Too Many Requests')
+        self.response = type('R', (), {'status_code': 429, 'headers': {'Retry-After': '9'}})()
+
+
+class _ThrottledClient:
+    def get(self, *args, **kwargs):
+        raise _R429()
+
+
+from server.adapters.bilibili import BilibiliAdapter  # noqa: E402
+
+health_search = ParserHealth()
+bili = BilibiliAdapter(Settings(env={'TRUSTED_NETWORKS': '', 'UNTRUSTED_HOSTS': ''}), health_search)
+bili.client = _ThrottledClient()
+try:
+    bili._search_raw('x', 5, 1)
+    check('429 during search raises instead of returning []', False)
+except AdapterError as err:
+    check('429 during search raises instead of returning []', err.code == 429, f'code={err.code}')
+check('429 during search cools the logical entry',
+      health_search.cooldown_remaining('bilibili:search') > 0)
+
 # ---- E: scoped invalidation ----
 print('[E] scoped invalidation')
 inv_body = {'track_ref': {'source': 'qq', 'id': 'inv1'}, 'profile': {'quality': '320k'}}
