@@ -92,6 +92,13 @@ XDG_STATE_HOME=$PWD/.state .venv/bin/python examples/musicdlwebgui/tests/test_sm
 compose 位于 `deploy/docker-compose.yml`（NAS 侧 `/volume2/docker/musicdl-api/docker-compose.yml`，
 **两份文件**，NAS 侧保留自己的 `API_KEY` 与 `ENABLE_LOSSLESS=true`），`restart: unless-stopped` + 内置 healthcheck。
 
+**v2 播放凭据（2026-10-29 起）**：NAS compose 的 `musicdl-api.environment` 里有 `SERVICE_TOKENS`（JSON 以
+**token 为键**，值含 scopes/generation）与 `CREDENTIAL_GENERATION`；token 明文只存
+`/volume2/dev/data/api-secrets/musicAPI/kwqq_service_tokens.json`（600，Drive 同步到
+`D:\_work\dev\data\api-secrets\musicAPI\`），**不入 git、不进聊天**。轮换 = 改 secrets 文件 → 用新 token
+重写 compose 的 `SERVICE_TOKENS` → `docker compose up -d --no-build musicdl-api`（generation +1 即让旧缓存键失效）。
+回滚镜像用 `musicdl:previous`：`docker tag musicdl:previous musicdl:latest && docker compose up -d --no-build`。
+
 **webgui 容器**：`network_mode: host`（3004 直绑宿主，回环调 `127.0.0.1:3003` 属可信网段免 key）；
 `restart: "no"` **按需拉起**（平时不用，`docker start|stop musicdl-webgui`）；
 卷 `/volume1/music:/music`（下载落 NAS 本地盘）+ `/volume2/docker/musicdl-webgui:/cfg`（`config.json` 与

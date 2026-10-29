@@ -4,16 +4,28 @@
 > 快照：2026-10-29；离线冒烟 = server 46+54+13+35 项、webgui 34 项全 PASS（七插件 152 项在姊妹仓）。
 > 进度与跨区契约以 `D:\_work\dev\docs\projects\MUSICDL\music-ecosystem-roadmap.md` 为准；本文只列"还没做完"。
 
-## P0 · v2 托管播放（K-01…K-06 已离线落地，待真机/部署验收）
+## P0 · v2 托管播放（K-01…K-06 已离线 + NAS 实网验收）
 
 已实现（离线可验）：`POST /v2/playback/resolve`、`POST /v2/cache/invalidate`、严格播放准入、
 真实并发边界、singleflight/429 冷却、WebGUI 严格来源+身份快照+原子发布+outbox、
-七插件 v2 优先（列表在姊妹仓 `D:\_work\repos\musicfree-plugins\docs\PLUGIN-COMPAT.md`）。仍未完成：
+七插件 v2 优先（列表在姊妹仓 `D:\_work\repos\musicfree-plugins\docs\PLUGIN-COMPAT.md`）。
 
-- **真实上游验收**：v2 七源 live 解析、AAC（bilibili/qianqian）规范化输入、migu copyright 分叉在真实曲库上的表现——需 NAS 部署后单独授权执行（当前 live 冒烟只覆盖 v1）。
-- **NAS 部署**：`SERVICE_TOKENS`（scope `playback:issue`/`cache:invalidate`/`media:prepare`）尚未写入 NAS compose；未配置时 v2 一律 401、插件自动回落 v1。
+**NAS 部署与实网验收（2026-10-29，授权执行）**
+
+| 项 | 值 |
+|---|---|
+| 源代码 | `api-server` HEAD `4d6b252`（含 K-01…K-06 与审查修复） |
+| 镜像 | 部署前 `ead4f0a67c94`（v2 返回 404）→ 部署后 `b19e5f6ca09d`；`musicdl:previous` = `ead4f0a67c94` |
+| 容器 | `musicdl-api` healthy / `musicdl-webgui` running（同一镜像重建） |
+| 回滚 | `docker tag musicdl:previous musicdl:latest && docker compose up -d --no-build`（旧镜像忽略 `SERVICE_TOKENS`，回滚安全） |
+| 凭证 | `/volume2/dev/data/api-secrets/musicAPI/kwqq_service_tokens.json`（600；3 个 token：`kwqq-playback` / `kwqq-invalidate` / `kwqq-media-prepare`，generation 2；compose 里以 token 为键） |
+| 验收 | v2 实网 24/24（kuwo/migu 解析、bilibili 415+AAC 转码输入、鉴权矩阵、失效、v1 回归）；live 冒烟默认档 42/42、`--all` 58/58；webgui 只读 6/6 |
+
+仍未完成：
+
 - **跨项目联调**：Songloft S-03（media_prepare 消费）、bridge B-05/B-06（v2 TrackRef 消费）未开始；`music_ecosystem` runner 的 `singleflight`/`timeout-capacity`/`download-identity`/`ingest-scan`/`consumers-seven` case 需两侧就绪后运行。
-- **插件发布**：七插件构建产物已更新但未发布（`srcUrl` 仍指向旧包）；发布与真实客户端行为验收需单独授权。
+- **插件发布**：七插件构建产物已更新但未发布（`srcUrl` 仍指向旧包），插件侧 `serviceToken` 尚未下发——未配置时插件继续走 v1；发布与真实客户端验收需单独授权。
+- **webgui 下载冒烟**：`examples/musicdlwebgui/tests/test_smoke.py` 会向 `/music/download` 落一个文件，未在本次授权内执行（只读验收 6/6）。
 - **许可澄清**：PolyForm NC 正文与 README 分发表述冲突未解；公开分发前须确认 AGPL 组件源码提供义务，家庭私用不构成公开授权。
 
 ## P1 · 接口扩源（消费方已在等）
