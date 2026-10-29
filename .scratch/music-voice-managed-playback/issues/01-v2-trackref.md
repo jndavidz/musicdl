@@ -41,3 +41,6 @@ External blocked by: —
   证据：`server/tests/test_contract.py` 54 项 PASS（分 P、copyright、缺字段、规范编码、初版/同身份缓存、
   scope 隔离、v1 兼容）；commits `2c6cdc3` + `ff68005`。
   NOT RUN：真实上游 live 验收（需 NAS 部署授权，见 `docs/plan/OPEN-ITEMS.md` P0）。
+- 2026-10-30 更正：上述 NOT RUN 已被后续部署覆盖——NAS 实网验收在 `f29d0f3`（镜像
+  `edfa0e388758`）完成，v2 实网 24/24、live 冒烟 `--all` 58/58；本票 offline 结论不变，
+  剩余跨项目 case 记在 K-06/`OPEN-ITEMS.md` §P0。
