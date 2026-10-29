@@ -156,7 +156,7 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 |------|------|
 | `track_ref.source` / `.id` | 必填；`id` 为该源原生 id（kuwo rid / qq songmid / kugou hash / qianqian TSID / netease id / migu contentId / bilibili bvid） |
 | `track_ref.extra` | **只保留影响身份的字段**：migu `copyrightId`；bilibili `cid` 和/或 `page`。其余键一律丢弃（伪造 ekey/URL 不进入缓存键） |
-| `profile.quality` | 原始拼写；v2 先按白名单校验再归一化（§4.7） |
+| `profile.quality` | 原始拼写；v2 先按白名单校验再归一化（§4.8） |
 | `profile.target` | `device`（托管播放）或 `media_prepare`（仅 Songloft 媒体准备，需 `media:prepare` scope） |
 | `freshness` | `allow_cache`（默认）/ `revalidate`（跳过读缓存，仍写回） |
 
@@ -172,8 +172,7 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 - `verified` 在 v2 **恒为 false**：kwqq 只能声明上游说法或部分字节证据，完整文件验证由 Songloft 准备链完成（`verification.level` ∈ `declared`/`partial`，`requires_byte_verification` 恒 true）。
 - 缓存键 = 结构化身份 + 播放策略 + 凭据代次（`v2:` 命名空间，独立于 v1 url_cache）。
 
-### 4.7 七源逐源详述
-#### kuwo 酷我
+### 4.7 七源逐源详述#### kuwo 酷我
 
 | 项 | 说明 |
 |----|------|
@@ -240,8 +239,29 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 | 音质映射 | low→64k、standard→192k AAC（30280，2026-10-27 起归一为 320k 档请求）、auto/320k→192k AAC 档；flac/hires→Hi-Res/Dolby 声道（gated） |
 | **headers 必须** | CDN 校验 Referer：客户端须携带 `Referer: www.bilibili.com` + UA，否则 403 |
 | 已知边界 | 匿名音质封顶 192k AAC；UGC 内容库（翻唱/改编/现场），与版权曲库互补而非替代 |
+| v2 身份 | `track_ref.extra` 必带 `cid` 或 `page`；`/song/info` 回传 `extra.cid/page` + `raw.pages` 供补全（2026-10-29） |
+
+### 4.8 v2 播放准入（严格 profile，K-02）
+
+v2 与 v1 共用 adapter 出链能力，但**准入判断独立且更严**。以下规则只作用于 `/v2/playback/resolve`：
+
+| 请求/候选 | 结果 |
+|-----------|------|
+| `quality` 不在已知拼写表 | 400 `invalid_quality` |
+| `quality` = `flac`/`hires`/`master`/`surround51`（含 `super`→320k 这类合法别名不受影响） | 400——**拒绝而不是回落 auto**，无损仅 v1 下载可用 |
+| 候选 ext ∈ FLAC/WAV/APE 等无损容器 | 415——托管播放只收 mp3；无损/无损封装不进入设备链 |
+| 候选带 `ekey` 或 ext ∈ mflac/mgg/ncm/qmc*/kgm/vpr/kwm | 415 加密件；仍保留为 v1 下载+解密产物 |
+| 候选 ext = aac/m4a（AAC 家族） | 仅 `profile.target=media_prepare` 且 token 有 `media:prepare` scope 时放行，返回 `requires_transcode=true`、`ready=false`；其余一律 415，**AAC 不得直投** |
+| 候选 mp3 但 `bitrate_kbps > 320` | 415 超出 320k 上限 |
+| 候选 mp3 且无 bitrate、无 size/duration | 200 但 `ready=false`，`fallback_reason` 标注证据不足；必须字节验证 |
+| 候选 mp3 有实测码率 | 200，`ready=true`，`delivered_quality` 由**实测码率**推出（≥240→320k，≥160→192k，≥96→128k）；低于请求档位如实标注 `downgraded` |
+
+**验证等级**：`verification.level` ∈ `declared`（仅上游声明）/ `partial`（HEAD/后缀/MIME/8KB sniff 级证据）。kwqq **不再**把后者写成“完整编码验证”：v2 `verified` 恒 false、`requires_byte_verification` 恒 true；完整文件（实际 codec、MP3 帧、时长、每帧码率上限）由 Songloft 准备链验证后才有资格投送。
+
+**缓存**：被拒绝的候选不写缓存（下次仍重新解析）；AAC 的 `media_prepare` 结果与 `device` 请求是不同缓存键，不会互相串用。
 
 ---
+
 
 ## 5. 透传端点（酷狗/网易云全量能力）
 
@@ -390,6 +410,7 @@ server/tests/test_smoke.py <url> [--auth K:] # 冒烟默认档（含 netease 与
 | 日期 | 版本 | 变更 |
 |------|------|------|
 | 2026-10-29 | 1.9 | +`POST /v2/playback/resolve`（K-01：TrackRef 身份契约、`X-Service-Token` scoped 服务凭证、结构化缓存键含身份/策略/凭据代次）；bilibili v2 支持受验证 cid/page（不再固定 pages[0]），`/song/info` 回传 `extra.cid/page` + `raw.pages`；migu 保留 contentId+copyrightId；v1 全部端点与 ekey 下载契约不变 |
+| 2026-10-29 | 1.10 | v2 严格播放准入（K-02 §4.8）：原始 quality 白名单先于归一化（无损请求 400 而非回落 auto）；FLAC/加密件/>320k 415；AAC 仅 `media:prepare` scope 的 `target=media_prepare` 可进转码准备且 `requires_transcode=true`；`verified` 语义修正（v2 恒 false + `requires_byte_verification=true`，完整验证归 Songloft）；v1 语义不变 |
 | 2026-10-27 | 1.6 | `TRUSTED_NETWORKS` 默认加入办公室 WG 网段 `10.20.0.0/24`（D-x 定案：办公室免 key / 免限流；代价是该网段内设备均可匿名访问） |
 | 2026-10-28 | 1.7 | +`/{source}/album`（P6 专辑检索：候选 + 首选专辑有序曲目 track_no；netease 先行，未实现源 HTTP 501）|
 | 2026-10-28 | 1.8 | +`/{source}/playlist`（P6 歌单检索，netease 先行）；`/{source}/album` 扩至 kugou/migu/qianqian（候选 name+artist 无结果自动退 name-only）；netease 进 live 冒烟常规档 |

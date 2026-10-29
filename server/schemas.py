@@ -190,6 +190,7 @@ class PlaybackResolveData(BaseModel):
     parser: Optional[str] = None
     platform_tag: Optional[str] = None
     verification: VerificationData = VerificationData()
+    ready: bool = False                     # device-deliverable once byte verification passes
     verified: bool = False                   # honest: kwqq never fully verifies a file
     fallback_reason: Optional[str] = None
     resolved_at: int = 0

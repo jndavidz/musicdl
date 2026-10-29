@@ -258,6 +258,21 @@
 9. **千千规格逐曲不定且无母带**——rate 是上限不是保证：48k/24bit（入门 Hi-Res）、44.1k/16bit（CD）、假 MP3、曲库整缺四种情况均实测；48k/24bit **不构成母带**（门槛 ≥96kHz）
 10. **一切规格以实下文件头字节为准**（fLaC/OggS/ID3 magic + STREAMINFO），各平台元数据标注均不可信
 
+### 4.3 托管播放准入（v2，2026-10-29 K-02）
+
+本册描述的是「平台有哪些档位」；托管播放（`/v2/playback/resolve`）只消费**最终可播的 ≤320k mp3**，规则独立于档位表：
+
+| 候选 | v2 结论 |
+|------|---------|
+| flac/wav/ape 等无损容器 | 415（仍是 v1 下载/WebGUI 的合法产物） |
+| mflac/mgg/ncm 等加密件或带 ekey | 415（v1 下载 + QMC 解密不变） |
+| aac/m4a | 仅 `media:prepare` scope + `target=media_prepare`：作为转码**输入**放行（`requires_transcode=true`，不可直投） |
+| mp3 > 320kbps | 415 |
+| mp3 有实测码率 | 放行，`delivered_quality` 按实测码率标注（请求 320k 实得 192k → 如实 `downgraded`） |
+| mp3 无码率/体积/时长证据 | `ready=false`，需字节验证 |
+
+验证等级只有 `declared` / `partial`（HEAD/后缀/MIME/8KB sniff）；完整编码验证由 Songloft 准备链完成，kwqq 不再宣称 `verified`。
+
 ---
 
 ## 6. webgui 徽章映射（分档命名 → 各平台实际产出）

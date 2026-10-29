@@ -162,7 +162,7 @@ print('[B] scoped service credentials')
 app = create_app(Settings(env={'API_KEY': 'download-key', 'TRUSTED_NETWORKS': '', 'UNTRUSTED_HOSTS': '',
                               'SERVICE_TOKENS': TOKENS, 'RATE_LIMIT': ''}))
 base, server = start_app(app)
-qfake, mfake, bfake = IdentityFake('qq'), IdentityFake('migu'), IdentityFake('bilibili', ext='m4a', bitrate=192)
+qfake, mfake, bfake = IdentityFake('qq'), IdentityFake('migu'), IdentityFake('bilibili', ext='mp3', bitrate=192)
 app.state.adapters.update({'qq': qfake, 'migu': mfake, 'bilibili': bfake})
 
 st, b = v2(base, {'source': 'qq', 'id': 's1'}, token='')
@@ -221,6 +221,69 @@ st, b = call(base, '/status', headers={'X-API-Key': 'download-key'})
 check('status exposes the v2 cache', 'v2_url' in ((b.get('data') or {}).get('caches') or {}))
 st, b = call(base, '/qq/song/info?id=s1', headers={'X-API-Key': 'download-key'})
 check('v1 song/info unaffected', st == 200 and b.get('code') == 200, f'status={st}')
+
+# ---- D: strict playback profile (K-02) ----
+print('[D] strict playback profile')
+flac = IdentityFake('kuwo', ext='flac', bitrate=1000)
+aac = IdentityFake('qianqian', ext='m4a', bitrate=192)
+enc = IdentityFake('kugou', ext='mflac', bitrate=2000, ekey='SECRET-KEY')
+fast = IdentityFake('netease', ext='mp3', bitrate=640)
+down = IdentityFake('qq', ext='mp3', bitrate=192)
+
+
+class ThinFake(IdentityFake):
+    '''mp3 candidate with no bitrate/size/duration evidence at all'''
+    async def song_url(self, song_id, quality, **kw):
+        out = await super().song_url(song_id, quality, **kw)
+        out.update(bitrate_kbps=None, size_bytes=None, duration_s=None)
+        return out
+
+
+app.state.adapters.update({'kuwo': flac, 'qianqian': aac, 'kugou': enc, 'netease': fast,
+                           'qq': down, 'bilibili': ThinFake('bilibili', ext='mp3')})
+
+st, b = v2(base, {'source': 'kuwo', 'id': 'k1'})
+check('flac never reaches managed playback -> 415', st == 415 and b.get('code') == 415, f'status={st} msg={b.get("msg")}')
+st, b = v2(base, {'source': 'kugou', 'id': 'e1'})
+check('encrypted ekey candidate -> 415', st == 415 and b.get('code') == 415, f'status={st} msg={b.get("msg")}')
+st, b = v2(base, {'source': 'netease', 'id': 'f1'})
+check('mp3 claim above 320k -> 415', st == 415 and b.get('code') == 415, f'status={st} msg={b.get("msg")}')
+st, b = v2(base, {'source': 'qianqian', 'id': 'a1'})
+check('AAC direct delivery (target=device) -> 415', st == 415 and b.get('code') == 415, f'status={st} msg={b.get("msg")}')
+st, b = v2(base, {'source': 'qianqian', 'id': 'a1'}, target='media_prepare')
+check('media_prepare without media:prepare scope -> 403', st == 403 and b.get('code') == 403, f'status={st}')
+st, b = v2(base, {'source': 'qianqian', 'id': 'a1'}, token='prep-tok', target='media_prepare')
+d = b.get('data') or {}
+check('Songloft prep scope: AAC admitted as transcode input', st == 200 and d.get('codec') == 'm4a'
+      and (d.get('verification') or {}).get('requires_transcode') is True
+      and (d.get('verification') or {}).get('requires_byte_verification') is True
+      and d.get('ready') is False, f'status={st} ready={d.get("ready")}')
+check('AAC input is not claimed as a delivered quality', d.get('delivered_quality') is None)
+before = len(flac.calls)
+v2(base, {'source': 'kuwo', 'id': 'k1'})
+check('rejected flac candidate never cached', len(flac.calls) == before + 1, f'calls={len(flac.calls)}')
+st, b = v2(base, {'source': 'qq', 'id': 'd1'})
+d = b.get('data') or {}
+check('honest downgrade: 320k request -> 192k delivery', st == 200 and d.get('delivered_quality') == '192k'
+      and 'downgraded' in (d.get('fallback_reason') or '') and d.get('ready') is True,
+      f"delivered={d.get('delivered_quality')} reason={d.get('fallback_reason')}")
+st, b = v2(base, {'source': 'bilibili', 'id': 'BV1', 'extra': {'page': 1}})
+d = b.get('data') or {}
+check('insufficient evidence -> ready=false + byte verification required', st == 200
+      and d.get('ready') is False and (d.get('verification') or {}).get('requires_byte_verification') is True
+      and 'insufficient evidence' in (d.get('fallback_reason') or ''), f"reason={d.get('fallback_reason')}")
+st, b = v2(base, {'source': 'qq', 'id': 'd1'}, quality='master')
+check('lossless request is rejected, not rewritten to auto -> 400', st == 400 and b.get('code') == 400, f'status={st} msg={b.get("msg")}')
+st, b = v2(base, {'source': 'qq', 'id': 'd1'}, quality='weird')
+check('unknown quality spelling -> 400', st == 400 and b.get('code') == 400, f'status={st}')
+st, b = v2(base, {'source': 'qq', 'id': 'd1'}, target='nope')
+check('unknown profile target -> 400', st == 400 and b.get('code') == 400, f'status={st}')
+# v1 keeps its own verified/quality contract untouched (v2 reports verified=false)
+st, b = call(base, '/qq/song/url?id=d1&quality=320k', headers={'X-API-Key': 'download-key'})
+d = b.get('data') or {}
+check('v1 verified/quality contract unchanged', st == 200 and b.get('code') == 200
+      and d.get('verified') is True and d.get('quality') == '320k',
+      f"status={st} verified={d.get('verified')} quality={d.get('quality')}")
 
 server.should_exit = True
 
