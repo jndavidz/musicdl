@@ -35,6 +35,10 @@ XDG_STATE_HOME=$PWD/.state .venv/bin/python -m uvicorn server.app:app --host 127
 
 # 冒烟验证（需服务已起）
 XDG_STATE_HOME=$PWD/.state .venv/bin/python server/tests/test_offline.py                        # 离线：信封/鉴权/缓存/音质表契约，无需上游
+XDG_STATE_HOME=$PWD/.state .venv/bin/python server/tests/test_contract.py                       # 离线：v2 TrackRef/凭据/严格播放 profile
+XDG_STATE_HOME=$PWD/.state .venv/bin/python server/tests/test_concurrency.py                    # 离线：超时/容量/waiter 有界/迟到结果
+XDG_STATE_HOME=$PWD/.state .venv/bin/python server/tests/test_resilience.py                     # 离线：singleflight/429 冷却/受限失效
+XDG_STATE_HOME=$PWD/.state .venv/bin/python examples/musicdlwebgui/tests/test_offline.py        # 离线：webgui 身份快照/原子发布/outbox/鉴权
 XDG_STATE_HOME=$PWD/.state .venv/bin/python server/tests/test_smoke.py http://127.0.0.1:3003   # live 默认档 kuwo/qq/migu/qianqian（公网匿名）
 XDG_STATE_HOME=$PWD/.state .venv/bin/python server/tests/test_smoke.py http://127.0.0.1:3003 --all   # 追加 kugou/bilibili + passthrough（需 NAS 容器）
 ```

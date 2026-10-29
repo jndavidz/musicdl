@@ -7,7 +7,9 @@
 | 文档 | 定位 | 状态 |
 |------|------|------|
 | [KUWO-QQ-API-SERVER-PLAN.md](KUWO-QQ-API-SERVER-PLAN.md) | **现行主计划**：musicdl → 酷我+QQ 自托管 API 服务（单服务双源、RESTful、3003 端口、Docker/NAS/Lucky 部署），含阶段 0-3 执行记录、端点存活探测表、决策记录 | ✅ 已执行完毕（阶段 4 插件对接未启动） |
-| [API-REFERENCE.md](API-REFERENCE.md) | **现行接口开发文档**：认证模型、端点参考、音质路由、配置、部署运维、开发指南 | ✅ 与服务现状一致（v1.0） |
+| [API-REFERENCE.md](API-REFERENCE.md) | **现行接口开发文档**：认证模型、端点参考、音质路由、配置、部署运维、开发指南 | ✅ 与服务现状一致（v1.12：含 v2 托管播放契约） |
+| [adr/0004-v2-managed-playback-contract.md](adr/0004-v2-managed-playback-contract.md) | **v2 托管播放契约裁决**：TrackRef 身份、scoped 凭据、严格准入、真实并发、singleflight/冷却、WebGUI 快照与原子发布 | ✅ Accepted（2026-10-29） |
+| [plan/OPEN-ITEMS.md](plan/OPEN-ITEMS.md) | 本仓未完成事项（P0 v2 待真机/部署验收、P1 扩源、P2 门控） | 🔄 持续更新 |
 
 ## 历史调研文档（archive/，仅供溯源，勿作现行依据）
 

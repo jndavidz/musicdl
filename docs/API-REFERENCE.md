@@ -426,8 +426,16 @@ server/
 ```bash
 scripts/regress_stage1.py                    # 核心回归 8 项
 .state/instrument_plugin.cjs <插件.js>       # vm 插桩捕获混淆插件真实请求
+server/tests/test_offline.py                 # 离线：信封/鉴权/缓存/音质表/限流/指标
+server/tests/test_contract.py                # 离线：v2 TrackRef 身份/凭据/严格播放 profile
+server/tests/test_concurrency.py             # 离线：真实并发/容量/waiter 有界/迟到结果丢弃
+server/tests/test_resilience.py              # 离线：singleflight/429 冷却/受限失效
+examples/musicdlwebgui/tests/test_offline.py # 离线：webgui 身份快照/原子发布/outbox/kwqq_only/鉴权
 server/tests/test_smoke.py <url> [--auth K:] # 冒烟默认档（含 netease 与专辑/歌单）；--all 追加容器源
 ```
+
+七插件（MusicFree）侧契约与测试：姊妹仓 `D:\_work\repos\musicfree-plugins\docs\PLUGIN-COMPAT.md`
+（`node shared/build.js && node tests/run.js`）。
 
 ---
 
@@ -438,6 +446,7 @@ server/tests/test_smoke.py <url> [--auth K:] # 冒烟默认档（含 netease 与
 | 2026-10-29 | 1.9 | +`POST /v2/playback/resolve`（K-01：TrackRef 身份契约、`X-Service-Token` scoped 服务凭证、结构化缓存键含身份/策略/凭据代次）；bilibili v2 支持受验证 cid/page（不再固定 pages[0]），`/song/info` 回传 `extra.cid/page` + `raw.pages`；migu 保留 contentId+copyrightId；v1 全部端点与 ekey 下载契约不变 |
 | 2026-10-29 | 1.10 | v2 严格播放准入（K-02 §4.8）：原始 quality 白名单先于归一化（无损请求 400 而非回落 auto）；FLAC/加密件/>320k 415；AAC 仅 `media:prepare` scope 的 `target=media_prepare` 可进转码准备且 `requires_transcode=true`；`verified` 语义修正（v2 恒 false + `requires_byte_verification=true`，完整验证归 Songloft）；v1 语义不变 |
 | 2026-10-29 | 1.11 | 执行层真实并发（K-03）：每源独立线程池，容量仅在 worker 线程真正退出后释放（调用方超时不释放）；等待队列 `MAX_WAITERS` 有界，满则 503 capacity；所有裸同步请求带 `IO_TIMEOUT_S`；netease 高档 HEAD 移入受测执行边界；迟到结果丢弃不投送；`/status` 新增 `runtime` 逐源计数（active/waiting/timed_out/late_dropped）供跨项目容量验收汇总 |
+| 2026-10-29 | 1.13 | 消费方收口（K-06）：七 MusicFree 插件改为 v2 优先（配置 `serviceToken` 时走 `/v2/playback/resolve`，未配置/旧服务端回落 v1 迁移窗口）；B站 cid/page、咪咕 copyrightId 进 TrackRef；酷狗播放不再回落 FLAC、兼容链拒绝非 mp3；插件 runtime 对 HTTP 429 不换 host（保留 Retry-After、冷却期零请求）；清单与许可开放项见姊妹仓 `docs/PLUGIN-COMPAT.md` |
 | 2026-10-29 | 1.12 | singleflight + 限流冷却 + 受限失效（K-04）：同结构化键并发只解析一次（等待者取消隔离、失败不写负缓存）；上游 429 按逻辑入口冷却并保留 Retry-After，换 host/备用入口零请求、429 不入成功缓存；+`POST /v2/cache/invalidate`（`cache:invalidate` scope，精确身份失效，一次受控重解析）；`freshness` 仅接受 allow_cache/revalidate；本地/上游 429 以 `X-RateLimit-Scope` 区分 |
 | 2026-10-27 | 1.6 | `TRUSTED_NETWORKS` 默认加入办公室 WG 网段 `10.20.0.0/24`（D-x 定案：办公室免 key / 免限流；代价是该网段内设备均可匿名访问） |
 | 2026-10-28 | 1.7 | +`/{source}/album`（P6 专辑检索：候选 + 首选专辑有序曲目 track_no；netease 先行，未实现源 HTTP 501）|
