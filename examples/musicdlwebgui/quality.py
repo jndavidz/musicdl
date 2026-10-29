@@ -127,15 +127,25 @@ def render_stem(template: str, info: SongInfo, platform_id: str) -> str:
 
 
 _path_lock = threading.Lock()
+_RESERVED: set = set()
 
 
 def allocate_path(stem: str, ext: str) -> str:
+    '''collision-safe target path. Reserved names are tracked until release_path(),
+       so two workers cannot plan the same file before either has published.'''
     with _path_lock:
         root = Path(SETTINGS['download_dir'])
         ext = (ext or 'mp3').lower().lstrip('.')
         path, idx = root / f'{stem}.{ext}', 1
-        while path.exists(): path, idx = root / f'{stem} ({idx}).{ext}', idx + 1
+        while path.exists() or str(path) in _RESERVED:
+            path, idx = root / f'{stem} ({idx}).{ext}', idx + 1
+        _RESERVED.add(str(path))
         return str(path)
+
+
+def release_path(path: str) -> None:
+    with _path_lock:
+        _RESERVED.discard(str(path))
 
 
 _PAREN_RE = re.compile(r'[（(【\[]([^)）\]]*)[)）\]]')

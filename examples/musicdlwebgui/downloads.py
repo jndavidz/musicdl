@@ -17,12 +17,14 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
 from config import SETTINGS, PLATFORM_MAP, REPO_ROOT
-from quality import (serialize_item, render_stem, allocate_path, fmt_mb, normkey_text,
+from quality import (serialize_item, render_stem, allocate_path, release_path, fmt_mb, normkey_text,
                      QUALITY_PREF_RANKS, LOSSLESS_MBPM_FLOOR)
 from kwqq_api import api_resolve_into, ApiSongInfo, seconds2hms
 from library import (get_client, get_lib_downloader, ProgressStub,
                      kuwo_vip_enabled, kuwo_vip_resolve, qmc_decrypt_file,
-                     search_platform_sync)
+                     search_platform_sync, source_policy_allows, enforce_source_policy,
+                     SourcePolicyError)
+from outbox import publish_completed as outbox_publish
 
 # in-memory store of the latest search results (key -> SongInfo)
 RESULT_STORE: dict = {}
@@ -100,60 +102,161 @@ def _record_dedupe_win(cluster_items: list, best_item: dict) -> None:
         save_dedupe_stats()
 
 
-'''download task persistence (roadmap D2): the queue survives a process restart.
-   Direct urls expire (kwqq-api URL_CACHE_TTL = 10min), so only each item's identity
-   is persisted — api channel: api_id + api_source; lib channel: platform + native
-   identifier — and the worker re-resolves a fresh url before downloading. Items that
-   were mid-flight keep their partial path in `_inflight` so a crash-restart can
-   delete that partial file before re-downloading. Same atomic tmp+replace pattern
+'''download task persistence (roadmap D2 / K-05): the queue survives a process restart.
+   Direct urls expire (kwqq-api URL_CACHE_TTL = 10min), so only each item's IDENTITY
+   is persisted — an identity whitelist: api channel = TrackRef (source + id +
+   identity-affecting extra only), lib channel = platform + native identifier.
+   Caller-supplied urls, cookies and ekeys are NEVER persisted; a forged/unknown
+   identity makes the item pause instead of silently re-running something else.
+   The worker re-resolves a fresh url before downloading. Items that were mid-flight
+   keep their partial path in `_inflight` (inside the same-filesystem temp dir) so a
+   crash-restart can delete it before re-downloading. Same atomic tmp+replace pattern
    and XDG_STATE_HOME location as the D3 dedupe counters.'''
 TASKS_PATH = Path(os.environ.get('XDG_STATE_HOME', str(REPO_ROOT / '.state'))) / 'download_tasks.json'
 MAX_PERSISTED_TASKS = 20
-TERMINAL_ITEM_STATUSES = {'success', 'skipped', 'failed', 'cancelled'}
+TERMINAL_ITEM_STATUSES = {'success', 'skipped', 'failed', 'cancelled', 'paused'}
+
+'''extra keys that take part in a source's media identity — the ONLY api extra
+   fields allowed into a snapshot (ekey/url/cookie are runtime-only)'''
+IDENTITY_EXTRA_KEYS = {'migu': ('copyrightId',), 'bilibili': ('cid', 'page')}
 _tasks_write_lock = threading.Lock()
 
 
+def _temp_dir() -> Path:
+    '''same-filesystem staging area for partial and encrypted (pre-decrypt) bytes'''
+    return Path(SETTINGS['download_dir']) / '.tmp'
+
+
+def _temp_path(task_id: str, item_id: str, ext: str) -> Path:
+    target = _temp_dir()
+    target.mkdir(parents=True, exist_ok=True)
+    safe = re.sub(r'[^A-Za-z0-9_-]', '_', f'{task_id}-{item_id}')
+    return target / f'{safe}-{uuid.uuid4().hex[:8]}.{(ext or "mp3").lower().lstrip(".")}'
+
+
+def publish_atomically(produced, final_path: str) -> str:
+    '''publish one fully-written temp file into the library with a single os.replace.
+       Both paths must resolve inside the configured download root (no traversal),
+       and an existing target is never overwritten.'''
+    root = Path(SETTINGS['download_dir']).resolve()
+    src, dest = Path(produced).resolve(), Path(final_path).resolve()
+    if not src.is_file():
+        raise RuntimeError('临时文件不存在，发布中止')
+    if root not in src.parents:
+        raise RuntimeError(f'临时路径越界，发布中止: {src}')
+    if root not in dest.parents:
+        raise RuntimeError(f'发布路径越界，发布中止: {dest}')
+    if dest.exists():
+        raise RuntimeError(f'目标文件已存在，发布中止: {dest.name}')
+    os.replace(src, dest)
+    return str(dest)
+
+
+class CapacityError(RuntimeError):
+    '''download queue is full (bounded admission)'''
+
+
+def track_ref_for(info, platform_id: str) -> dict:
+    '''stable identity for a candidate: api -> kwqq TrackRef, lib -> native id'''
+    if getattr(info, 'api_id', None) is not None:
+        source = str(getattr(info, 'api_source', '') or '')
+        extra = {}
+        raw_extra = getattr(info, 'api_extra', {}) or {}
+        for key in IDENTITY_EXTRA_KEYS.get(source, ()):
+            value = raw_extra.get(key)
+            if value is None or value == '':
+                continue
+            extra[key] = int(value) if key == 'page' else str(value).strip()
+        return {'provider': 'kwqq', 'source': source, 'id': str(info.api_id), 'extra': extra}
+    return {'provider': 'lib', 'source': platform_id,
+            'id': str(getattr(info, 'identifier', '') or '')}
+
+
 def _info_descriptor(info, platform_id: str) -> dict:
-    '''identity-only snapshot of a candidate: enough to re-resolve a url after restart.'''
-    desc = {
-        'origin': 'api' if getattr(info, 'api_id', None) is not None else 'lib',
+    '''identity-only snapshot: TrackRef + the display/target fields needed to name
+       the published file. No download url, cookie or ekey is ever written.'''
+    ref = track_ref_for(info, platform_id)
+    return {
+        'origin': 'api' if ref['provider'] == 'kwqq' else 'lib',
         'platform': platform_id,
+        'track_ref': ref,
         'song_name': str(info.song_name or ''), 'singers': str(info.singers or ''),
         'album': str(info.album or ''), 'ext': str(info.ext or '').lstrip('.'),
         'duration_s': getattr(info, 'duration_s', None),
         'file_size_bytes': getattr(info, 'file_size_bytes', None),
-        'platform_tag': str(getattr(info, 'platform_tag', '') or ''),
         'cover_url': str(getattr(info, 'cover_url', '') or ''),
-        'root_source': str(getattr(info, 'root_source', '') or ''),
     }
-    if desc['origin'] == 'api':
-        desc['api_id'] = str(getattr(info, 'api_id', '') or '')
-        desc['api_source'] = str(getattr(info, 'api_source', '') or '')
-        desc['api_extra'] = dict(getattr(info, 'api_extra', {}) or {})
-    else:
-        desc['identifier'] = str(getattr(info, 'identifier', '') or '')
-    return desc
+
+
+def _legacy_ref(desc: dict) -> dict | None:
+    '''pre-K-05 snapshots: rebuild an identity-only ref from whitelisted fields.
+       api_extra is filtered to identity keys (a persisted ekey is never trusted).'''
+    if desc.get('origin') == 'api':
+        source = str(desc.get('api_source') or '')
+        api_id = str(desc.get('api_id') or '')
+        if not api_id or source not in PLATFORM_MAP:
+            return None
+        extra = {}
+        for key in IDENTITY_EXTRA_KEYS.get(source, ()):
+            value = (desc.get('api_extra') or {}).get(key)
+            if value not in (None, ''):
+                extra[key] = value
+        return {'provider': 'kwqq', 'source': source, 'id': api_id, 'extra': extra}
+    platform = str(desc.get('platform') or '')
+    identifier = str(desc.get('identifier') or '')
+    if platform not in PLATFORM_MAP or not identifier:
+        return None
+    return {'provider': 'lib', 'source': platform, 'id': identifier}
+
+
+def _ref_is_usable(ref: dict) -> bool:
+    '''identity completeness/forgery check (no implicit defaults, no cross-channel mixes)'''
+    if not isinstance(ref, dict):
+        return False
+    provider, source, track_id = ref.get('provider'), str(ref.get('source') or ''), str(ref.get('id') or '')
+    if not track_id or source not in PLATFORM_MAP:
+        return False
+    if provider == 'kwqq':
+        if PLATFORM_MAP[source].get('group') != 'api':
+            return False
+        extra = ref.get('extra') or {}
+        if source == 'migu' and not extra.get('copyrightId'):
+            return False
+        if source == 'bilibili' and not (extra.get('cid') or extra.get('page')):
+            return False
+        return True
+    if provider == 'lib':
+        return source_policy_allows(source)
+    return False
 
 
 def _rehydrate_info(desc: dict):
-    '''rebuild a runnable candidate from its descriptor; None when it can no longer be
-       identified (the item then fails with a "search again" message instead of guessing).'''
-    if not isinstance(desc, dict): return None
-    if desc.get('origin') == 'api':
-        if not desc.get('api_id') or not desc.get('api_source'): return None
-        duration_s = desc.get('duration_s')
+    '''rebuild a runnable candidate from its identity snapshot; None when the
+       identity is missing, forged or disallowed (the item then pauses).'''
+    if not isinstance(desc, dict):
+        return None
+    ref = desc.get('track_ref')
+    if not isinstance(ref, dict):
+        ref = _legacy_ref(desc)
+    if not _ref_is_usable(ref):
+        return None
+    platform = str(desc.get('platform') or '')
+    source, api_id = str(ref.get('source') or ''), str(ref.get('id') or '')
+    duration_s = desc.get('duration_s')
+    if ref['provider'] == 'kwqq':
+        extra = {k: v for k, v in (ref.get('extra') or {}).items()
+                 if k in IDENTITY_EXTRA_KEYS.get(source, ())}
         return ApiSongInfo(
             song_name=desc.get('song_name') or '', singers=desc.get('singers') or '',
             album=desc.get('album') or '', ext=str(desc.get('ext') or '').lstrip('.'),
             file_size_bytes=desc.get('file_size_bytes'), duration_s=duration_s,
-            duration=seconds2hms(duration_s), platform_tag=desc.get('platform_tag') or '',
-            cover_url=desc.get('cover_url') or '', source=desc.get('platform') or '',
-            root_source=desc.get('root_source') or '', download_url=None,
-            api_id=str(desc['api_id']), api_source=str(desc['api_source']),
-            api_extra=dict(desc.get('api_extra') or {}))
-    platform = str(desc.get('platform') or '')
-    if platform not in PLATFORM_MAP or not desc.get('song_name'): return None
-    identifier = str(desc.get('identifier') or '')
+            duration=seconds2hms(duration_s), platform_tag='',
+            cover_url=desc.get('cover_url') or '', source=platform or source,
+            root_source=f'{source}@api', download_url=None,
+            api_id=api_id, api_source=source, api_extra=extra)
+    if platform not in PLATFORM_MAP or not desc.get('song_name'):
+        return None
+    identifier = str(ref.get('id') or '')
     wanted = normkey_text(desc.get('song_name'), desc.get('singers'))
     ext = str(desc.get('ext') or '').lower().lstrip('.')
     queries = [str(desc['song_name'])]
@@ -189,7 +292,7 @@ def _write_tasks_file(tasks: list) -> None:
     '''atomic queue snapshot; silent on any failure (downloads must never break on IO).'''
     try:
         TASKS_PATH.parent.mkdir(parents=True, exist_ok=True)
-        payload = {'version': 1, 'saved_at': int(time.time()), 'tasks': tasks}
+        payload = {'version': 2, 'saved_at': int(time.time()), 'tasks': tasks}
         tmp = TASKS_PATH.with_name(TASKS_PATH.name + '.tmp')
         tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
         tmp.replace(TASKS_PATH)
@@ -224,6 +327,15 @@ class DownloadEngine:
             stored = {k: RESULT_STORE[k] for k in keys if k in RESULT_STORE}
         if missing:
             raise KeyError(f'部分搜索结果已过期，请重新搜索: {", ".join(missing[:5])}')
+        # same source policy for search, create, recover and retry (K-05)
+        for k, info in stored.items():
+            enforce_source_policy(info.source if info.source in PLATFORM_MAP else k.split(':', 1)[0])
+        with self.tasks_lock:
+            pending = sum(1 for t in self.tasks.values() for i in t['items']
+                          if i['status'] in {'queued', 'downloading', 'cancelling'})
+        limit = max(1, int(SETTINGS.get('max_queued_items') or 200))
+        if pending + len(keys) > limit:
+            raise CapacityError(f'下载队列已达上限 {limit}（当前 {pending}），请等待现有任务完成')
         serialized = {}
         for k, info in stored.items():
             pid = info.source if info.source in PLATFORM_MAP else k.split(':', 1)[0]
@@ -353,12 +465,14 @@ class DownloadEngine:
                 info.with_valid_download_url = True
             ext = str(info.ext or 'mp3').lower().lstrip('.')
             pid = info.source if info.source in PLATFORM_MAP else item['source']
-            stem = render_stem(SETTINGS['naming_template'], info, pid)
-            save_path = allocate_path(stem, ext)
-            item['_inflight'] = save_path
+            enforce_source_policy(pid)
+            # isolated same-filesystem temp file: partial/encrypted bytes never appear
+            # in the library root; publishing is a single atomic os.replace below
+            tmp_path = _temp_path(task_id, item_id, ext)
+            item['_inflight'] = str(tmp_path)
             self.persist()
-            info.work_dir = str(Path(save_path).parent)
-            info._save_path = save_path
+            info.work_dir = str(tmp_path.parent)
+            info._save_path = str(tmp_path)
             stub = ProgressStub(on_progress)
             progress_id = stub.add_task(description=item['song_name'], total=None)
             downloaded = []
@@ -374,23 +488,40 @@ class DownloadEngine:
                 item['quality_tier'] = ('hires' if 'VIP' in was_tag else
                                         ('surround51' if 'surround51' in was_tag else 'master'))
             if not downloaded: raise RuntimeError('下载失败（链接可能已过期），请重新搜索后再试')
-            final = downloaded[0]
+            produced = downloaded[0]
+            # publish name follows the FINAL bytes (a decrypted mflac/mgg becomes .flac),
+            # never the pre-decrypt container extension
+            final_ext = (Path(produced.save_path).suffix.lstrip('.') or ext).lower()
+            info.ext = final_ext
+            stem = render_stem(SETTINGS['naming_template'], info, pid)
+            save_path = allocate_path(stem, final_ext)
+            published = publish_atomically(produced.save_path, save_path)
             # 容器内以 root 写 Synology 共享会得到 000 权限（ACL 生效），其他服务读不到 → 显式放开
             with contextlib.suppress(Exception):
-                os.chmod(final.save_path, int(os.environ.get('MUSICDL_DOWNLOAD_FILE_MODE', '644'), 8))
+                os.chmod(published, int(os.environ.get('MUSICDL_DOWNLOAD_FILE_MODE', '644'), 8))
             real_spec = ''
             with contextlib.suppress(Exception):
-                sr, br = getattr(final, 'samplerate', None), getattr(final, 'bitrate', None)
+                sr, br = getattr(produced, 'samplerate', None), getattr(produced, 'bitrate', None)
                 if sr: real_spec = f'{round(sr / 1000, 1)}kHz' + (f' / {int(br)}kbps 实测' if br else '')
             item.update({'status': 'success', 'progress': 100.0, 'speed': '',
-                         'saved_path': str(final.save_path), 'real_spec': real_spec})
+                         'saved_path': published, 'real_spec': real_spec})
+            # bounded, idempotent completion notice for Songloft S-08
+            outbox_publish(task_id=task_id, item_id=item_id,
+                           track_ref=(item.get('_restore') or {}).get('track_ref') or {},
+                           path=published, size_bytes=(Path(published).stat().st_size
+                                                       if Path(published).exists() else None),
+                           ext=Path(published).suffix, quality_tier=str(item.get('quality_tier') or ''))
         except Exception as err:
             item['status'], item['error'], item['speed'] = 'failed', str(err)[:300], ''
-            with contextlib.suppress(Exception):  # remove broken partial file so retry starts clean
-                if save_path:
-                    path = Path(save_path)
-                    if path.exists() and (not item['total_bytes'] or path.stat().st_size < item['total_bytes']): path.unlink()
         finally:
+            # no half-written file may survive a failure; the temp dir is never the library
+            with contextlib.suppress(Exception):
+                if save_path: release_path(save_path)
+            with contextlib.suppress(Exception):
+                if item.get('_inflight'):
+                    inflight = Path(item['_inflight'])
+                    for leftover in (inflight, inflight.with_suffix('.flac')):
+                        if leftover.is_file(): leftover.unlink()
             item.pop('_info', None)
             item.pop('_inflight', None)
             self._refresh_status(task_id)
@@ -414,6 +545,14 @@ class DownloadEngine:
         item = next((i for i in task['items'] if i['item_id'] == item_id), None)
         if not item: raise KeyError(f'unknown item {item_id}')
         if item['status'] not in {'failed', 'cancelled', 'cancelling'}: raise ValueError('仅失败或已取消的条目可重试')
+        # retry re-resolves from the identity snapshot; an unusable/forged snapshot
+        # pauses instead of guessing what the user meant
+        desc = item.get('_restore') or {}
+        ref = desc.get('track_ref') if isinstance(desc.get('track_ref'), dict) else _legacy_ref(desc)
+        if not _ref_is_usable(ref):
+            item.update(status='paused', error='快照身份不可用或不符合来源策略，已暂停；请重新搜索')
+            self._refresh_status(task_id); self.persist()
+            raise ValueError('该条目快照无法确认来源身份，已暂停（请重新搜索后下载）')
         with STORE_LOCK:
             valid = RESULT_STORE.get(item['key'])
         if valid is not None and valid.with_valid_download_url:
@@ -457,7 +596,7 @@ class DownloadEngine:
             item.setdefault('total_bytes', 0)
             item.setdefault('error', '')
             if not isinstance(item.get('_restore'), dict):
-                item.update(status='failed', error='任务快照缺少恢复信息，请重新搜索')
+                item.update(status='paused', error='任务快照缺少可识别身份，已暂停（请重新搜索）')
             items.append(item)
         return {'task_id': task_id, 'created_at': str(raw.get('created_at') or ''),
                 'quality_pref': str(raw.get('quality_pref') or 'any'),
@@ -498,9 +637,19 @@ class DownloadEngine:
                         item.update(error='', progress=0, speed='', downloaded_bytes=0)
                 self._refresh_status(task['task_id'])
                 for item in task['items']:
-                    if item['status'] == 'queued':
-                        self.pool.submit(self._run_item, task['task_id'], item['item_id'])
-                        requeued += 1
+                    if item['status'] != 'queued':
+                        continue
+                    # an unrecognizable or policy-denied identity pauses: restoring a
+                    # task must never silently resolve a different track (K-05)
+                    desc = item.get('_restore') or {}
+                    ref = desc.get('track_ref') if isinstance(desc.get('track_ref'), dict) else _legacy_ref(desc)
+                    if not _ref_is_usable(ref):
+                        item.update(status='paused', error='快照身份不可用或不符合来源策略，已暂停；请重新搜索',
+                                    speed='')
+                        continue
+                    self.pool.submit(self._run_item, task['task_id'], item['item_id'])
+                    requeued += 1
+                self._refresh_status(task['task_id'])
             except Exception:
                 continue   # one malformed task must not stop the rest of the queue
         if requeued: self.persist()
@@ -513,7 +662,7 @@ class DownloadEngine:
         if statuses <= {'success', 'skipped'}: task['status'] = 'completed'
         elif 'downloading' in statuses or 'queued' in statuses: task['status'] = 'running'
         elif 'cancelling' in statuses: task['status'] = 'cancelling'
-        elif 'failed' in statuses or 'cancelled' in statuses: task['status'] = 'partial'
+        elif statuses & {'failed', 'cancelled', 'paused'}: task['status'] = 'partial'
         else: task['status'] = 'completed'
 
     def snapshot(self, task_id: str) -> dict:

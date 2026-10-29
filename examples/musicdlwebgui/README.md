@@ -181,7 +181,10 @@ sudo bash examples/musicdlwebgui/scripts/mount-nas-music.sh --smb  # 或 SMB 回
   "concurrency": 3,                             // 同时下载并发数(重启生效)
   "search_timeout_s": 45,                       // 单次搜索总超时
   "max_limit_per_source": 30,
-  "api_key": "",                                // 非空时所有请求需 x-api-key 或 Basic Auth
+  "api_key": "",                                // 入站鉴权：非空时所有请求需 x-api-key 或 Basic Auth（出站 kwqq_api_key 是另一项）
+  "kwqq_only": false,                           // 严格来源模式：只允许 kwqq-API 六源，禁用库兜底
+  "outbox_dir": "",                             // 完成事件 outbox 目录（空 = <download_dir>/.outbox）
+  "max_queued_items": 200,                      // 跨任务未完成条目上限，超出创建任务 503
   "platform_defaults": {"qq": 5, "netease": 5}
 }
 ```
@@ -197,6 +200,7 @@ sudo bash examples/musicdlwebgui/scripts/mount-nas-music.sh --smb  # 或 SMB 回
 | GET  | `/api/tasks/{id}/events` | SSE 实时进度流 |
 | POST | `/api/tasks/{id}/retry` · DELETE `/api/tasks/{id}` | 单条重试 / 整批取消 |
 | GET  | `/api/stats/dedupe` | dedupe 胜出来源计数（10min 节流落盘 `.state/dedupe_stats.json`，重启恢复；ADR-0001 兜底通道再议数据） |
+| GET  | `/api/outbox` | 已完成下载的 outbox 只读视图（Songloft S-08 消费同一目录） |
 | GET  | `/healthz` | 存活探针 |
 
 ## 设计说明（库耦合契约）
@@ -218,16 +222,29 @@ sudo bash examples/musicdlwebgui/scripts/mount-nas-music.sh --smb  # 或 SMB 回
   （逐候选解析直链）是自足性的来源，不切换 metadata-only 搜索。
   `GET /api/stats/dedupe` 持续累计"同曲双通道竞争时谁胜出"（10min 节流落盘、停机 flush、启动恢复）：
   若监控窗口内 lib 胜出趋近于零且无 API 故障，可按 ADR-0001 再议条款删除六源 lib 通道。
-- **队列持久化（D2）**：任务快照原子写入 `.state/download_tasks.json`（最近 20 个任务），
-  仅在任务/条目状态跃迁时写盘 + 停机 flush。恢复时只重跑未终结任务：直链不落盘（会过期），
-  api 条目按 `api_id + api_source` 重走 `/song/url`，lib 条目按平台 + 原生 identifier（兜底
-  normkey+ext）重新搜索；`downloading` 条目按 `_inflight` 删除残留半文件后重新入队，重启前已
-  请求的取消照常生效。无法重新标识的条目落为 `failed` 并提示重新搜索，绝不猜测匹配。
+- **队列持久化（D2 / K-05 身份白名单）**：任务快照原子写入 `.state/download_tasks.json`（最近 20 个
+  任务，version 2），仅在任务/条目状态跃迁时写盘 + 停机 flush。快照只存**身份**：api 条目 = TrackRef
+  （source + id + 仅影响身份的 extra：migu `copyrightId`、bilibili `cid`/`page`），lib 条目 = 平台 +
+  原生 identifier；**URL、Cookie、ekey、api_extra 一律不落盘**（伪造 source/extra/ekey 不被信任）。
+  恢复/重试时 api 条目按 TrackRef 重走 `/song/url`，lib 条目按 identifier（兜底 normkey+ext）重新
+  搜索；`downloading` 条目按 `_inflight` 删除临时残留后重新入队。快照无法识别（或严格模式下违反
+  来源策略）时条目落为 **`paused`**，不自动重跑——运行期旧下载仍可按 ADR-0002 使用 ekey。
+- **严格来源模式（K-05）**：`kwqq_only=true` 时搜索、创建、恢复、重试统一只允许 kwqq-API 六源，
+  进程内库兜底被禁用（非严格模式保持 ADR-0001 冻结兜底，不扩功能）。
+- **原子发布 + outbox（K-05）**：下载先写同文件系统隔离目录 `<download_dir>/.tmp/`（中间件/加密件
+  同样隔离），完成后单次 `os.replace` 发布到库根目录；发布路径必须位于下载根内（防穿越），目标
+  已存在即中止。成功后写有界 outbox（默认 `<download_dir>/.outbox`，`completed-<id>.json`，
+  上限 500 条、按 mtime 淘汰）供 Songloft S-08 幂等增量扫描：同一条完成事件重复发布只产生一个文件，
+  中断的下载不会在库里留下半文件。`GET /api/outbox` 可只读查看。
+- **有界队列**：`max_queued_items`（默认 200）限制跨任务未完成条目总数，超出时创建任务返回 503。
 
 ## 冒烟测试
 
 ```bash
 XDG_STATE_HOME=$PWD/.state uv run python examples/musicdlwebgui/tests/test_smoke.py http://127.0.0.1:3004 尾戒
+# 离线（无网络/无 NAS）：in-process 起 app，桩掉搜索/解析/下载，校验身份快照、原子发布、outbox、
+# kwqq_only、路径穿越、中断清理、容量与入站鉴权
+XDG_STATE_HOME=$PWD/.state uv run python examples/musicdlwebgui/tests/test_offline.py
 ```
 
 校验：搜索返回结构 → 创建任务 → SSE 进度收敛 → 文件位于 download_dir 根目录（无子目录/pkl/.lrc）→

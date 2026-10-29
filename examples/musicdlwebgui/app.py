@@ -54,8 +54,10 @@ from quality import QUALITY_ORDER, QUALITY_PREF_RANKS, LOSSLESS_MBPM_FLOOR, MAST
 import quality
 from kwqq_api import api_online, api_resolve_into
 from library import kuwo_vip_enabled, search_platform_sync
-from downloads import (engine, RESULT_STORE, STORE_LOCK,
+from downloads import (engine, RESULT_STORE, STORE_LOCK, CapacityError,
                        DEDUPE_STATS, DEDUPE_STATS_LOCK, load_dedupe_stats, save_dedupe_stats)
+from library import SourcePolicyError
+from outbox import list_entries as outbox_entries, outbox_dir
 
 '''---------------- kuwo explicit-tier table (webgui/server contract) ----------------'''
 
@@ -112,7 +114,8 @@ async def api_key_guard(request: Request, call_next):
                 import base64
                 with contextlib.suppress(Exception):
                     provided = base64.b64decode(auth[6:]).decode('utf-8', errors='ignore').split(':', 1)[0]
-        if provided != api_key:
+        import hmac
+        if not hmac.compare_digest(str(provided), str(api_key)):
             return JSONResponse({'code': 401, 'msg': 'unauthorized'}, status_code=401,
                                 headers={'WWW-Authenticate': 'Basic realm="webgui"'})
     return await call_next(request)
@@ -189,6 +192,9 @@ class ConfigBody(BaseModel):
     platform_defaults: dict | None = None
     platform_subsources: dict | None = None
     kuwo_vip_cookie: str | None = None
+    kwqq_only: bool | None = None
+    outbox_dir: str | None = None
+    max_queued_items: int | None = Field(default=None, ge=1, le=2000)
 
 
 @app.get('/healthz')
@@ -216,6 +222,8 @@ async def get_config():
         'lossless_mbpm_floor': LOSSLESS_MBPM_FLOOR, 'master_mbpm': MASTER_MBPM,
         'mp3_size_floors_mb': {'320k': 5, '128k': 2},
         'has_api_key': bool(SETTINGS.get('api_key')), 'config_path': str(CONFIG_PATH),
+        'kwqq_only': bool(SETTINGS.get('kwqq_only')), 'outbox_dir': str(outbox_dir()),
+        'max_queued_items': int(SETTINGS.get('max_queued_items') or 0),
         'kwqq_api_base': SETTINGS['kwqq_api_base'], 'kwqq_api_online': api_online(),
         'kuwo_vip_enabled': kuwo_vip_enabled(),
         'platform_defaults': dict(SETTINGS['platform_defaults']),
@@ -249,6 +257,12 @@ async def put_config(body: ConfigBody):
         changed.append('platform_defaults')
     if body.kuwo_vip_cookie is not None:
         SETTINGS['kuwo_vip_cookie'] = body.kuwo_vip_cookie.strip(); changed.append('kuwo_vip_cookie')
+    if body.kwqq_only is not None:
+        SETTINGS['kwqq_only'] = bool(body.kwqq_only); changed.append('kwqq_only')
+    if body.outbox_dir is not None:
+        SETTINGS['outbox_dir'] = body.outbox_dir.strip(); changed.append('outbox_dir')
+    if body.max_queued_items is not None:
+        SETTINGS['max_queued_items'] = body.max_queued_items; changed.append('max_queued_items')
     if body.platform_subsources is not None:
         clean_subs = {}
         for pid, subs in (body.platform_subsources or {}).items():
@@ -344,6 +358,10 @@ async def create_download(body: DownloadBody):
         snapshot = engine.create_task(body.keys, body.quality_pref, bool(body.dedupe))
     except KeyError as err:
         return JSONResponse({'code': 410, 'msg': str(err)}, status_code=200)
+    except SourcePolicyError as err:
+        return JSONResponse({'code': 400, 'msg': str(err)}, status_code=200)
+    except CapacityError as err:
+        return JSONResponse({'code': 503, 'msg': str(err)}, status_code=503)
     except Exception as err:
         return JSONResponse({'code': 500, 'msg': f'{type(err).__name__}: {err}'}, status_code=500)
     return {'code': 200, 'msg': 'ok', 'data': snapshot}
@@ -351,6 +369,12 @@ async def create_download(body: DownloadBody):
 
 @app.get('/api/tasks')
 async def list_tasks(): return {'code': 200, 'msg': 'ok', 'data': engine.list_tasks()}
+
+
+@app.get('/api/outbox')
+async def outbox(limit: int = Query(100, ge=1, le=500)):
+    '''read-only view of the bounded completed-download outbox (Songloft S-08)'''
+    return {'code': 200, 'msg': 'ok', 'data': {'dir': str(outbox_dir()), 'entries': outbox_entries(limit)}}
 
 
 @app.get('/api/tasks/{task_id}')
@@ -362,7 +386,9 @@ async def get_task(task_id: str):
 @app.post('/api/tasks/{task_id}/retry')
 async def retry_item(task_id: str, body: RetryBody):
     try: return {'code': 200, 'msg': 'ok', 'data': engine.retry_item(task_id, body.item_id)}
-    except (KeyError, ValueError, RuntimeError) as err:
+    except KeyError as err:
+        return JSONResponse({'code': 404, 'msg': str(err)}, status_code=200)
+    except (ValueError, RuntimeError, SourcePolicyError) as err:
         return JSONResponse({'code': 400, 'msg': str(err)}, status_code=200)
 
 

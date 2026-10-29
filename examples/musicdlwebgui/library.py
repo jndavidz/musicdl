@@ -28,6 +28,26 @@ def _savelrc_sidecar_aware(audio_path, lyrics_text, *, overwrite: bool = False) 
 # batch-5 sanctioned extension point (songinfoutils.lrc_saver) — not a monkeypatch
 SongInfoUtils.lrc_saver = staticmethod(_savelrc_sidecar_aware)
 
+'''---------------- source policy (K-05) ----------------'''
+
+
+class SourcePolicyError(RuntimeError):
+    '''request violates the configured source policy (strict kwqq_only mode)'''
+
+
+def source_policy_allows(platform_id: str) -> bool:
+    '''strict mode: only the six kwqq-API sources; the frozen library fallback is
+       disabled. Non-strict mode keeps the old behavior untouched.'''
+    if not SETTINGS.get('kwqq_only'):
+        return True
+    return PLATFORM_MAP.get(platform_id, {}).get('group') == 'api'
+
+
+def enforce_source_policy(platform_id: str) -> None:
+    if not source_policy_allows(platform_id):
+        raise SourcePolicyError(f'严格模式(kwqq_only)仅允许 kwqq-API 六源，已拒绝 {platform_id}')
+
+
 '''---------------- musicdl client pool ----------------'''
 
 _logger = LoggerHandle()
@@ -175,6 +195,7 @@ def get_lib_downloader():
 
 def search_platform_sync(platform_id: str, keyword: str, limit: int) -> list:
     meta = PLATFORM_MAP[platform_id]
+    enforce_source_policy(platform_id)                 # strict mode has no library bypass
     if meta.get('group') == 'api':                     # kwqq-api backed sources
         return api_search_sync(platform_id, keyword, limit)
     client = get_client(platform_id)

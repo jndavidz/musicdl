@@ -32,6 +32,13 @@ DEFAULT_CONFIG = {
     'dedupe_default': True,
     'quality_guard': True,
     'save_lrc_sidecar': False,
+    # K-05 strict source mode: when true the six-source in-process library fallback
+    # (ADR-0001 frozen mode) is disabled; only kwqq-API sources may search/download.
+    'kwqq_only': False,
+    # completed-download outbox for Songloft S-08 (empty -> <download_dir>/.outbox)
+    'outbox_dir': '',
+    # bounded download queue: over-full task creation answers 503 instead of growing
+    'max_queued_items': 200,
     'kwqq_api_base': 'http://10.10.10.2:3003',
     'kwqq_api_key': '',
     # 酷我 VIP cookie (kw_token=xxx; csrf=xxx) — 4000kflac 加密档 + QMC 解密。
@@ -138,6 +145,8 @@ _ENV_OVERRIDES = {
     'MUSICDL_WEBGUI_PORT': 'port',
     'MUSICDL_WEBGUI_KWQQ_API_BASE': 'kwqq_api_base',
     'MUSICDL_WEBGUI_KWQQ_API_KEY': 'kwqq_api_key',
+    'MUSICDL_WEBGUI_KWQQ_ONLY': 'kwqq_only',
+    'MUSICDL_WEBGUI_OUTBOX_DIR': 'outbox_dir',
 }
 
 
@@ -146,7 +155,12 @@ def _apply_env(cfg: dict) -> dict:
         v = os.environ.get(env)
         if v is None or v == '':
             continue
-        cfg[key] = int(v) if key == 'port' else v
+        if key == 'port':
+            cfg[key] = int(v)
+        elif key == 'kwqq_only':
+            cfg[key] = v.strip().lower() in {'1', 'true', 'yes', 'on'}
+        else:
+            cfg[key] = v
     return cfg
 
 
