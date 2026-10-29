@@ -353,6 +353,15 @@ except AdapterError as err:
     check('429 during search raises instead of returning []', err.code == 429, f'code={err.code}')
 check('429 during search cools the logical entry',
       health_search.cooldown_remaining('bilibili:search') > 0)
+check('tester NULL sentinel maps to AAC for DASH audio',
+      BilibiliAdapter._audio_ext(30280, 'NULL') == 'm4a',
+      f"ext={BilibiliAdapter._audio_ext(30280, 'NULL')}")
+check('Hi-Res id wins over an unknown probe result', BilibiliAdapter._audio_ext(30251, None) == 'flac')
+check('a real probe ext is preserved', BilibiliAdapter._audio_ext(30280, 'm4s') == 'm4a'
+      and BilibiliAdapter._audio_ext(30280, 'opus') == 'opus')
+check('the NULL sentinel never reaches a response',
+      bili.url_data('x', '320k', url='u', ext='NULL')['ext'] is None,
+      f"ext={bili.url_data('x', '320k', url='u', ext='NULL')['ext']}")
 
 # ---- E: scoped invalidation ----
 print('[E] scoped invalidation')

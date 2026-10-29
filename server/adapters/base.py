@@ -243,12 +243,19 @@ class SourceAdapter:
     def urldata_from_songinfo(self, song_id: str, quality: str, info, elapsed_ms: int, cached: bool = False, platform_tag: str | None = None) -> dict:
         return {
             'id': str(song_id), 'source': self.source_key, 'quality': quality,
-            'url': info.download_url, 'ext': info.ext, 'size_bytes': info.file_size_bytes,
+            'url': info.download_url, 'ext': self.clean_ext(info.ext), 'size_bytes': info.file_size_bytes,
             'bitrate_kbps': getattr(info, 'bitrate', None), 'duration_s': info.duration_s,
             'cover': info.cover_url, 'verified': True, 'headers': {},
             'parser': (info.raw_data or {}).get('spike_parser'), 'elapsed_ms': elapsed_ms, 'cached': cached,
             'platform_tag': platform_tag,
         }
+
+    @staticmethod
+    def clean_ext(ext):
+        '''AudioLinkTester answers "NULL" when it cannot infer a codec; that sentinel is
+           not an extension and must not reach a response or an admission check'''
+        cleaned = str(ext or '').strip().lower().lstrip('.')
+        return None if cleaned in {'', 'null', 'none'} else cleaned
 
     '''direct/relay result -> song url dict: the single assembly point for the
        14-field response shape (replaces the per-adapter hand-built dicts)'''
@@ -258,7 +265,7 @@ class SourceAdapter:
                  ekey: str | None = None, elapsed_ms: int = 0, cached: bool = False) -> dict:
         return {
             'id': str(song_id), 'source': self.source_key, 'quality': quality,
-            'url': url, 'ext': ext, 'size_bytes': size_bytes, 'bitrate_kbps': bitrate_kbps,
+            'url': url, 'ext': self.clean_ext(ext), 'size_bytes': size_bytes, 'bitrate_kbps': bitrate_kbps,
             'duration_s': duration_s, 'cover': cover, 'verified': verified,
             'headers': headers or {}, 'parser': parser, 'platform_tag': platform_tag,
             'ekey': ekey, 'elapsed_ms': elapsed_ms, 'cached': cached,

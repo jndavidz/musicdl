@@ -139,9 +139,13 @@ class BilibiliAdapter(SourceAdapter):
         if not chosen: raise AdapterError(404, 'no audio track found')
 
         base = chosen.get('baseUrl') or chosen.get('base_url')
-        status = await self.run(self.client.audio_link_tester.test, base)
+        # the CDN checks Referer: a bare probe returns 403 and the tester answers its
+        # "NULL" sentinel, which must never be mistaken for a codec (K-02 admission)
+        status = await self.run(self.client.audio_link_tester.test, base,
+                                {'headers': {'Referer': 'https://www.bilibili.com/',
+                                             'User-Agent': self.UA}})
         final_url = status.get('download_url') or base
-        ext = 'm4a' if status.get('ext') in {'m4s', 'mp4', None} else status.get('ext')
+        ext = self._audio_ext(chosen.get('id'), status.get('ext'))
         data = self.url_data(song_id, q,
                              url=final_url, ext=ext, size_bytes=status.get('file_size_bytes'),
                              bitrate_kbps=int(chosen.get('bandwidth', 0)) // 1000 or None,
@@ -153,6 +157,18 @@ class BilibiliAdapter(SourceAdapter):
         data['resolved_cid'] = str(cid_resolved)
         data['resolved_page'] = page_index
         return data
+
+    # DASH audio ids that are NOT plain AAC: 30251 = Hi-Res FLAC, 30250 = Dolby (EC-3)
+    DASH_EXT_BY_ID = {30251: 'flac', 30250: 'ec3'}
+
+    @classmethod
+    def _audio_ext(cls, dash_id, probe_ext):
+        '''probe result -> codec. The tester's "NULL" sentinel means "could not infer";
+           DASH audio is AAC unless the selected track id says otherwise.'''
+        ext = str(probe_ext or '').strip().lower().lstrip('.')
+        if ext in {'', 'null', 'none', 'm4s', 'mp4'}:
+            return cls.DASH_EXT_BY_ID.get(dash_id, 'm4a')
+        return ext
 
     @staticmethod
     def _select_page(pages: list, cid=None, page=None):
