@@ -82,8 +82,10 @@ class BilibiliAdapter(SourceAdapter):
                 'cover': ('https:' + raw['pic']) if raw.get('pic', '').startswith('//') else raw.get('pic'),
                 'source': 'bilibili'}
 
-    '''resolve DASH audio track by quality tier'''
-    async def song_url(self, song_id: str, quality: str) -> dict:
+    '''resolve DASH audio track by quality tier.
+       v2 passes the verified identity (cid and/or page); a bare bvid must not
+       silently play pages[0] because multi-P videos are distinct media.'''
+    async def song_url(self, song_id: str, quality: str, cid=None, page=None) -> dict:
         q = resolve_quality(self.source_key, quality)  # 192k request -> 320k (no native 192k tier)
         t0 = time.perf_counter()
         sessdata = getattr(self.settings, 'bili_sessdata', '')
@@ -97,11 +99,12 @@ class BilibiliAdapter(SourceAdapter):
         view = await self.run(_view)
         pages = (view.get('data') or {}).get('pages') or []
         if not pages: raise AdapterError(404, 'video not found')
-        cid, root_title = pages[0]['cid'], (view.get('data') or {}).get('title', '')
+        selected, page_index = self._select_page(pages, cid, page)
+        cid_resolved, root_title = selected['cid'], (view.get('data') or {}).get('title', '')
 
         def _playurl():
             from urllib.request import urlopen, Request
-            req = Request(f'https://api.bilibili.com/x/player/playurl?fnval=208&bvid={song_id}&cid={cid}',
+            req = Request(f'https://api.bilibili.com/x/player/playurl?fnval=208&bvid={song_id}&cid={cid_resolved}',
                           headers={'User-Agent': self.UA, 'Cookie': cookie})
             return _json.loads(urlopen(req, timeout=15).read())
         p = await self.run(_playurl)
@@ -128,7 +131,7 @@ class BilibiliAdapter(SourceAdapter):
         status = await self.run(self.client.audio_link_tester.test, base)
         final_url = status.get('download_url') or base
         ext = 'm4a' if status.get('ext') in {'m4s', 'mp4', None} else status.get('ext')
-        return self.url_data(song_id, q,
+        data = self.url_data(song_id, q,
                              url=final_url, ext=ext, size_bytes=status.get('file_size_bytes'),
                              bitrate_kbps=int(chosen.get('bandwidth', 0)) // 1000 or None,
                              duration_s=int(float(dash.get('duration') or 0)) or None,
@@ -136,8 +139,46 @@ class BilibiliAdapter(SourceAdapter):
                              headers={'Referer': 'www.bilibili.com', 'User-Agent': self.UA},
                              parser=f'bili.dash.{chosen.get("id")}',
                              elapsed_ms=round((time.perf_counter() - t0) * 1000))
+        data['resolved_cid'] = str(cid_resolved)
+        data['resolved_page'] = page_index
+        return data
 
-    '''song meta via view endpoint'''
+    @staticmethod
+    def _select_page(pages: list, cid=None, page=None):
+        '''verified single-page selection. cid wins when both are given, but a
+           disagreeing page/cid pair is a client error (identity is ambiguous).'''
+        by_cid = None
+        if cid is not None:
+            want = str(cid).strip()
+            by_cid = next(((i, p) for i, p in enumerate(pages, 1) if str(p.get('cid')) == want), None)
+            if by_cid is None:
+                raise AdapterError(404, f'cid {want} not found in this video (pages={len(pages)})')
+        if page is not None:
+            idx = int(page)
+            if idx < 1 or idx > len(pages):
+                raise AdapterError(404, f'page {idx} out of range (pages={len(pages)})')
+            if by_cid is not None and by_cid[0] != idx:
+                raise AdapterError(400, f'cid {cid} belongs to page {by_cid[0]}, not page {idx}')
+            return pages[idx - 1], idx
+        if by_cid is not None:
+            return by_cid[1], by_cid[0]
+        return pages[0], 1   # v1 path: unchanged pages[0] behavior
+
+    '''v2 identity: cid/page drive the resolve call'''
+    def identity_kwargs(self, extra: dict) -> dict:
+        extra = extra or {}
+        return {'cid': extra.get('cid'), 'page': extra.get('page')}
+
+    '''v2 identity: echo the VERIFIED cid/page actually resolved'''
+    def identity_out(self, requested: dict, result: dict) -> dict:
+        out = dict(requested or {})
+        if result.get('resolved_cid'): out['cid'] = str(result['resolved_cid'])
+        if result.get('resolved_page'): out['page'] = int(result['resolved_page'])
+        return out
+
+    '''song meta via view endpoint. Also surfaces the part list so a caller can
+       complete a v2 TrackRef (bvid + verified cid/page) for the SELECTED item —
+       this is the sanctioned per-item completion, never a per-candidate N+1.'''
     async def song_info(self, song_id: str) -> dict:
         def _fetch():
             from urllib.request import urlopen, Request
@@ -147,10 +188,15 @@ class BilibiliAdapter(SourceAdapter):
         v = await self.run(_fetch)
         d = v.get('data') or {}
         if not d: raise AdapterError(404, 'video not found')
+        pages = [{'cid': str(p.get('cid')), 'page': p.get('page') or i, 'part': p.get('part')}
+                 for i, p in enumerate(d.get('pages') or [], 1)]
+        first = pages[0] if pages else {}
         return {'id': str(song_id), 'source': self.source_key, 'name': d.get('title'),
                 'singer': (d.get('owner') or {}).get('name'), 'album': f"BV{d.get('bvid','')}",
                 'duration_s': int(float(d.get('duration') or 0)) or None,
-                'cover': d.get('pic'), 'raw': {}}
+                'cover': d.get('pic'),
+                'extra': ({'cid': first['cid'], 'page': first['page']} if first else {}),
+                'raw': {'pages': pages}}
 
     '''bilibili videos have no standard lyrics; AI subtitles need login — keep empty'''
     async def lyric(self, song_id: str) -> str:

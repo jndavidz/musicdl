@@ -49,6 +49,10 @@ class Settings:
         # service-level api key (empty = disabled). Compatible with the kugou-plugin pattern:
         # send 'Authorization: Basic base64(KEY + ":")' or 'X-API-Key: KEY'. /healthz is always exempt.
         self.api_key: str = e.get('API_KEY', '').strip()
+        # v2 playback scoped service credentials (JSON: {"token": {"scopes": [...], "generation": N}}).
+        # This is separate from API_KEY by design: the download key never grants playback issuance.
+        self.service_tokens: str = e.get('SERVICE_TOKENS', '').strip()
+        self.credential_generation: int = int(e.get('CREDENTIAL_GENERATION', '1'))
         # LAN bypass: requests originating from these networks skip the api key check
         # (direct intranet access to the container port). NOTE: the Lucky router IP must be
         # listed in untrusted_hosts, otherwise external traffic relayed through it is trusted too.

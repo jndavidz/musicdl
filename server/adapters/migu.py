@@ -64,6 +64,14 @@ class MiguAdapter(SourceAdapter):
         if not status.get('ok'): return None
         return {'url': status['download_url'] or url, 'status': status}
 
+    '''v2 identity: contentId + copyrightId is the media identity (same contentId can
+       carry different copyrights -> different media); required, never defaulted.'''
+    def identity_kwargs(self, extra: dict) -> dict:
+        hit = (extra or {}).get('copyrightId')
+        if not hit:
+            raise AdapterError(400, 'migu track_ref requires extra.copyrightId')
+        return {'copyright_id': str(hit)}
+
     '''quality routing: HQ=320k mp3 reliable anonymously; SQ/ZQ flac gated by ENABLE_LOSSLESS'''
     async def song_url(self, song_id: str, quality: str, copyright_id: str = '') -> dict:
         q = resolve_quality(self.source_key, quality)

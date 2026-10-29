@@ -24,6 +24,12 @@ def from_trusted_lan(st, client_host: str) -> bool:
     return any(addr in net for net in st.trusted_networks)
 
 
+'''paths that carry their own credential model and must not be gated by API_KEY:
+   v2 playback uses scoped service tokens (server/scopes.py), and the download key
+   deliberately never grants those scopes.'''
+SELF_AUTH_PREFIXES = ('/v2/',)
+
+
 def install_auth(app, st) -> None:
     if not st.api_key:
         return
@@ -32,7 +38,8 @@ def install_auth(app, st) -> None:
     @app.middleware('http')
     async def api_key_guard(request: Request, call_next):
         client_host = request.client.host if request.client else ''
-        if request.url.path != '/healthz' and not from_trusted_lan(st, client_host):
+        path = request.url.path
+        if path != '/healthz' and not path.startswith(SELF_AUTH_PREFIXES) and not from_trusted_lan(st, client_host):
             provided = request.headers.get('x-api-key', '')
             if not provided:
                 auth = request.headers.get('authorization', '')

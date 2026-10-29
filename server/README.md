@@ -15,6 +15,7 @@
 | GET | `/{source}/lyric` | `id`* | LRC 歌词（migu/qianqian/bilibili/deezer 恒空） |
 | GET | `/{source}/album` | `name`*、`artist`、`page`=1 | 专辑检索：候选 + 首选专辑有序曲目（`track_no`）；netease/kugou/migu/qianqian 可用，其余 501 |
 | GET | `/{source}/playlist` | `name`*、`page`=1 | 歌单检索：候选 + 首选歌单有序曲目（`track_no`）；当前仅 netease，其余 501 |
+| POST | `/v2/playback/resolve` | JSON `{track_ref, profile, freshness}`；`X-Service-Token`（scope `playback:issue`） | v2 托管播放：只收稳定身份（migu 必带 `copyrightId`；bilibili 必带 `cid`/`page`），返回身份回显、实际来源与验证等级；v1 不受影响 |
 | GET | `/healthz` | — | 存活探针（豁免 API key 与限流） |
 | GET | `/status` | — | parser 健康度（`<source>:<parser>` 键）+ 缓存统计 |
 | GET | `/metrics` | — | Prometheus 文本格式（请求计数/延迟直方图/parser 健康 gauge/缓存命中率 gauge；非信封包裹，豁免限流； Grafana scrape 配置见下文部署节） |
@@ -48,6 +49,8 @@
 | `URL_CACHE_TTL` / `SEARCH_CACHE_TTL` / `META_CACHE_TTL` | 600/300/86400 | 各缓存 TTL（秒） |
 | `SEARCH_SIZE_DEFAULT` / `SEARCH_SIZE_MAX` | 20/50 | 搜索默认条数 / 上限（超过截断） |
 | `API_KEY` | 空（关闭） | 服务级 API key；`X-API-Key` 或 `Basic base64(KEY+":")` |
+| `SERVICE_TOKENS` | 空 | v2 `/v2/*` 播放签名（JSON：`{"<token>": {"scopes": [...], "generation": 1}}`，scope = `playback:issue`/`cache:invalidate`/`media:prepare`）。与 `API_KEY` 完全独立：下载 key 不授予播放权限；格式错误启动即失败 |
+| `CREDENTIAL_GENERATION` | 1 | 未写 generation 的 token 默认代次（进 v2 缓存键，轮换即失效） |
 | `TRUSTED_NETWORKS` / `UNTRUSTED_HOSTS` | 127/8、10.10.10.0/24、10.20.0.0/24、172.16/12、192.168/16 / 10.10.10.1 | 免 key 网段（10.20.0.0/24 = 办公室 WG）/ 强制走 key 的来源 IP（Lucky 反代必须列入） |
 | `RATE_LIMIT` | 120/minute | **仅外网**固定窗口限流（`N/second\|minute\|hour\|day`，空 = 关闭）；可信网段完全豁免，外网（经 Lucky 中继后同源 IP）共享一个桶，429 带 `X-RateLimit-*` + `Retry-After` 头 |
 | `NCM_API_BASE` / `KUGOU_API_BASE` | 10.10.10.2:3000/3001 | NAS 侧 ncm-api / kugou-api 容器地址 |

@@ -86,6 +86,18 @@ class SourceAdapter:
     async def playlist(self, name: str, page: int = 1) -> dict:
         raise AdapterError(501, f'playlist search not supported for source "{self.source_key}"')
 
+    '''v2 identity: identity-affecting extra fields -> song_url kwargs.
+       Sources whose by-id resolve needs extra identity (migu copyrightId,
+       bilibili cid/page) override this; everything else takes no extra args.'''
+    def identity_kwargs(self, extra: dict) -> dict:
+        return {}
+
+    '''v2 identity: echo/complete the TrackRef extra after resolving. Adapters that
+       verify or derive identity fields (bilibili resolves cid from page) override;
+       base echoes the requested identity unchanged.'''
+    def identity_out(self, requested: dict, result: dict) -> dict:
+        return dict(requested or {})
+
     '''SongInfo / direct-dict -> song url dict'''
     def urldata_from_songinfo(self, song_id: str, quality: str, info, elapsed_ms: int, cached: bool = False, platform_tag: str | None = None) -> dict:
         return {

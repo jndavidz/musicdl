@@ -45,6 +45,18 @@ X-API-Key: <API_KEY>
 
 失败返回 `401`。当前生效 key 见 NAS `/volume2/docker/musicdl-api/docker-compose.yml` 的 `API_KEY`。
 
+### 2.3 v2 播放签名（scoped service credential，2026-10-29 K-01）
+
+v2 托管播放端点 `/v2/*` **不走** `API_KEY`、也不享受内网免 key：它有自己的服务凭证模型。
+
+| 项 | 说明 |
+|----|------|
+| 头 | `X-Service-Token: <token>` |
+| 配置 | `SERVICE_TOKENS`（JSON：`{"token": {"scopes": ["playback:issue"], "generation": 1}}`）；格式错误在启动时直接失败 |
+| scope | `playback:issue`（签发播放候选）· `cache:invalidate`（主动失效已成功但陈旧的缓存）· `media:prepare`（Songloft 媒体准备：允许 AAC 规范化输入，见 §4.8） |
+| 代次 | 每个 token 带 `generation`；轮换 token/代次即让该 token 的 v2 缓存键失效，不影响他人 |
+| 边界 | **下载 API_KEY 不自动获得任何 v2 scope**（用 `API_KEY` 当 token 直接 403）；缺 token 401、scope 不足 403 |
+
 ---
 
 ## 3. 统一响应格式
@@ -125,8 +137,42 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 - **逐源能力**：`netease` ✅（ncm-api `cloudsearch?type=1000` → `/playlist/track/all`，上限 1000 曲）；其余源 501（kuwo/qq/qianqian 无公开歌单搜索通道；kugou 歌单曲目端点容器返回 20010）。
 - items 结构与 `/search` 一致，曲目解析仍走 `/{source}/song/url?id=`。缓存：meta_cache。
 
-### 4.6 七源逐源详述
+### 4.6 POST /v2/playback/resolve — v2 托管播放解析（K-01，2026-10-29）
 
+托管播放（Songloft 当前项准备、bridge 点歌）只提交 **稳定曲目身份**，不接受调用方 URL。v1 端点（§4.1–4.5）行为完全不变，旧下载/ekey 契约不受影响。
+
+请求（`X-Service-Token` 必须带 `playback:issue` scope，见 §2.3）：
+
+```json
+{
+  "track_ref": {"source": "bilibili", "id": "BV1xx411c7mD",
+                 "extra": {"cid": "123456", "page": 2}},
+  "profile": {"quality": "320k", "target": "device"},
+  "freshness": "allow_cache"
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `track_ref.source` / `.id` | 必填；`id` 为该源原生 id（kuwo rid / qq songmid / kugou hash / qianqian TSID / netease id / migu contentId / bilibili bvid） |
+| `track_ref.extra` | **只保留影响身份的字段**：migu `copyrightId`；bilibili `cid` 和/或 `page`。其余键一律丢弃（伪造 ekey/URL 不进入缓存键） |
+| `profile.quality` | 原始拼写；v2 先按白名单校验再归一化（§4.7） |
+| `profile.target` | `device`（托管播放）或 `media_prepare`（仅 Songloft 媒体准备，需 `media:prepare` scope） |
+| `freshness` | `allow_cache`（默认）/ `revalidate`（跳过读缓存，仍写回） |
+
+**身份硬约束（缺字段明确拒绝，HTTP 400）**：
+
+- migu 必须带 `extra.copyrightId`——同一 contentId 在不同版权下是不同媒体，不得串解析/串缓存。
+- bilibili 必须带 `extra.cid` 或 `extra.page`——不再固定 `pages[0]`；`cid` 与 `page` 同时给出且互相矛盾 → 400；`cid` 不属于该视频 → 404。响应 `track_ref.extra` 回填**已验证**的 `cid`/`page`。
+- 搜索仍是单次元数据请求；需要补全身份时只对**选中项**调 `/{source}/song/info`（bilibili 返回 `data.extra.cid/page` 与 `data.raw.pages`），不做逐候选 view N+1。
+
+成功 data（`PlaybackResolveData`）：`{track_ref, resolved_source, requested_quality, delivered_quality, codec, url, ext, size_bytes, bitrate_kbps, duration_s, cover, headers, parser, platform_tag, verification: {level, requires_byte_verification, requires_transcode}, verified, fallback_reason, resolved_at, cache_expires_at, upstream_expires_at, cached}`。
+
+- `track_ref` = 原请求身份（经校验并回填已解析 cid/page）；`resolved_source` = 实际出链来源。
+- `verified` 在 v2 **恒为 false**：kwqq 只能声明上游说法或部分字节证据，完整文件验证由 Songloft 准备链完成（`verification.level` ∈ `declared`/`partial`，`requires_byte_verification` 恒 true）。
+- 缓存键 = 结构化身份 + 播放策略 + 凭据代次（`v2:` 命名空间，独立于 v1 url_cache）。
+
+### 4.7 七源逐源详述
 #### kuwo 酷我
 
 | 项 | 说明 |
@@ -262,6 +308,8 @@ GET `/kugou/vip/status` 响应 data 结构：
 |------|------|------|
 | `KWQQ_PORT` | 3003 | 监听端口 |
 | `API_KEY` | 空 | 服务层 Key；空=关闭校验 |
+| `SERVICE_TOKENS` | 空 | v2 播放签名（JSON：`{"<token>": {"scopes": ["playback:issue","cache:invalidate","media:prepare"], "generation": 1}}`）；与 `API_KEY` 独立，格式错误启动即失败 |
+| `CREDENTIAL_GENERATION` | 1 | 未显式写 generation 的 token 默认代次；轮换即让 v2 缓存键失效 |
 | `TRUSTED_NETWORKS` | `127/8,10.10.10.0/24,10.20.0.0/24,172.16/12,192.168/16` | 内网免 key 来源（含办公室 WG 10.20.0.0/24） |
 | `UNTRUSTED_HOSTS` | `10.10.10.1` | 强制要求 key（Lucky 入口） |
 | `RATE_LIMIT` | `120/minute` | 仅外网固定窗口限流（可信网段豁免，空=关闭；429 + `X-RateLimit-*`/`Retry-After` 头） |
@@ -341,6 +389,7 @@ server/tests/test_smoke.py <url> [--auth K:] # 冒烟默认档（含 netease 与
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-10-29 | 1.9 | +`POST /v2/playback/resolve`（K-01：TrackRef 身份契约、`X-Service-Token` scoped 服务凭证、结构化缓存键含身份/策略/凭据代次）；bilibili v2 支持受验证 cid/page（不再固定 pages[0]），`/song/info` 回传 `extra.cid/page` + `raw.pages`；migu 保留 contentId+copyrightId；v1 全部端点与 ekey 下载契约不变 |
 | 2026-10-27 | 1.6 | `TRUSTED_NETWORKS` 默认加入办公室 WG 网段 `10.20.0.0/24`（D-x 定案：办公室免 key / 免限流；代价是该网段内设备均可匿名访问） |
 | 2026-10-28 | 1.7 | +`/{source}/album`（P6 专辑检索：候选 + 首选专辑有序曲目 track_no；netease 先行，未实现源 HTTP 501）|
 | 2026-10-28 | 1.8 | +`/{source}/playlist`（P6 歌单检索，netease 先行）；`/{source}/album` 扩至 kugou/migu/qianqian（候选 name+artist 无结果自动退 name-only）；netease 进 live 冒烟常规档 |

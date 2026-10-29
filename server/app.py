@@ -19,19 +19,20 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import Response, JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST
 
 from server.config import settings, get_settings
 from server.cache import TTLCache
 from server.parsers_health import ParserHealth
-from server.envelope import ok, err
+from server.envelope import ok, err, envelope
 from server.schemas import Envelope
 from server.adapters import ADAPTER_CLASSES, AdapterError
 from server.auth import install_auth
 from server.metrics import Metrics
 from server.ratelimit import install_ratelimit
-from server.routes import resolve, kugou_vip, passthrough
+from server.scopes import ScopeRegistry, ScopeDenied
+from server.routes import resolve, kugou_vip, passthrough, playback
 
 
 async def healthz(request: Request):
@@ -49,7 +50,8 @@ async def status(request: Request):
     return ok({
         'uptime_s': round(time.time() - s.started_at),
         'parsers': s.health.snapshot(),   # keys are "<source>:<parser_name>"
-        'caches': {'url': s.url_cache.stats(), 'search': s.search_cache.stats(), 'meta': s.meta_cache.stats(), 'lyric': s.lyric_cache.stats()},
+        'caches': {'url': s.url_cache.stats(), 'search': s.search_cache.stats(), 'meta': s.meta_cache.stats(),
+                   'lyric': s.lyric_cache.stats(), 'v2_url': s.v2_url_cache.stats()},
         'settings': {'enable_lossless': s.settings.enable_lossless, 'tester_timeout': s.settings.tester_timeout,
                      'hard_timeout_s': s.settings.hard_timeout_s, 'max_concurrency_per_source': s.settings.max_concurrency_per_source},
     })
@@ -71,10 +73,13 @@ def create_app(st=None) -> FastAPI:
     app.state.settings = st
     app.state.started_at = time.time()
     app.state.url_cache = TTLCache(st.url_cache_ttl)
+    app.state.v2_url_cache = TTLCache(st.url_cache_ttl)
     app.state.search_cache = TTLCache(st.search_cache_ttl)
     app.state.meta_cache = TTLCache(st.meta_cache_ttl)
     app.state.lyric_cache = TTLCache(st.meta_cache_ttl)
     app.state.health = ParserHealth(fail_threshold=st.parser_fail_threshold, cooldown_s=st.parser_cooldown_s)
+    app.state.scopes = ScopeRegistry(st.service_tokens, download_key=st.api_key,
+                                     default_generation=st.credential_generation)
     app.state.adapters = {}
     app.state.metrics = Metrics()
 
@@ -99,6 +104,11 @@ def create_app(st=None) -> FastAPI:
     async def adapter_error_handler(request: Request, exc: AdapterError):
         return err(exc.code, exc.msg)
 
+    @app.exception_handler(ScopeDenied)
+    async def scope_denied_handler(request: Request, exc: ScopeDenied):
+        # authorization class, not a business miss: real 401/403 status
+        return JSONResponse(envelope(exc.code, exc.msg, None), status_code=exc.code)
+
     @app.exception_handler(asyncio.TimeoutError)
     async def timeout_handler(request: Request, exc: asyncio.TimeoutError):
         return err(504, f'upstream timed out after {request.app.state.settings.hard_timeout_s}s')
@@ -114,6 +124,7 @@ def create_app(st=None) -> FastAPI:
     R('/{source}/lyric', resolve.lyric, methods=['GET'], response_model=Envelope, summary='lyrics (LRC text) by id')
     R('/{source}/album', resolve.album, methods=['GET'], response_model=Envelope, summary='album search: ordered tracks (P6)')
     R('/{source}/playlist', resolve.playlist, methods=['GET'], response_model=Envelope, summary='playlist search: ordered tracks (P6)')
+    R('/v2/playback/resolve', playback.resolve, methods=['POST'], response_model=Envelope, summary='v2 managed playback: TrackRef -> resolved candidate')
     R('/kugou/vip/day', kugou_vip.vip_day, methods=['POST'], summary='claim today concept listening VIP')
     R('/kugou/vip/upgrade', kugou_vip.vip_upgrade, methods=['POST'], summary='upgrade concept vip reward')
     R('/kugou/vip/status', kugou_vip.vip_status, methods=['GET'], summary='structured vip entitlements + monthly claim records')
