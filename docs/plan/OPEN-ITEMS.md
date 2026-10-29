@@ -25,8 +25,8 @@
 
 - **跨项目联调**：Songloft S-03（media_prepare 消费）、bridge B-05/B-06（v2 TrackRef 消费）未开始；`music_ecosystem` runner 的 `singleflight`/`timeout-capacity`/`download-identity`/`ingest-scan`/`consumers-seven` case 需两侧就绪后运行。
 - **插件发布**：七插件构建产物已更新但未发布（`srcUrl` 仍指向旧包），插件侧 `serviceToken` 尚未下发——未配置时插件继续走 v1；发布与真实客户端验收需单独授权。
-- **webgui 下载冒烟**：`examples/musicdlwebgui/tests/test_smoke.py` 会向 `/music/download` 落一个文件，未在本次授权内执行（只读验收 6/6）。
-- **许可澄清**：PolyForm NC 正文与 README 分发表述冲突未解；公开分发前须确认 AGPL 组件源码提供义务，家庭私用不构成公开授权。
+- **webgui 下载冒烟**：已执行（2026-10-29 授权）：NAS `:3004` 建任务 → 落盘 `/music/download/郑鱼 - 尾戒 - 尾戒.mp3`（11.3 MB，644）→ 核对后删除，`.tmp` 无残留；14 项中 13 通过，唯一失败是 smoke 对 **API 条目**断言 `item.ext`（二段式下 ext 在 `/song/url` 后才确定），已改为仅对 lib 条目断言。
+- **许可澄清**（详见 [LICENSE-REVIEW.md](../LICENSE-REVIEW.md)）：已查明**无 AGPL 组件**；存在 GPL 组件（`pywidevine` GPL-3 启动即加载、PyAV 轮子捆绑 x264/x265），家中私有运行无源码提供义务。未闭环：① PolyForm NC 与 README 分发限制冲突需上游书面澄清；② `musicfree-plugins` 缺 LICENSE（已公开发布，需补或改私有）；③ 若分发镜像需按 GPL 提供源码/NOTICE；④ 可评估裁剪 `pywidevine` 依赖（未做）。
 
 ## P1 · 接口扩源（消费方已在等）
 

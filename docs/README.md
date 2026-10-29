@@ -10,6 +10,7 @@
 | [API-REFERENCE.md](API-REFERENCE.md) | **现行接口开发文档**：认证模型、端点参考、音质路由、配置、部署运维、开发指南 | ✅ 与服务现状一致（v1.12：含 v2 托管播放契约） |
 | [adr/0004-v2-managed-playback-contract.md](adr/0004-v2-managed-playback-contract.md) | **v2 托管播放契约裁决**：TrackRef 身份、scoped 凭据、严格准入、真实并发、singleflight/冷却、WebGUI 快照与原子发布 | ✅ Accepted（2026-10-29） |
 | [plan/OPEN-ITEMS.md](plan/OPEN-ITEMS.md) | 本仓未完成事项（P0 v2 待真机/部署验收、P1 扩源、P2 门控） | 🔄 持续更新 |
+| [LICENSE-REVIEW.md](LICENSE-REVIEW.md) | 许可与分发澄清：PolyForm NC vs README 冲突、实际 GPL 组件（pywidevine/PyAV-x264/x265）、**无 AGPL**、当前姿态下义务与未闭环项 | ✅ 2026-10-29（非法律意见） |
 
 ## 历史调研文档（archive/，仅供溯源，勿作现行依据）
 

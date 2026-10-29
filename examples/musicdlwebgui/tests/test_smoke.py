@@ -53,7 +53,12 @@ def main():
         print('\nno usable results; abort.'); return 1
     # prefer a lib-path item (has full metadata incl. ext); fall back to api item
     sample = lib_items[0] if lib_items else items[0]
-    for field in ['song_name', 'singers', 'ext', 'quality_tier', 'source']:
+    # api items intentionally carry no ext until the two-stage resolve (二段式：
+    # 搜索只回元数据，扩展名在 /song/url 之后才确定)；lib items do carry it.
+    required = ['song_name', 'singers', 'quality_tier', 'source']
+    if sample.get('origin') != 'api':
+        required.insert(2, 'ext')
+    for field in required:
         check(f'item.{field} present', bool(sample.get(field)), str(sample.get(field))[:40])
 
     print('\n[3/5] create download task')
