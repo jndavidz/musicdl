@@ -96,6 +96,7 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 | id | ✅ | 歌曲 id |
 | quality | — | auto/320k/128k/flac/hires/**master/surround51**（MusicFree 四档归一：low=128k、standard=192k、high=320k、super 封顶 320k；5.1→surround51；无损档仅对 musicdl 下载有效） |
 | copyright | — | 仅 migu |
+| cid / page | — | 仅 bilibili（可选）：已验证的分 P 身份；给出后按该 P 解析并计入缓存键，避免分 P 串播 |
 
 成功 data 字段：`{url, ext, bitrate_kbps(如实), size_bytes, duration_s, verified, parser, elapsed_ms, headers, ekey}`。
 **bilibili 源的 `headers` 必须传给播放器**（CDN 校验 Referer，缺了 403）：`{"Referer": "www.bilibili.com", "User-Agent": "..."}`。其他源 headers 通常为空。

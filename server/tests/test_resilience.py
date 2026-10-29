@@ -356,6 +356,21 @@ st, b, _ = post(base, '/v2/playback/resolve', {'track_ref': {'source': 'qq', 'id
                                                'profile': {'quality': '320k'}, 'freshness': 'sometimes'})
 check('unknown freshness is a request error', st == 400 and b.get('code') == 400, f'status={st}')
 
+rv = {'track_ref': {'source': 'qq', 'id': 'rv1'}, 'profile': {'quality': '320k'}}
+post(base, '/v2/playback/resolve', rv)
+before_rv = fake.calls
+post(base, '/v2/playback/resolve', {**rv, 'freshness': 'revalidate'})
+check('revalidate performs one controlled re-resolution', fake.calls == before_rv + 1,
+      f'delta={fake.calls - before_rv}')
+post(base, '/v2/playback/resolve', rv)
+check('revalidate refreshed the cached entry (later allow_cache hits it)',
+      fake.calls == before_rv + 1, f'delta={fake.calls - before_rv}')
+
+check('429 detection ignores numeric ids that merely contain 429',
+      not is_rate_limited(RuntimeError('no playable url resolved (rates tried: 429)')))
+check('429 detection still catches an HTTP 429 status',
+      is_rate_limited(Fake429('Retry-After', '3')))
+
 server.should_exit = True
 
 print(f'\nRESULT: {PASSED} passed, {len(FAILED)} failed' + (f' -> {FAILED}' if FAILED else ''))

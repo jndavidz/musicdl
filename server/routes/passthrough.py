@@ -12,6 +12,9 @@ from fastapi.responses import Response
 from server import proxy
 
 PROXY_TIMEOUT = 40
+# passthrough relays share the SAME logical upstream entry points as the adapters,
+# so an upstream 429 cooldown applies to them too (no bypass via /{src}/api/*)
+COOLDOWN_NAME = {'kugou': 'kugou:container', 'netease': 'netease:ncm-api'}
 
 
 def _make_handler(source: str, method: str):
@@ -23,7 +26,7 @@ def _make_handler(source: str, method: str):
                          query=dict(request.query_params),
                          body=body, content_type=request.headers.get('content-type', 'application/json'),
                          cookie_fn=adapter.account_cookie, timeout=PROXY_TIMEOUT)
-        status, ctype, out = await adapter.run(fn)
+        status, ctype, out = await adapter.run(adapter.guarded_sync, COOLDOWN_NAME[source], fn)
         return Response(content=out, status_code=status, media_type=ctype)
     handler.__name__ = f'{source}_proxy_{method.lower()}'
     return handler

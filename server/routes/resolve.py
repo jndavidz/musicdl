@@ -37,20 +37,30 @@ async def search(request: Request, source: str, keywords: str = Query(..., min_l
 
 
 async def song_url(request: Request, source: str, id: str = Query(..., min_length=1), quality: str = Query('auto'),
-                   copyright: str = Query('', description='migu only: copyrightId from search item extra')):
+                   copyright: str = Query('', description='migu only: copyrightId from search item extra'),
+                   cid: str = Query('', description='bilibili only: verified cid of the selected part'),
+                   page: int = Query(0, ge=0, description='bilibili only: verified page number of the selected part')):
     s = request.app.state
     adapter = get_adapter(s, source)
     q = resolve_quality(source, quality)
+    key = (source, id, q, copyright)
+    identity = {}
+    if source == 'bilibili' and (cid or page):
+        # additive: part identity joins the v1 cache key so different P never share a URL
+        identity = {'cid': cid or None, 'page': page or None}
+        key = key + (cid, page)
     result, hit = await cached(
-        s.url_cache, (source, id, q, copyright),
-        lambda: _resolve_song_url(adapter, id, q, copyright, s.settings.hard_timeout_s))
+        s.url_cache, key,
+        lambda: _resolve_song_url(adapter, id, q, copyright, s.settings.hard_timeout_s, identity))
     if hit:
         result = {**result, 'cached': True}
     return ok(SongUrlData(**result).model_dump())
 
 
-async def _resolve_song_url(adapter, song_id: str, q: str, copyright: str, hard_timeout_s: float) -> dict:
+async def _resolve_song_url(adapter, song_id: str, q: str, copyright: str, hard_timeout_s: float,
+                            identity: dict = None) -> dict:
     kwargs = {'copyright_id': copyright} if adapter.source_key == 'migu' else {}
+    kwargs.update(identity or {})
     # two timeout layers, distinct roles: adapter run_with_timeout = single upstream call
     # budget; this wait_for = whole fallback-chain budget (multi-route chains accumulate).
     route_timeout = getattr(adapter, 'timeout_override', 0) or hard_timeout_s

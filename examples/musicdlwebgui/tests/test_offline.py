@@ -316,6 +316,54 @@ check('over-full queue answers 503', st == 503 and body.get('code') == 503, f'st
 block_gate.set()
 config.SETTINGS['max_queued_items'] = 50
 downloads.get_lib_downloader = lambda: FakeDownloader()
+# ---- H: cancel during transfer / retry after cancel ----
+print('[H] cancel + retry')
+config.SETTINGS['max_queued_items'] = 50
+block_gate.clear()
+downloads.get_lib_downloader = lambda: BlockingDownloader()
+_, body = api(base, '/api/search', 'POST', {'keyword': '尾戒', 'sources': {'kuwo': 3}})
+key = ((body.get('data') or {}).get('items') or [{}])[0].get('key')
+_, body = api(base, '/api/downloads', 'POST', {'keys': [key], 'quality_pref': 'any', 'dedupe': False})
+tid = (body.get('data') or {}).get('task_id')
+for _ in range(50):
+    _, body = api(base, f'/api/tasks/{tid}')
+    if any(i['status'] == 'downloading' for i in (body.get('data') or {}).get('items') or []):
+        break
+    time.sleep(0.1)
+library_before = {p.name for p in DL_DIR.iterdir() if p.is_file()}
+api(base, f'/api/tasks/{tid}', 'DELETE')
+block_gate.set()   # the in-flight transfer completes AFTER the cancel: must not publish
+deadline = time.time() + 10
+while time.time() < deadline:
+    _, body = api(base, f'/api/tasks/{tid}')
+    snap = body.get('data') or {}
+    if snap.get('status') in {'completed', 'partial', 'cancelled'}:
+        break
+    time.sleep(0.2)
+cancelled_item = (snap.get('items') or [{}])[0]
+library_after = {p.name for p in DL_DIR.iterdir() if p.is_file()}
+check('cancel during transfer ends as cancelled', cancelled_item.get('status') in {'cancelled', 'failed'},
+      f"status={cancelled_item.get('status')}")
+check('cancel during transfer never publishes a library file', library_after == library_before,
+      f'new={library_after - library_before}')
+check('cancelled temp bytes are cleaned', not any((DL_DIR / '.tmp').glob('*')))
+
+downloads.get_lib_downloader = lambda: FakeDownloader()
+st, body = api(base, f'/api/tasks/{tid}/retry',
+               'POST', {'item_id': cancelled_item['item_id']})
+check('retry after cancel is accepted', st == 200 and body.get('code') == 200,
+      f"status={st} code={body.get('code')} msg={body.get('msg')}")
+deadline = time.time() + 10
+while time.time() < deadline:
+    _, body = api(base, f'/api/tasks/{tid}')
+    snap = body.get('data') or {}
+    if snap.get('status') in {'completed', 'partial', 'cancelled'}:
+        break
+    time.sleep(0.2)
+retried = (snap.get('items') or [{}])[0]
+check('retried item succeeds (cancel flag cleared)', retried.get('status') == 'success',
+      f"status={retried.get('status')} error={retried.get('error', '')}")
+
 server.should_exit = True
 
 # ---- G: inbound auth ----

@@ -2,20 +2,23 @@
 Function:
     Minimal thread-safe TTL cache (process-local, no external deps)
 '''
+import itertools
 import time
 import threading
 
 from server.singleflight import SingleFlight
 
-'''process-wide leader registry: keys are (id(cache), cache_key) so caches that
-   happen to share a textual key never merge'''
+'''process-wide leader registry: keys are (cache.uid, cache_key) so caches that
+   happen to share a textual key never merge, and a recycled id() cannot alias'''
 _flight = SingleFlight()
+_uid_seq = itertools.count(1)
 
 
 class TTLCache:
     def __init__(self, ttl_seconds: int, max_items: int = 2048):
         self.ttl = max(1, int(ttl_seconds))
         self.max_items = max(16, int(max_items))
+        self.uid = next(_uid_seq)
         self._store: dict = {}
         self._lock = threading.Lock()
         self._hits = self._misses = 0
@@ -76,5 +79,5 @@ async def cached(cache: TTLCache, key_parts: tuple, fn) -> tuple:
         cache.set(key, value)
         return value
 
-    value = await _flight.run((id(cache), key), _compute_and_store)
+    value = await _flight.run((cache.uid, key), _compute_and_store)
     return value, False

@@ -156,6 +156,10 @@ class CapacityError(RuntimeError):
     '''download queue is full (bounded admission)'''
 
 
+class _Aborted(RuntimeError):
+    '''the user cancelled while the transfer was already running'''
+
+
 def track_ref_for(info, platform_id: str) -> dict:
     '''stable identity for a candidate: api -> kwqq TrackRef, lib -> native id'''
     if getattr(info, 'api_id', None) is not None:
@@ -396,6 +400,10 @@ class DownloadEngine:
                 'quality_tier': s['quality_tier'], 'status': status, 'error': error,
                 'progress': 100.0 if status == 'skipped' else 0, 'speed': '',
                 'saved_path': '', 'downloaded_bytes': 0, 'total_bytes': s['file_size_bytes'] or 0,
+                # every field a worker may touch exists from birth: item dicts never
+                # change size while /api/tasks snapshots iterate them
+                'platform_tag': '', 'api_note': '', 'real_spec': '',
+                '_inflight': None,
                 '_info': s['_info'], '_restore': _info_descriptor(s['_info'], s['source']),
             })
         task = {'task_id': task_id, 'created_at': time.strftime('%H:%M:%S'), 'quality_pref': quality_pref,
@@ -431,7 +439,8 @@ class DownloadEngine:
 
         save_path = ''
         try:
-            info = item.pop('_info', None)
+            info = item.get('_info')
+            item['_info'] = None
             if info is None:
                 info = _rehydrate_info(item.get('_restore') or {})
                 if info is None:
@@ -488,6 +497,8 @@ class DownloadEngine:
                 item['quality_tier'] = ('hires' if 'VIP' in was_tag else
                                         ('surround51' if 'surround51' in was_tag else 'master'))
             if not downloaded: raise RuntimeError('下载失败（链接可能已过期），请重新搜索后再试')
+            if task.get('cancel_flag') or item.get('status') == 'cancelling':
+                raise _Aborted('已取消')
             produced = downloaded[0]
             # publish name follows the FINAL bytes (a decrypted mflac/mgg becomes .flac),
             # never the pre-decrypt container extension
@@ -512,18 +523,21 @@ class DownloadEngine:
                                                        if Path(published).exists() else None),
                            ext=Path(published).suffix, quality_tier=str(item.get('quality_tier') or ''))
         except Exception as err:
-            item['status'], item['error'], item['speed'] = 'failed', str(err)[:300], ''
+            status = 'cancelled' if isinstance(err, _Aborted) else 'failed'
+            item['status'], item['error'], item['speed'] = status, str(err)[:300], ''
         finally:
             # no half-written file may survive a failure; the temp dir is never the library
             with contextlib.suppress(Exception):
                 if save_path: release_path(save_path)
             with contextlib.suppress(Exception):
-                if item.get('_inflight'):
-                    inflight = Path(item['_inflight'])
-                    for leftover in (inflight, inflight.with_suffix('.flac')):
+                inflight = item.get('_inflight')
+                if inflight:
+                    # every sibling of the temp file (decrypted .flac, .lrc sidecar, ...)
+                    temp = Path(inflight)
+                    for leftover in list(temp.parent.glob(f'{temp.stem}.*')) + [temp]:
                         if leftover.is_file(): leftover.unlink()
-            item.pop('_info', None)
-            item.pop('_inflight', None)
+            item['_info'] = None
+            item['_inflight'] = None
             self._refresh_status(task_id)
             self.persist()
 
@@ -545,6 +559,8 @@ class DownloadEngine:
         item = next((i for i in task['items'] if i['item_id'] == item_id), None)
         if not item: raise KeyError(f'unknown item {item_id}')
         if item['status'] not in {'failed', 'cancelled', 'cancelling'}: raise ValueError('仅失败或已取消的条目可重试')
+        if not any(i['status'] in {'cancelling', 'downloading'} for i in task['items']):
+            task['cancel_flag'] = False   # otherwise every retry would be re-cancelled on entry
         # retry re-resolves from the identity snapshot; an unusable/forged snapshot
         # pauses instead of guessing what the user meant
         desc = item.get('_restore') or {}
@@ -595,6 +611,11 @@ class DownloadEngine:
             item.setdefault('downloaded_bytes', 0)
             item.setdefault('total_bytes', 0)
             item.setdefault('error', '')
+            item.setdefault('platform_tag', '')
+            item.setdefault('api_note', '')
+            item.setdefault('real_spec', '')
+            item.setdefault('_inflight', None)
+            item.setdefault('_info', None)
             if not isinstance(item.get('_restore'), dict):
                 item.update(status='paused', error='任务快照缺少可识别身份，已暂停（请重新搜索）')
             items.append(item)
@@ -626,7 +647,8 @@ class DownloadEngine:
                 if task['status'] != 'running': continue
                 for item in task['items']:
                     if item['status'] in {'downloading', 'cancelling'}:
-                        inflight = item.pop('_inflight', '')
+                        inflight = item.get('_inflight') or ''
+                        item['_inflight'] = None
                         if inflight:
                             with contextlib.suppress(Exception):
                                 partial = Path(inflight)

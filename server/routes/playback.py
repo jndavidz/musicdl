@@ -24,7 +24,7 @@ from server.config import SOURCES
 FRESHNESS = frozenset({'allow_cache', 'revalidate'})
 
 
-def _ref_from(s, body):
+def _ref_from(body):
     '''shared request validation for resolve + invalidate (400 on bad identity)'''
     try:
         return trackref.make_ref(body.track_ref.source, body.track_ref.id,
@@ -36,7 +36,7 @@ def _ref_from(s, body):
 async def resolve(request: Request, body: PlaybackResolveBody):
     s = request.app.state
     grant = s.scopes.authorize(request.headers.get('x-service-token', ''), PLAYBACK_ISSUE)
-    ref = _ref_from(s, body)
+    ref = _ref_from(body)
     adapter = get_adapter(s, ref['source'])
     freshness = str(body.freshness or 'allow_cache').strip()
     if freshness not in FRESHNESS:
@@ -66,7 +66,10 @@ async def resolve(request: Request, body: PlaybackResolveBody):
     # concurrent ones); the end-to-end retry budget belongs to the outermost
     # command, so kwqq never stacks its own retry rounds on top.
     if freshness == 'revalidate':
-        data = await _resolve()
+        # drop the stale entry first, then resolve through cached() so concurrent
+        # revalidations coalesce and later allow_cache callers see the fresh value
+        s.v2_url_cache.delete(key)
+        data, _ = await cached(s.v2_url_cache, (key,), _resolve)
     else:
         data, hit = await cached(s.v2_url_cache, (key,), _resolve)
         data = {**data, 'cached': hit}
@@ -78,7 +81,7 @@ async def invalidate(request: Request, body: InvalidateBody):
        credential generation. Cross-scope tokens are rejected; no wildcards.'''
     s = request.app.state
     grant = s.scopes.authorize(request.headers.get('x-service-token', ''), CACHE_INVALIDATE)
-    ref = _ref_from(s, body)
+    ref = _ref_from(body)
     profile = body.profile.model_dump()
     key = trackref.cache_key(ref, profile, grant['generation'])
     removed = s.v2_url_cache.delete(key)

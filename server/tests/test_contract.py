@@ -285,6 +285,21 @@ check('v1 verified/quality contract unchanged', st == 200 and b.get('code') == 2
       and d.get('verified') is True and d.get('quality') == '320k',
       f"status={st} verified={d.get('verified')} quality={d.get('quality')}")
 
+# ---- E: v1 bilibili part identity (additive, backward compatible) ----
+print('[E] v1 bilibili cid/page')
+part_fake = IdentityFake('bilibili', ext='mp3', bitrate=192)
+app.state.adapters['bilibili'] = part_fake
+st, b = call(base, '/bilibili/song/url?id=BV1&page=2', headers={'X-API-Key': 'download-key'})
+check('v1 song/url accepts page for bilibili', st == 200 and part_fake.calls[-1][2] == {'cid': None, 'page': 2},
+      f'status={st} kwargs={part_fake.calls[-1][2] if part_fake.calls else None}')
+call(base, '/bilibili/song/url?id=BV1&page=3', headers={'X-API-Key': 'download-key'})
+check('different page is a different v1 cache entry', len(part_fake.calls) == 2, f'calls={len(part_fake.calls)}')
+call(base, '/bilibili/song/url?id=BV1&page=2', headers={'X-API-Key': 'download-key'})
+check('same page reuses the v1 cache entry', len(part_fake.calls) == 2)
+st, b = call(base, '/bilibili/song/url?id=BV1&cid=99&page=2', headers={'X-API-Key': 'download-key'})
+check('v1 cid+page kwargs reach the adapter', part_fake.calls[-1][2] == {'cid': '99', 'page': 2},
+      f'kwargs={part_fake.calls[-1][2]}')
+
 server.should_exit = True
 
 print(f'\nRESULT: {PASSED} passed, {len(FAILED)} failed' + (f' -> {FAILED}' if FAILED else ''))

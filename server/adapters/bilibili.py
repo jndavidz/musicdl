@@ -90,13 +90,16 @@ class BilibiliAdapter(SourceAdapter):
         q = resolve_quality(self.source_key, quality)  # 192k request -> 320k (no native 192k tier)
         t0 = time.perf_counter()
         sessdata = getattr(self.settings, 'bili_sessdata', '')
-        cookie = self._get_buvid() + (f'; SESSDATA={sessdata}' if sessdata else '')
+        # buvid may need a network round-trip on a cold cache: measured execution,
+        # never on the event loop (K-03)
+        buvid = await self.run(self._get_buvid)
+        cookie = buvid + (f'; SESSDATA={sessdata}' if sessdata else '')
 
         def _view():
             from urllib.request import urlopen, Request
             req = Request(f'https://api.bilibili.com/x/web-interface/view?bvid={song_id}',
                           headers={'User-Agent': self.UA, 'Cookie': cookie})
-            return _json.loads(urlopen(req, timeout=15).read())
+            return _json.loads(urlopen(req, timeout=self.io_timeout[1]).read())
         view = await self.run(_view)
         pages = (view.get('data') or {}).get('pages') or []
         if not pages: raise AdapterError(404, 'video not found')
@@ -107,7 +110,7 @@ class BilibiliAdapter(SourceAdapter):
             from urllib.request import urlopen, Request
             req = Request(f'https://api.bilibili.com/x/player/playurl?fnval=208&bvid={song_id}&cid={cid_resolved}',
                           headers={'User-Agent': self.UA, 'Cookie': cookie})
-            return _json.loads(urlopen(req, timeout=15).read())
+            return _json.loads(urlopen(req, timeout=self.io_timeout[1]).read())
         p = await self.run(_playurl)
         dash = ((p.get('data') or {}).get('dash')) or {}
 
@@ -185,7 +188,7 @@ class BilibiliAdapter(SourceAdapter):
             from urllib.request import urlopen, Request
             req = Request(f'https://api.bilibili.com/x/web-interface/view?bvid={song_id}',
                           headers={'User-Agent': self.UA})
-            return _json.loads(urlopen(req, timeout=15).read())
+            return _json.loads(urlopen(req, timeout=self.io_timeout[1]).read())
         v = await self.run(_fetch)
         d = v.get('data') or {}
         if not d: raise AdapterError(404, 'video not found')

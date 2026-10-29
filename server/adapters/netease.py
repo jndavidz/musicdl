@@ -44,7 +44,9 @@ class NeteaseAdapter(SourceAdapter):
 
     '''metadata-only search via cloudsearch (standard fields: id/name/ar[]/al/duration)'''
     def _search_raw(self, keywords: str, limit: int, page: int) -> list:
-        data = requests_get(f'{self.settings.ncm_api_base}/cloudsearch', {'keywords': keywords, 'limit': limit, 'offset': (page - 1) * limit})
+        # same guarded logical entry as every other ncm-api call (429 cooldown applies)
+        data = self._api_get('/cloudsearch', {'keywords': keywords, 'limit': limit,
+                                              'offset': (page - 1) * limit})
         return (((data.get('result') or {}).get('songs')) or [])
 
     @staticmethod

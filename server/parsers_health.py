@@ -10,6 +10,7 @@ Notes:
     not be bypassed by host rotation). HTTP 429 keeps the upstream Retry-After and
     is never recorded as a success.
 '''
+import re
 import time
 import threading
 from musicdl.modules.utils import SongInfo, AudioLinkTester
@@ -25,10 +26,15 @@ def _status_code(exc) -> int | None:
         return None
 
 
+_RATE_LIMIT_RE = re.compile(r'(?:HTTP|status[=: ]+)\s*429\b|\b429\s*(?:Too Many Requests|Client Error)',
+                            re.I)
+
+
 def is_rate_limited(exc) -> bool:
+    '''HTTP 429 only; a song id / url that merely CONTAINS "429" must not cool a parser'''
     if _status_code(exc) == 429:
         return True
-    return '429' in str(exc)[:300] or 'Too Many Requests' in str(exc)[:300]
+    return bool(_RATE_LIMIT_RE.search(str(exc)[:300]))
 
 
 def retry_after_from(exc) -> float | None:
