@@ -31,7 +31,11 @@
   （设备直拉 `/media` 206 Range）。
 - **插件发布（已收口，2026-10-30）**：七插件 3.3.0/1.2.0/1.1.0 已于 2026-10-29 部署 NAS `/volume2/web/plugin/`（同名覆盖，旧包备份 `plugin/old/2026-10-29-v1/`，srcUrl 不变，见 PLUGIN-COMPAT 变更记录）；`kwqq-playback` serviceToken 已下发至七插件用户变量并完成真机在线验收——七插件逐一点播播放全部通过（token 先经服务端 `/v2/playback/resolve` 鉴权探针实测：假 token 401、真 token 过准入进业务层；鉴权失败自动回落 v1 兜底）。剩余开放项只有姊妹仓缺 LICENSE（归下方许可澄清）。
 - **webgui 下载冒烟**：已执行（2026-10-29 授权）：NAS `:3004` 建任务 → 落盘 `/music/download/郑鱼 - 尾戒 - 尾戒.mp3`（11.3 MB，644）→ 核对后删除，`.tmp` 无残留；14 项中 13 通过，唯一失败是 smoke 对 **API 条目**断言 `item.ext`（二段式下 ext 在 `/song/url` 后才确定），已改为仅对 lib 条目断言。
-- **许可澄清**（详见 [LICENSE-REVIEW.md](../LICENSE-REVIEW.md)）：已查明**无 AGPL 组件**；存在 GPL 组件（`pywidevine` GPL-3 启动即加载、PyAV 轮子捆绑 x264/x265），家中私有运行无源码提供义务。未闭环：① PolyForm NC 与 README 分发限制冲突需上游书面澄清；② `musicfree-plugins` 缺 LICENSE（已公开发布，需补或改私有）；③ 若分发镜像需按 GPL 提供源码/NOTICE；④ 可评估裁剪 `pywidevine` 依赖（未做）。
+- **许可澄清（2026-10-30 定案）**（详见 [LICENSE-REVIEW.md](../LICENSE-REVIEW.md)）：已查明**无 AGPL 组件**；存在 GPL 组件（`pywidevine` GPL-3 启动即加载、PyAV 轮子捆绑 x264/x265），家中私有运行无源码提供义务。
+  ① PolyForm NC 与 README 分发表述冲突：**按更严格一方执行——不对外分发**（上游书面澄清仅在"要公开发布"时重新开启）；
+  ② `musicfree-plugins` 已补根级 `LICENSE`（All rights reserved / UNLICENSED）并 `package.json` 私有化，**仅剩 GitHub 仓库可见性改 private 这一仓库设置动作**；
+  ③ 分发镜像的 GPL 源码/NOTICE 义务：不适用（不分发），已记录；
+  ④ `pywidevine` 裁剪仍为可选优化（未做，不影响验收）。
 
 ## P1 · 接口扩源（消费方已在等）
 
