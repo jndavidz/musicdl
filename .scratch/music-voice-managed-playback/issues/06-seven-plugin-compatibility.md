@@ -47,3 +47,7 @@ External blocked by: open-xiaoai B-05/B-06，Songloft S-03（跨区联调）
   `download-identity` 跨项目 case（依赖 open-xiaoai B-01 与 B-05/B-06、Songloft S-03）；插件发布与
   真实客户端在线验收。
   许可：PolyForm NC 与 README 分发表述的冲突、实际 AGPL 组件源码提供义务仍为开放项（PLUGIN-COMPAT §6）。
+- 2026-10-30 发布与真机在线验收收口：七插件已于 2026-10-29 部署 NAS `/volume2/web/plugin/`（见
+  PLUGIN-COMPAT §5.1）；`kwqq-playback` serviceToken 下发至七插件用户变量，服务端准入探针先行
+  （假 token 401 / 真 token 过鉴权进业务层），真机逐插件点播播放全部通过。上条 NOT RUN 中
+  「插件发布与真实客户端在线验收」就此关闭；跨项目 case 的 NOT RUN 仍按上条归 B-08。
