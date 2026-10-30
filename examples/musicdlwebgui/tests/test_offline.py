@@ -325,11 +325,14 @@ _, body = api(base, '/api/search', 'POST', {'keyword': '尾戒', 'sources': {'ku
 key = ((body.get('data') or {}).get('items') or [{}])[0].get('key')
 _, body = api(base, '/api/downloads', 'POST', {'keys': [key], 'quality_pref': 'any', 'dedupe': False})
 tid = (body.get('data') or {}).get('task_id')
-for _ in range(50):
-    _, body = api(base, f'/api/tasks/{tid}')
+reached_downloading = False
+for _ in range(150):   # 负载下 worker 启动可能慢：等到真正 downloading 再取消，
+    _, body = api(base, f'/api/tasks/{tid}')  # 否则取消早于起跑会让「不落库」断言失去意义
     if any(i['status'] == 'downloading' for i in (body.get('data') or {}).get('items') or []):
+        reached_downloading = True
         break
     time.sleep(0.1)
+check('cancel test reached downloading state', reached_downloading)
 library_before = {p.name for p in DL_DIR.iterdir() if p.is_file()}
 api(base, f'/api/tasks/{tid}', 'DELETE')
 block_gate.set()   # the in-flight transfer completes AFTER the cancel: must not publish
@@ -344,8 +347,11 @@ cancelled_item = (snap.get('items') or [{}])[0]
 library_after = {p.name for p in DL_DIR.iterdir() if p.is_file()}
 check('cancel during transfer ends as cancelled', cancelled_item.get('status') in {'cancelled', 'failed'},
       f"status={cancelled_item.get('status')}")
-check('cancel during transfer never publishes a library file', library_after == library_before,
-      f'new={library_after - library_before}')
+if reached_downloading:
+    check('cancel during transfer never publishes a library file', library_after == library_before,
+          f'new={library_after - library_before}')
+else:
+    print('SKIP publish assertion: never entered downloading (cancel raced the start)')
 check('cancelled temp bytes are cleaned', not any((DL_DIR / '.tmp').glob('*')))
 
 downloads.get_lib_downloader = lambda: FakeDownloader()
