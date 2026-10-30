@@ -1,10 +1,10 @@
 # musicdl 未完成事项（本仓）
 
 > 范围：**仅 musicdl 仓库**（库层 / server / webgui / docs / scripts）。songloft、open-xiaoai 侧事项不入本文。
-> 快照：2026-10-30；离线冒烟 = server 46+58+13+41 项、webgui 38 项全 PASS（七插件 153 项在姊妹仓）。
+> 快照：2026-10-30；离线冒烟 = server 46+58+13+41 项、webgui 39 项全 PASS（合计 197）（七插件 153 项在姊妹仓）。
 > 进度与跨区契约以 `D:\_work\dev\docs\projects\MUSICDL\music-ecosystem-roadmap.md` 为准；本文只列"还没做完"。
 
-## P0 · v2 托管播放（K-01…K-06 已离线 + NAS 实网验收）
+## P0 · v2 托管播放（K-01…K-06 已离线 + NAS 实网验收 + 跨项目六 case 收口）
 
 已实现（离线可验）：`POST /v2/playback/resolve`、`POST /v2/cache/invalidate`、严格播放准入、
 真实并发边界、singleflight/429 冷却、WebGUI 严格来源+身份快照+原子发布+outbox、
