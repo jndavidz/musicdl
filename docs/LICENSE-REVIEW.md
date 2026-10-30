@@ -39,10 +39,15 @@
 | 对外分发镜像（未做） | 需同时满足：① PolyForm NC + README 的分发限制（当前冲突未解，视为禁止）；② pywidevine GPL-3、Unidecode GPL-2+、PyAV 轮子内 x264/x265 的 GPL 源码提供与许可声明；③ 所有 MIT/BSD/Apache 依赖的 NOTICE/License 合集；④ 基础镜像（Debian slim）的许可清单 |
 | 网络服务形式（自建 API） | GPL-3 **不**因网络交互触发（非 AGPL）；但若未来引入任何 AGPL 组件，则必须提供对应源码 |
 
-## 5. 未闭环事项
+## 5. 未闭环事项（2026-10-30 更新）
 
-1. **上游澄清**：PolyForm NC 正文与 README L85 的分发限制冲突，需上游书面确认（否则永久按"禁止分发"执行）。
-2. **插件仓许可**：`musicfree-plugins` 无 LICENSE 文件；`package.json` 的 ISC 声明不足以覆盖从 MusicFree 生态示例继承的片段。公开发布前补 LICENSE 或改为私有分发。
+1. **上游澄清（已定执行口径）**：PolyForm NC 正文与 README L85 的分发限制冲突。**决策：按更严格一方执行——
+   不做任何对外分发**（镜像、插件包、打包物均不发）；冲突本身仍需上游书面确认，但不再阻塞当前私用，
+   只在"要公开发布"时重新开启。
+2. **插件仓许可（已收口，2026-10-30）**：`musicfree-plugins` 已补根级 `LICENSE`
+   （All rights reserved / UNLICENSED）+ `package.json` `"license": "UNLICENSED", "private": true`，
+   `docs/PLUGIN-COMPAT.md` §6 同步定案为"私有、不再分发"。此前 ISC 声明不再使用（它覆盖不了继承片段）。
+   **剩余动作**：GitHub 仓库可见性应设为 private（仓库设置操作，非代码改动）。
 3. **PyAV 轮子许可证**：`av` 为 BSD-3，但其捆绑的 FFmpeg 共享库含 GPL-2 编码器；若将来分发镜像，需按实际 build flags 提供 FFmpeg 源码与许可声明（当前不分发，仅记录）。
 4. **GPL 依赖裁剪**：`pywidevine`（GPL-3）在服务启动时被加载，但目前 kwqq 的七个源都不走 Widevine。若要彻底避免 GPL 依赖进入镜像，可评估拆分 `requirements.txt`（仅装服务所需子集）——**未做**，需单独验证 musicdl 客户端的导入链。
 5. 本文不覆盖内容合法性：只处理软件许可；音乐内容的授权与使用范围另见 README Disclaimer。
