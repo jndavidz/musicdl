@@ -3,7 +3,7 @@
 Status: resolved
 Type: task
 Blocked by: 01, 02, 04, 05
-External blocked by: open-xiaoai B-05/B-06，Songloft S-03（跨区联调）
+External blocked by: open-xiaoai B-05/B-06，Songloft S-03（跨区联调）（已解除：对端票均 resolved）
 
 ## Body
 
@@ -60,5 +60,5 @@ External blocked by: open-xiaoai B-05/B-06，Songloft S-03（跨区联调）
     `timeout-capacity` PASS（12 路全部终态、event loop 最大 39ms）；
     `download-identity` PASS（search→下载→容器内 stat 校验 644/无 .tmp→清理）；
     `ingest-scan` PASS（Songloft ingest 拒绝矩阵 2/2 显式 422，一个 500 缺陷已修）。
-  - 仍未做：插件发布（`srcUrl` 仍指旧包）与真实客户端在线验收；许可两项开放（PolyForm/README、
-    插件仓 LICENSE）。
+  - 发布面：插件已同名覆盖到 NAS（2026-10-29/30，v2 产物），用户已在 MusicFree 逐插件点播通过；
+    许可已定案「私有、不分发」（插件仓补 UNLICENSED LICENSE、仓库转 private）。
