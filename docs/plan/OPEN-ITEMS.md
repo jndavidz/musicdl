@@ -1,7 +1,7 @@
 # musicdl 未完成事项（本仓）
 
 > 范围：**仅 musicdl 仓库**（库层 / server / webgui / docs / scripts）。songloft、open-xiaoai 侧事项不入本文。
-> 快照：2026-10-29；离线冒烟 = server 46+58+13+41 项、webgui 38 项全 PASS（七插件 153 项在姊妹仓）。
+> 快照：2026-10-30；离线冒烟 = server 46+58+13+41 项、webgui 38 项全 PASS（七插件 153 项在姊妹仓）。
 > 进度与跨区契约以 `D:\_work\dev\docs\projects\MUSICDL\music-ecosystem-roadmap.md` 为准；本文只列"还没做完"。
 
 ## P0 · v2 托管播放（K-01…K-06 已离线 + NAS 实网验收）
@@ -23,7 +23,12 @@
 
 仍未完成：
 
-- **跨项目联调**：Songloft S-03（media_prepare 消费）、bridge B-05/B-06（v2 TrackRef 消费）未开始；`music_ecosystem` runner 的 `singleflight`/`timeout-capacity`/`download-identity`/`ingest-scan`/`consumers-seven` case 需两侧就绪后运行。
+- **跨项目联调（2026-10-30 收口）**：`music_ecosystem` runner 六 case 全部有结果——
+  `consumers-seven`（七插件产物 7/7 一致 + v2 鉴权探针）、`quality-profile`（身份拒绝 3/3 +
+  跨 scope 5 项）、`singleflight`（8 并发单解析）、`timeout-capacity`（12 路终态、event loop ≤39ms）、
+  `download-identity`（下载→644/无 .tmp→清理）、`ingest-scan`（Songloft ingest 拒绝矩阵 422）
+  均 PASS。Songloft 侧 S-03 准备链与 bridge 托管队列的真机全链也已在同一窗口跑通
+  （设备直拉 `/media` 206 Range）。
 - **插件发布（已收口，2026-10-30）**：七插件 3.3.0/1.2.0/1.1.0 已于 2026-10-29 部署 NAS `/volume2/web/plugin/`（同名覆盖，旧包备份 `plugin/old/2026-10-29-v1/`，srcUrl 不变，见 PLUGIN-COMPAT 变更记录）；`kwqq-playback` serviceToken 已下发至七插件用户变量并完成真机在线验收——七插件逐一点播播放全部通过（token 先经服务端 `/v2/playback/resolve` 鉴权探针实测：假 token 401、真 token 过准入进业务层；鉴权失败自动回落 v1 兜底）。剩余开放项只有姊妹仓缺 LICENSE（归下方许可澄清）。
 - **webgui 下载冒烟**：已执行（2026-10-29 授权）：NAS `:3004` 建任务 → 落盘 `/music/download/郑鱼 - 尾戒 - 尾戒.mp3`（11.3 MB，644）→ 核对后删除，`.tmp` 无残留；14 项中 13 通过，唯一失败是 smoke 对 **API 条目**断言 `item.ext`（二段式下 ext 在 `/song/url` 后才确定），已改为仅对 lib 条目断言。
 - **许可澄清**（详见 [LICENSE-REVIEW.md](../LICENSE-REVIEW.md)）：已查明**无 AGPL 组件**；存在 GPL 组件（`pywidevine` GPL-3 启动即加载、PyAV 轮子捆绑 x264/x265），家中私有运行无源码提供义务。未闭环：① PolyForm NC 与 README 分发限制冲突需上游书面澄清；② `musicfree-plugins` 缺 LICENSE（已公开发布，需补或改私有）；③ 若分发镜像需按 GPL 提供源码/NOTICE；④ 可评估裁剪 `pywidevine` 依赖（未做）。

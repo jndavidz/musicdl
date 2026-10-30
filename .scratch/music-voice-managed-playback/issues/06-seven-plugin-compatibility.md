@@ -51,3 +51,14 @@ External blocked by: open-xiaoai B-05/B-06，Songloft S-03（跨区联调）
   PLUGIN-COMPAT §5.1）；`kwqq-playback` serviceToken 下发至七插件用户变量，服务端准入探针先行
   （假 token 401 / 真 token 过鉴权进业务层），真机逐插件点播播放全部通过。上条 NOT RUN 中
   「插件发布与真实客户端在线验收」就此关闭；跨项目 case 的 NOT RUN 仍按上条归 B-08。
+- 2026-10-30 **跨项目 case 全部有结果**（runner `--device --require-approval`）：
+  - `consumers-seven` PASS：七插件构建产物 md5 与 NAS `/volume2/web/plugin/` **7/7 一致**；
+    v2 路由鉴权探针（假 token 401；真 token 走通到上游 502 说明准入已过）。
+  - `quality-profile` PASS：musicdl 侧身份拒绝 3/3（缺 copyrightId / 缺 cid / 未知 source 均 400）
+    + 跨 scope 5 项（playback↛invalidate、playback↛media_prepare、invalidate→resolve 403 等）。
+  - `singleflight` PASS（8 并发同 payload、串行续跑缓存 2/2）；
+    `timeout-capacity` PASS（12 路全部终态、event loop 最大 39ms）；
+    `download-identity` PASS（search→下载→容器内 stat 校验 644/无 .tmp→清理）；
+    `ingest-scan` PASS（Songloft ingest 拒绝矩阵 2/2 显式 422，一个 500 缺陷已修）。
+  - 仍未做：插件发布（`srcUrl` 仍指旧包）与真实客户端在线验收；许可两项开放（PolyForm/README、
+    插件仓 LICENSE）。
