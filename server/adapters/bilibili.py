@@ -151,7 +151,7 @@ class BilibiliAdapter(SourceAdapter):
                              bitrate_kbps=int(chosen.get('bandwidth', 0)) // 1000 or None,
                              duration_s=int(float(dash.get('duration') or 0)) or None,
                              verified=bool(status.get('ok')),
-                             headers={'Referer': 'www.bilibili.com', 'User-Agent': self.UA},
+                             headers={'Referer': 'https://www.bilibili.com/', 'User-Agent': self.UA},
                              parser=f'bili.dash.{chosen.get("id")}',
                              elapsed_ms=round((time.perf_counter() - t0) * 1000))
         data['resolved_cid'] = str(cid_resolved)
