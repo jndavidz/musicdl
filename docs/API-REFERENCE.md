@@ -340,6 +340,20 @@ GET|POST /netease/api/{上游路径}?原始参数...
 
 > 路径规则：kugou-api 的模块文件名下划线即斜杠（`album_songs.js` → `/album/songs`）。完整模块清单见 KuGouMusicApi 仓库 `module/` 目录与 NeteaseCloudMusicApiEnhanced 文档。
 
+### 5.1b P8 在线浏览端点（2026-11-04，kuwo 首发）
+
+```
+GET /{source}/toplists                       → 榜单列表（平铺）
+GET /{source}/toplist/songs?id=&page=&limit= → 榜单曲目（by id 分页）
+GET /{source}/playlist/tags                  → 推荐歌单标签（pinned+groups）
+GET /{source}/playlist/sheets?tag=&page=&limit= → 标签下歌单（tag 空=全部热门；专区 <id>@<digest>）
+GET /{source}/playlist/songs?id=&page=&limit= → 歌单曲目（by id 分页；page=1 附 meta）
+```
+
+- 统一 Envelope + schema（`ToplistsData/PlaylistTagsData/SheetListData/SheetSongsData`）；曲目 = `SearchItem` 同构，解析仍走 `/{source}/song/url` by-id（二段式不变）。
+- 默认 501 envelope；kuwo 已实现（官方 wapi 免登通道在 adapter 内归一，形状 2026-11-04 现网实测；曲目 id=rid）。netease/kugou 榜单/推荐继续走透传族（§5）。
+- kwqq 插件消费映射：cover→cover_url、SearchItem→source_data（`itemToResult`）、dedup_key `kwqq_kuwo_<rid>`。
+
 ### 5.2 VIP 运维精装端点（酷狗概念版畅听 VIP，已实测）
 
 业务流程：**每日先领畅听 VIP(tvip) → 再升级为概念版(svip)**；升级会把当天记录的 vip_type 从 tvip 改写为 svip 并追加 24h。
