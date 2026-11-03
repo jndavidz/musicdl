@@ -391,3 +391,140 @@ class KuwoAdapter(SourceAdapter):
             return {'albums': albums, 'items': items, 'total': len(items)}
 
         return await self.run(_fetch)
+
+    '''P8（2026-11-04）：榜单/推荐歌单走官方 wapi 免登通道（musicfree-plugins kuwo
+       插件现役实现对齐，形状 2026-11-04 现网实测）。归一在此完成，kwqq 插件只做透传。
+       曲目 id=rid，与 /kuwo/song/url 的 id 口径一致；曲目解析仍走 /song/url（二段式）。'''
+
+    _KW_UA_HEADERS = {'user-agent': 'kwplayer_pc_9.0.5.0', 'Referer': 'https://www.kuwo.cn/'}
+
+    async def _kw_official_get(self, url, params=None, timeout=None):
+        from urllib.parse import urlencode
+        qs = urlencode({k: v for k, v in (params or {}).items() if v is not None})
+        full = url + ('?' + qs if qs else '')
+
+        def _get():
+            return self.client.get(full, headers=self._KW_UA_HEADERS, timeout=timeout or self.io_timeout)
+        return (await self.run(_get)).json()
+
+    @staticmethod
+    def _kw_int(v):
+        try:
+            return int(str(v))
+        except (TypeError, ValueError):
+            return None
+
+    async def toplists(self) -> dict:
+        data = await self._kw_official_get('http://wapi.kuwo.cn/api/pc/bang/list')
+        items = []
+        for group in (data or {}).get('child') or []:
+            for b in group.get('child') or []:
+                if not b.get('sourceid'):
+                    continue
+                items.append({'id': str(b['sourceid']), 'name': (b.get('name') or '').strip(),
+                              'cover': b.get('pic5') or b.get('pic2') or b.get('pic'),
+                              'description': b.get('intro'), 'source': 'kuwo'})
+        return {'items': items}
+
+    async def toplist_songs(self, toplist_id: str, page: int = 1, limit: int = 50) -> dict:
+        # ksong.s：pn 从 0 起；不返回 total，用不足一页判尽（musicfree 同款）
+        data = await self._kw_official_get('http://kbangserver.kuwo.cn/ksong.s', {
+            'from': 'pc', 'fmt': 'json', 'pn': page - 1, 'rn': limit, 'type': 'bang',
+            'data': 'content', 'id': toplist_id, 'show_copyright_off': 0,
+            'pcmp4': 1, 'isbang': 1, 'userid': 0, 'httpStatus': 1,
+        }, timeout=35)
+        songs = (data or {}).get('musiclist') or []
+        items = [{'id': str(m.get('id')).replace('MUSIC_', ''), 'name': (m.get('name') or '').strip(),
+                  'singer': (m.get('artist') or '').strip(), 'album': m.get('album'),
+                  'duration_s': self._kw_int(m.get('song_duration') or m.get('duration')),
+                  'source': 'kuwo'} for m in songs if m.get('id')]
+        return {'page': page, 'is_end': len(songs) < limit,
+                'total': self._kw_int((data or {}).get('num')), 'items': items}
+
+    async def playlist_tags(self) -> dict:
+        data = await self._kw_official_get('http://wapi.kuwo.cn/api/pc/classify/playlist/getTagList', {
+            'cmd': 'rcm_keyword_playlist', 'user': 0, 'prod': 'kwplayer_pc_9.0.5.0',
+            'vipver': '9.0.5.0', 'source': 'kwplayer_pc_9.0.5.0',
+            'loginUid': 0, 'loginSid': 0, 'appUid': 76039576,
+        })
+        groups, pinned = [], []
+        for cat in (data or {}).get('data') or []:
+            tags = [{'id': str(t.get('id')), 'title': (t.get('name') or '').strip()}
+                    for t in (cat.get('data') or []) if t.get('id')]
+            if not tags:
+                continue
+            groups.append({'title': cat.get('name') or '', 'data': tags})
+            for t in (cat.get('data') or []):
+                if str(t.get('digest')) == '10000' and len(pinned) < 8:
+                    pinned.append({'id': str(t.get('id')), 'title': (t.get('name') or '').strip()})
+        return {'pinned': pinned, 'groups': groups}
+
+    async def playlist_sheets(self, tag: str, page: int = 1, limit: int = 30) -> dict:
+        def _sheet(p):
+            pid = p.get('playlistid') or p.get('id')
+            return {'id': str(pid), 'name': (p.get('name') or '').strip(),
+                    'creator': (p.get('nickname') or p.get('uname') or '').strip(),
+                    'cover': p.get('pic') or p.get('img'),
+                    'track_count': self._kw_int(p.get('songnum') or p.get('total')),
+                    'play_count': self._kw_int(p.get('playcnt') or p.get('listencnt')),
+                    'source': 'kuwo'}
+
+        if tag:
+            # 普通标签走 getTagPlayList 分页（digest=10000 热门与普通同通道）；
+            # 专区标签（digest!=10000，kwqq 插件以 <id>@<digest> 编码）走 er.s 聚合一次返回、切片分页
+            if '@' in tag:
+                zone_id = tag.split('@', 1)[0]
+                raw = await self._kw_official_get('http://mobileinterfaces.kuwo.cn/er.s', {
+                    'type': 'get_pc_qz_data', 'f': 'web', 'id': zone_id, 'prod': 'pc'})
+                flat = [p for sec in (raw if isinstance(raw, list) else []) for p in (sec.get('list') or [])]
+                rows = flat[(page - 1) * limit: page * limit]
+                return {'tag': tag, 'page': page, 'is_end': page * limit >= len(flat),
+                        'total': len(flat), 'items': [_sheet(p) for p in rows if p.get('id') or p.get('playlistid')]}
+            data = await self._kw_official_get(
+                'http://wapi.kuwo.cn/api/pc/classify/playlist/getTagPlayList', {
+                    'loginUid': 0, 'loginSid': 0, 'appUid': 76039576, 'pn': page - 1,
+                    'id': tag, 'rn': limit,
+                }, timeout=35)
+            inner = (data or {}).get('data') or {}
+            rows = inner.get('data') or []
+            total = self._kw_int(inner.get('total'))
+            return {'tag': tag, 'page': page, 'is_end': page * limit >= (total or 0),
+                    'total': total, 'items': [_sheet(p) for p in rows]}
+        # 空标签 = 全部热门推荐（getRcmPlayList，order=hot）
+        data = await self._kw_official_get(
+            'http://wapi.kuwo.cn/api/pc/classify/playlist/getRcmPlayList', {
+                'loginUid': 0, 'loginSid': 0, 'appUid': 76039576, 'pn': page - 1,
+                'rn': limit, 'order': 'hot',
+            }, timeout=35)
+        inner = (data or {}).get('data') or {}
+        rows = inner.get('data') or []
+        total = self._kw_int(inner.get('total'))
+        return {'tag': '', 'page': page, 'is_end': page * limit >= (total or 0),
+                'total': total, 'items': [_sheet(p) for p in rows]}
+
+    async def playlist_songs(self, playlist_id: str, page: int = 1, limit: int = 50) -> dict:
+        # nplserver pl.svc：pn 从 0 起；page=1 响应自带歌单元数据（meta），免额外请求
+        data = await self._kw_official_get('http://nplserver.kuwo.cn/pl.svc', {
+            'op': 'getlistinfo', 'pid': playlist_id, 'pn': page - 1, 'rn': limit,
+            'encode': 'utf8', 'keyset': 'pl2012', 'vipver': 'MUSIC_9.1.1.2_BCS2', 'newver': 1,
+        }, timeout=35)
+        songs = (data or {}).get('musiclist') or []
+        total = self._kw_int((data or {}).get('total')) or len(songs)
+        items = [{'id': str(m.get('musicrid') or m.get('id') or '').replace('MUSIC_', ''),
+                  'name': (m.get('name') or m.get('FNAME') or '').strip(),
+                  'singer': (m.get('artist') or m.get('FARTIST') or '').strip(),
+                  'album': m.get('album') or m.get('FALBUM'),
+                  'duration_s': self._kw_int(m.get('duration') or m.get('song_duration')),
+                  'cover': m.get('albumpic') or m.get('pic'),
+                  'source': 'kuwo'} for m in songs if (m.get('musicrid') or m.get('id'))]
+        meta = None
+        if page == 1:
+            meta = {'id': str((data or {}).get('id') or playlist_id),
+                    'name': (data or {}).get('title') or '',
+                    'creator': (data or {}).get('uname') or '',
+                    'cover': (data or {}).get('pic'),
+                    'track_count': total,
+                    'extra': {'play_count': self._kw_int((data or {}).get('playnum')),
+                              'description': (data or {}).get('info')}}
+        return {'page': page, 'is_end': (page - 1) * limit + len(songs) >= total,
+                'total': total, 'items': items, 'meta': meta}

@@ -277,5 +277,23 @@ class SourceAdapter:
          artist {id, name, avatar}
          sheet  {id, name, creator, cover, track_count, play_count}
        默认不支持——routes 层转 501 envelope；支持源在各自 adapter 覆写。'''
+    '''P8 在线浏览：榜单 / 推荐歌单（2026-11-04，kuwo 首发）。
+       五个能力按 MusicFree 语义归一；默认不支持——routes 层转 501 envelope；
+       支持源在各自 adapter 覆写。曲目解析仍走 /song/url by-id（二段式不变）。'''
+    async def toplists(self) -> dict:
+        raise AdapterError(501, f'toplists not supported for source "{self.source_key}"')
+
+    async def toplist_songs(self, toplist_id: str, page: int = 1, limit: int = 50) -> dict:
+        raise AdapterError(501, f'toplist songs not supported for source "{self.source_key}"')
+
+    async def playlist_tags(self) -> dict:
+        raise AdapterError(501, f'playlist tags not supported for source "{self.source_key}"')
+
+    async def playlist_sheets(self, tag: str, page: int = 1, limit: int = 30) -> dict:
+        raise AdapterError(501, f'playlist recommend not supported for source "{self.source_key}"')
+
+    async def playlist_songs(self, playlist_id: str, page: int = 1, limit: int = 50) -> dict:
+        raise AdapterError(501, f'playlist songs not supported for source "{self.source_key}"')
+
     async def search_multi(self, keywords: str, search_type: str, page: int = 1, limit: int = 20) -> dict:
         raise AdapterError(501, f'type search "{search_type}" not supported for source "{self.source_key}"')

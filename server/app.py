@@ -32,7 +32,7 @@ from server.auth import install_auth
 from server.metrics import Metrics
 from server.ratelimit import install_ratelimit
 from server.scopes import ScopeRegistry, ScopeDenied
-from server.routes import resolve, kugou_vip, passthrough, playback
+from server.routes import resolve, kugou_vip, passthrough, playback, browse
 
 
 async def healthz(request: Request):
@@ -143,6 +143,11 @@ def create_app(st=None) -> FastAPI:
     R('/{source}/album', resolve.album, methods=['GET'], response_model=Envelope, summary='album search: ordered tracks (P6)')
     R('/{source}/search/multi', resolve.search_multi, methods=['GET'], response_model=Envelope, summary='multi-type search: album/artist/sheet (P7)')
     R('/{source}/playlist', resolve.playlist, methods=['GET'], response_model=Envelope, summary='playlist search: ordered tracks (P6)')
+    R('/{source}/toplists', browse.toplists, methods=['GET'], response_model=Envelope, summary='browse: platform toplists (P8)')
+    R('/{source}/toplist/songs', browse.toplist_songs, methods=['GET'], response_model=Envelope, summary='browse: toplist tracks by id (P8)')
+    R('/{source}/playlist/tags', browse.playlist_tags, methods=['GET'], response_model=Envelope, summary='browse: recommend sheet tags (P8)')
+    R('/{source}/playlist/sheets', browse.playlist_sheets, methods=['GET'], response_model=Envelope, summary='browse: recommend sheets by tag (P8)')
+    R('/{source}/playlist/songs', browse.playlist_songs, methods=['GET'], response_model=Envelope, summary='browse: playlist tracks by id (P8)')
     R('/v2/playback/resolve', playback.resolve, methods=['POST'], response_model=Envelope, summary='v2 managed playback: TrackRef -> resolved candidate')
     R('/v2/cache/invalidate', playback.invalidate, methods=['POST'], response_model=Envelope, summary='v2 scoped invalidation of one cached candidate')
     R('/kugou/vip/day', kugou_vip.vip_day, methods=['POST'], summary='claim today concept listening VIP')

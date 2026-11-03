@@ -78,6 +78,7 @@ class PlaylistEntry(BaseModel):
     name: Optional[str] = None
     creator: Optional[str] = None
     track_count: Optional[int] = None
+    play_count: Optional[int] = None
     cover: Optional[str] = None
     source: Optional[str] = None
     extra: dict = {}
@@ -217,3 +218,58 @@ class SearchMultiData(BaseModel):
     page: int = 1
     total: Optional[int] = None
     items: List[dict] = []
+
+
+# ---- P8 在线浏览：榜单 / 推荐歌单（2026-11-04，kuwo 首发） ----
+
+class ToplistEntry(BaseModel):
+    id: str
+    name: Optional[str] = None
+    cover: Optional[str] = None
+    description: Optional[str] = None
+    update_frequency: Optional[str] = None
+    source: str
+
+
+class ToplistsData(BaseModel):
+    """P8 榜单列表：平台全部榜单（平铺，不做二级分组——分组交给客户端）"""
+    source: str
+    items: List[ToplistEntry] = []
+
+
+class TagEntry(BaseModel):
+    id: str
+    title: Optional[str] = None
+
+
+class TagGroup(BaseModel):
+    title: Optional[str] = None
+    data: List[TagEntry] = []
+
+
+class PlaylistTagsData(BaseModel):
+    """P8 推荐歌单标签：pinned 热门 + groups 全量分类（MusicFree 语义归一）"""
+    source: str
+    pinned: List[TagEntry] = []
+    groups: List[TagGroup] = []
+
+
+class SheetListData(BaseModel):
+    """P8 标签下推荐歌单列表（PlaylistEntry 复用 P6 歌单检索形状，extra 带平台专有字段）"""
+    source: str
+    tag: str = ''
+    page: int = 1
+    is_end: bool = True
+    total: Optional[int] = None
+    items: List[PlaylistEntry] = []
+
+
+class SheetSongsData(BaseModel):
+    """P8 歌单/榜单内曲目（by id 分页）；meta 仅 page=1 附歌单/榜单元数据"""
+    source: str
+    id: str
+    page: int = 1
+    is_end: bool = True
+    total: Optional[int] = None
+    items: List[SearchItem] = []
+    meta: Optional[PlaylistEntry] = None

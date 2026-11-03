@@ -283,5 +283,78 @@ codes = [raw(base4, '/qq/search?keywords=x')[0] for _ in range(5)]
 check('trusted client bypasses rate limit', codes == [200] * 5, f'codes={codes}')
 server4.should_exit = True
 
+# ---- section 7: P8 browse endpoints (toplists / playlist recommend) ----
+app5 = create_app(Settings(env={'API_KEY': ''}))
+base5, server5 = start_app(app5)
+
+
+class FakeBrowseAdapter(FakeAdapter):
+    source_key = 'kuwo'
+
+    async def toplists(self):
+        self.calls.append(('toplists',))
+        return {'items': [{'id': '16', 'name': '酷我热歌榜', 'cover': 'https://p/kw.png',
+                           'description': 'i', 'source': 'kuwo'}]}
+
+    async def toplist_songs(self, toplist_id, page=1, limit=50):
+        self.calls.append(('tlist', toplist_id, page, limit))
+        return {'page': page, 'is_end': False, 'total': 300,
+                'items': [{'id': '624683929', 'name': 'T', 'singer': 'A', 'album': 'AL',
+                           'duration_s': 245, 'source': 'kuwo'}]}
+
+    async def playlist_tags(self):
+        self.calls.append(('ptags',))
+        return {'pinned': [{'id': '999', 'title': '热歌'}],
+                'groups': [{'title': '主题', 'data': [{'id': '999', 'title': '热歌'}]}]}
+
+    async def playlist_sheets(self, tag, page=1, limit=30):
+        self.calls.append(('psheets', tag, page, limit))
+        return {'tag': tag, 'page': page, 'is_end': True, 'total': 1,
+                'items': [{'id': '2399331172', 'name': 'S', 'creator': 'u', 'cover': 'c',
+                           'track_count': 24, 'play_count': 506702, 'source': 'kuwo'}]}
+
+    async def playlist_songs(self, playlist_id, page=1, limit=50):
+        self.calls.append(('psongs', playlist_id, page, limit))
+        return {'page': page, 'is_end': True, 'total': 24,
+                'items': [{'id': '80458', 'name': '沉默是金', 'singer': '张国荣',
+                           'album': '粤语超白金', 'duration_s': 252, 'source': 'kuwo'}],
+                'meta': {'id': playlist_id, 'name': 'S', 'creator': 'u', 'cover': 'c',
+                         'track_count': 24,
+                         'extra': {'play_count': 506702, 'description': 'i'}}}
+
+
+app5.state.adapters['kuwo'] = FakeBrowseAdapter()
+
+st, b = raw(base5, '/kuwo/toplists')
+check('P8 toplists: envelope + entry fields', st == 200 and b['code'] == 200
+      and b['data']['items'][0]['id'] == '16' and b['data']['items'][0]['source'] == 'kuwo')
+raw(base5, '/kuwo/toplists')
+check('P8 toplists cached', len([c for c in app5.state.adapters['kuwo'].calls if c[0] == 'toplists']) == 1)
+
+st, b = raw(base5, '/kuwo/toplist/songs?id=16&page=2&limit=10')
+check('P8 toplist songs: page pass-through + is_end', st == 200 and b['data']['page'] == 2
+      and b['data']['is_end'] is False and b['data']['total'] == 300
+      and b['data']['items'][0]['id'] == '624683929')
+
+st, b = raw(base5, '/kuwo/playlist/tags')
+check('P8 playlist tags: pinned + groups', st == 200 and b['data']['pinned'][0]['id'] == '999'
+      and b['data']['groups'][0]['title'] == '主题')
+
+st, b = raw(base5, '/kuwo/playlist/sheets?tag=211%4043&page=1&limit=5')
+check('P8 playlist sheets: tag echoed (zone encoding passes through)', st == 200
+      and b['data']['tag'] == '211@43' and b['data']['items'][0]['id'] == '2399331172'
+      and b['data']['items'][0]['play_count'] == 506702)
+
+st, b = raw(base5, '/kuwo/playlist/songs?id=2399331172')
+check('P8 playlist songs: meta on page=1', st == 200 and b['data']['meta'] is not None
+      and b['data']['meta']['id'] == '2399331172'
+      and b['data']['items'][0]['id'] == '80458')
+
+st, b = raw(base5, '/netease/toplists')
+check('P8 unsupported source: 501 envelope (HTTP 501 class)', st == 501 and b['code'] == 501, f"status={st} code={b.get('code')}")
+st, b = raw(base5, '/nope/toplists')
+check('P8 unknown source: 404 envelope', st == 200 and b['code'] == 404)
+server5.should_exit = True
+
 print(f'\nRESULT: {PASSED} passed, {len(FAILED)} failed' + (f' -> {FAILED}' if FAILED else ''))
 sys.exit(1 if FAILED else 0)
