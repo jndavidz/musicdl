@@ -187,6 +187,39 @@ class MiguAdapter(SourceAdapter):
             return {'albums': albums, 'items': items}
         return await self.run(_fetch)
 
+    """P7 多类型搜索（官方 search_all.do，零 Cookie）：searchSwitch.album/singer 按需打开。
+       形状与 musicfree-plugins migu 插件 mgXxxItem 对齐（2026-11-03 实测）。"""
+    async def search_multi(self, keywords: str, search_type: str, page: int = 1, limit: int = 20) -> dict:
+        if search_type == 'sheet':
+            raise AdapterError(501, f'type search "sheet" not supported for source "{self.source_key}"')
+        from urllib.parse import urlencode
+
+        def _search():
+            switch = {'song': 0, 'album': 1 if search_type == 'album' else 0,
+                      'singer': 1 if search_type == 'artist' else 0,
+                      'tagSong': 0, 'mvSong': 0, 'bestShow': 1}
+            rule = {'text': keywords, 'pageNo': page, 'pageSize': limit, 'isCopyright': 1, 'sort': 1,
+                    'searchSwitch': switch}
+            return self.client.get('https://c.musicapp.migu.cn/v1.0/content/search_all.do?' + urlencode(rule),
+                                   timeout=self.io_timeout)
+
+        j = resp2json_migu(self.client, await self.run(_search))
+        if search_type == 'album':
+            res = j.get('albumResultData') or {}
+            items = []
+            for a in res.get('result') or []:
+                if not a.get('id'):
+                    continue
+                imgs = [i.get('img') for i in (a.get('imgItems') or []) if isinstance(i, dict) and i.get('img')]
+                items.append({'id': str(a['id']), 'name': a.get('name') or '', 'artist': a.get('singer') or '',
+                              'cover': (imgs[-1] if imgs else None), 'track_count': None, 'source': 'migu'})
+        else:
+            res = j.get('singerResultData') or {}
+            items = [{'id': str(x['id']), 'name': x.get('name') or '', 'avatar': None, 'source': 'migu'}
+                     for x in res.get('result') or [] if x.get('id')]
+        total = int(res['totalCount']) if str(res.get('totalCount') or '').isdigit() else None
+        return {'items': items, 'total': total}
+
 
 def resp2json_migu(client, resp):
     return client._decryptresp(resp=resp)

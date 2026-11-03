@@ -169,7 +169,7 @@ st, b = raw(base, '/qq/album?name=%E5%8F%B6%E6%83%A0%E7%BE%8E&artist=%E5%91%A8%E
 nos = [i.get('track_no') for i in (b['data'] or {}).get('items') or []]
 check('album via fake adapter (ordered track_no 1..n)', st == 200 and b['code'] == 200 and nos == [1, 2, 3], f'nos={nos}')
 check('album cached (adapter called once)', len([c for c in fake.calls if c[0] == 'album']) == 1)
-st, b = raw(base, '/kuwo/album?name=x')
+st, b = raw(base, '/bilibili/album?name=x')
 check('album unsupported source -> 501 envelope (HTTP 501, not business-miss class)', st == 501 and b['code'] == 501, f"status={st} code={b.get('code')}")
 st, b = raw(base, '/qq/playlist?name=x')
 pnos = [i.get('track_no') for i in (b['data'] or {}).get('items') or []]

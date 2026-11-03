@@ -142,3 +142,128 @@ class QQAdapter(SourceAdapter):
         lyric_b64 = (resp.json() or {}).get('lyric') or ''
         if not lyric_b64: return ''
         return base64.b64decode(lyric_b64).decode('utf-8', errors='ignore')
+
+    '''P7 多类型搜索（官方 fcg Desktop 通道，零 Cookie）：search_type 2=album / 1=artist / 3=songlist。
+       形状与 musicfree-plugins qq 插件 officialXxxItem 对齐（2026-11-03 实测）。'''
+    _QQ_MULTI_SEARCH_TYPE = {'album': 2, 'artist': 1, 'sheet': 3}
+
+    async def search_multi(self, keywords: str, search_type: str, page: int = 1, limit: int = 20) -> dict:
+        import json as _json
+        from musicdl.modules.utils.qqutils import QQMusicClientUtils, Credential
+        payload = {
+            'comm': {'ct': 19, 'cv': 1845, 'uin': ''},
+            'req_1': {
+                'method': 'DoSearchForQQMusicDesktop',
+                'module': 'music.search.SearchCgiService',
+                'param': {'num_per_page': limit, 'page_num': page, 'query': keywords,
+                          'search_type': self._QQ_MULTI_SEARCH_TYPE[search_type]},
+            },
+        }
+        def _post():
+            return self.client.post(QQMusicClientUtils.endpoint,
+                                    data=_json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+                                    timeout=self.io_timeout)
+        resp = await self.run(_post)
+        d = (resp.json() or {}).get('req_1') or {}
+        if d.get('code') != 0:
+            raise AdapterError(502, f'qq multi search code={d.get("code")}')
+        body = (d.get('data') or {}).get('body') or {}
+        total = ((d.get('data') or {}).get('meta') or {}).get('sum')
+
+        if search_type == 'album':
+            rows = (body.get('album') or {}).get('list') or []
+            items = [{'id': str(a.get('albumID') if a.get('albumID') is not None else a.get('albumid') or ''),
+                      'name': a.get('albumName') or a.get('album_name') or '',
+                      'artist': a.get('singerName') or a.get('singer_name') or '',
+                      'cover': a.get('albumPic') or None, 'track_count': None, 'source': 'qq'}
+                     for a in rows if a.get('albumID') is not None or a.get('albumid')]
+        elif search_type == 'artist':
+            rows = (body.get('singer') or {}).get('list') or []
+            items = [{'id': str(s.get('singerID') if s.get('singerID') is not None else s.get('singerid') or ''),
+                      'name': s.get('singerName') or '', 'avatar': s.get('singerPic') or None, 'source': 'qq'}
+                     for s in rows if s.get('singerID') is not None or s.get('singerid')]
+        else:
+            rows = (body.get('songlist') or {}).get('list') or []
+            items = [{'id': str(p.get('dissid') or ''), 'name': p.get('dissname') or '',
+                      'creator': ((p.get('creator') or {}).get('name')) or '',
+                      'cover': p.get('imgurl') or None, 'track_count': None,
+                      'play_count': p.get('listennum'), 'source': 'qq'}
+                     for p in rows if p.get('dissid')]
+        return {'items': items, 'total': total}
+
+    '''P6 补齐（2026-11-03）：专辑检索走官方 fcg——候选 search_type=2，首选曲目
+       music.musichallAlbum.AlbumSongList（GetAlbumSongList）。形状与 musicfree-plugins
+       qq 插件 getAlbumInfo 对齐。曲目解析仍走 /song/url by-id（二段式不变）。'''
+    async def album(self, name: str, artist: str = '', page: int = 1) -> dict:
+        import json as _json
+        from musicdl.modules.utils.qqutils import QQMusicClientUtils, Credential
+
+        def _fcg(payload):
+            resp = self.client.post(QQMusicClientUtils.endpoint,
+                                    data=_json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+                                    timeout=self.io_timeout)
+            return resp.json() or {}
+
+        def _search_albums(kw):
+            payload = {
+                'comm': {'ct': 19, 'cv': 1845, 'uin': ''},
+                'req_1': {'method': 'DoSearchForQQMusicDesktop', 'module': 'music.search.SearchCgiService',
+                          'param': {'num_per_page': 5, 'page_num': page, 'query': kw, 'search_type': 2}},
+            }
+            d = _fcg(payload).get('req_1') or {}
+            if d.get('code') != 0:
+                return []
+            body = (d.get('data') or {}).get('body') or {}
+            out = []
+            for a in (body.get('album') or {}).get('list') or []:
+                aid = a.get('albumID') if a.get('albumID') is not None else a.get('albumid')
+                if aid is None:
+                    continue
+                out.append({'id': str(aid), 'mid': a.get('albumMID') or a.get('album_mid') or '',
+                            'name': a.get('albumName') or a.get('album_name') or '',
+                            'artist': a.get('singerName') or a.get('singer_name') or '',
+                            'cover': a.get('albumPic') or None, 'date': a.get('publicTime') or a.get('pub_time'),
+                            'source': 'qq'})
+            return out
+
+        def _fetch():
+            raw = _search_albums(f'{name} {artist}'.strip() if artist else name)
+            if not raw and artist:
+                raw = _search_albums(name)
+            if not raw:
+                return {'albums': [], 'items': [], 'total': 0}
+            best = raw[0]
+            payload = {
+                'comm': {'ct': 24, 'cv': 10000},
+                'albumSonglist': {
+                    'method': 'GetAlbumSongList', 'module': 'music.musichallAlbum.AlbumSongList',
+                    'param': {'albumMid': best.get('mid') or '', 'albumID': int(best['id']) if str(best['id']).isdigit() else 0,
+                              'begin': 0, 'num': 500, 'order': 2},
+                },
+            }
+            res = _fcg(payload).get('albumSonglist') or {}
+            if res.get('code') != 0:
+                raise AdapterError(502, f'qq album songlist code={res.get("code")}')
+            song_list = ((res.get('data') or {}).get('songList')) or []
+            items = []
+            for n, x in enumerate(song_list, start=1):
+                info = x.get('songInfo') or x
+                mid = info.get('mid') or info.get('songmid') or ''
+                if not mid:
+                    continue
+                album = info.get('album') or {}
+                cover = None
+                album_mid = (album.get('mid') if isinstance(album, dict) else None) or ''
+                if album_mid:
+                    cover = f'https://y.gtimg.cn/music/photo_new/T002R300x300M000{album_mid}.jpg'
+                singers = ', '.join(s.get('name') for s in (info.get('singer') or [])
+                                    if isinstance(s, dict) and s.get('name'))
+                items.append({'id': str(mid), 'name': info.get('title') or info.get('songname') or '',
+                              'singer': singers or None,
+                              'album': (album.get('name') or album.get('title')) if isinstance(album, dict) else '',
+                              'ext': None, 'size_bytes': None,
+                              'duration_s': int(float(info.get('interval') or 0)) or None,
+                              'cover': cover, 'source': 'qq', 'track_no': n})
+            return {'albums': raw, 'items': items, 'total': len(items)}
+
+        return await self.run(_fetch)

@@ -262,3 +262,132 @@ class KuwoAdapter(SourceAdapter):
             return '\n'.join(lines)
         except Exception:
             return ''
+
+    '''P7 多类型搜索（老搜索接口 r.s，零 Cookie）：ft=album/artist/playlist + itemset=web_2013。
+       形状与 musicfree-plugins kuwo 插件 kwXxxItem 对齐（2026-11-03 实测：album→albumlist、
+       artist/playlist→abslist；total 大小写不一：album 小写 total、artist/playlist 大写 TOTAL）。'''
+    _KW_MULTI_FT = {'album': 'album', 'artist': 'artist', 'sheet': 'playlist'}
+
+    async def search_multi(self, keywords: str, search_type: str, page: int = 1, limit: int = 20) -> dict:
+        import html as _html
+        from urllib.parse import urlencode
+        rule = {'all': keywords, 'ft': self._KW_MULTI_FT[search_type], 'itemset': 'web_2013',
+                'client': 'kt', 'pn': str(page - 1), 'rn': str(limit),
+                'rformat': 'json', 'encoding': 'utf8', 'pcjson': '1'}
+        def _get():
+            return self.client.get('http://search.kuwo.cn/r.s?' + urlencode(rule), timeout=self.io_timeout)
+        resp = await self.run(_get)
+        j = resp.json() or {}
+
+        def _txt(v):
+            return _html.unescape(str(v)).strip() if v else ''
+
+        if search_type == 'album':
+            rows = j.get('albumlist') or []
+            items = []
+            for a in rows:
+                aid = a.get('albumid')
+                if not aid:
+                    continue
+                cover = a.get('img')
+                if not cover:
+                    # web_albumpic_short 形如 "120/s4s60/86/x.jpg"
+                    short = str(a.get('pic') or '')
+                    i = short.find('/')
+                    if i >= 0:
+                        cover = 'https://img4.kuwo.cn/star/albumcover/256' + short[i:]
+                items.append({'id': str(aid), 'name': _txt(a.get('name')), 'artist': _txt(a.get('artist')),
+                              'cover': cover,
+                              'track_count': int(a['musiccnt']) if str(a.get('musiccnt') or '').isdigit() else None,
+                              'source': 'kuwo'})
+            total = int(j['total']) if str(j.get('total') or '').isdigit() else None
+        elif search_type == 'artist':
+            rows = j.get('abslist') or []
+            items = []
+            for a in rows:
+                aid = a.get('ARTISTID')
+                if not aid:
+                    continue
+                avatar = a.get('hts_PICPATH') or a.get('PICPATH') or ''
+                avatar = avatar if str(avatar).startswith('http') else (
+                    'https://img4.kuwo.cn/star/starheads/' + str(avatar) if avatar else None)
+                items.append({'id': str(aid), 'name': _txt(a.get('ARTIST')), 'avatar': avatar, 'source': 'kuwo'})
+            total = int(j['TOTAL']) if str(j.get('TOTAL') or '').isdigit() else None
+        else:
+            rows = j.get('abslist') or []
+            items = []
+            for p in rows:
+                pid = p.get('playlistid') or p.get('id')
+                if not pid:
+                    continue
+                items.append({'id': str(pid), 'name': _txt(p.get('name')),
+                              'creator': _txt(p.get('nickname') or p.get('uname')),
+                              'cover': p.get('pic') or p.get('img') or None,
+                              'track_count': int(p['songnum']) if str(p.get('songnum') or '').isdigit() else None,
+                              'play_count': int(p['playcnt']) if str(p.get('playcnt') or '').isdigit() else None,
+                              'source': 'kuwo'})
+            total = int(j['TOTAL']) if str(j.get('TOTAL') or '').isdigit() else None
+        return {'items': items, 'total': total}
+
+    '''P6 补齐（2026-11-03）：专辑检索走老搜索接口 r.s——候选 ft=album，首选曲目 stype=albuminfo。
+       形状与 musicfree-plugins kuwo 插件 getAlbumInfo 对齐（rsWorkParams 附加参数缺一不可，
+       缺了会拿到 HTML 而非 JSON）。曲目解析仍走 /song/url by-id（二段式不变）。'''
+    _KUWO_ALBUM_WORK_PARAMS = {'alflac': '1', 'show_copyright_off': '1', 'pcmp4': '1', 'plat': 'pc',
+                               'thost': 'search.kuwo.cn', 'vipver': 'MUSIC_9.1.1.2_BCS2',
+                               'devid': '38668888', 'newver': '1'}
+
+    async def album(self, name: str, artist: str = '', page: int = 1) -> dict:
+        import html as _html
+        from urllib.parse import urlencode
+
+        def _rs(extra):
+            rule = {'all': name, 'client': 'kt', 'rn': '5', 'rformat': 'json', 'encoding': 'utf8', 'pcjson': '1'}
+            rule.update(self._KUWO_ALBUM_WORK_PARAMS)
+            rule.update(extra)
+            resp = self.client.get('http://search.kuwo.cn/r.s?' + urlencode(rule), timeout=self.io_timeout)
+            return resp.json() or {}
+
+        def _fetch():
+            # 候选：ft=album（与 search_multi album 同款）；name+artist 无结果再退 name-only
+            ft_rule = {'ft': 'album', 'itemset': 'web_2013', 'pn': str(page - 1)}
+            j = _rs(ft_rule) if not artist else _rs({**ft_rule, 'all': f'{name} {artist}'.strip()})
+            rows = j.get('albumlist') or []
+            if not rows and artist:
+                rows = (_rs(ft_rule)).get('albumlist') or []
+            albums = []
+            for a in rows:
+                if not a.get('albumid'):
+                    continue
+                cover = a.get('img')
+                if not cover:
+                    short = str(a.get('pic') or '')
+                    i = short.find('/')
+                    if i >= 0:
+                        cover = 'https://img4.kuwo.cn/star/albumcover/256' + short[i:]
+                albums.append({'id': str(a['albumid']), 'name': _html.unescape(str(a.get('name') or '')),
+                               'artist': _html.unescape(str(a.get('artist') or '')), 'cover': cover,
+                               'source': 'kuwo'})
+            if not albums:
+                return {'albums': [], 'items': [], 'total': 0}
+            # 首选曲目：stype=albuminfo（官方曲序即接口返回序）
+            info = _rs({'stype': 'albuminfo', 'albumid': albums[0]['id'], 'sortby': '0', 'pn': '0', 'rn': '200'})
+            items = []
+            for n, m in enumerate(info.get('musiclist') or [], start=1):
+                song_id = str(m.get('musicrid') or m.get('id') or '').removeprefix('MUSIC_')
+                if not song_id:
+                    continue
+                short = str(m.get('web_albumpic_short') or '')
+                i = short.find('/')
+                cover = ('https://img4.kuwo.cn/star/albumcover/256' + short[i:]) if i >= 0 else None
+                try:
+                    duration = int(float(m.get('duration') or 0)) or None
+                except Exception:
+                    duration = None
+                items.append({'id': song_id, 'name': _html.unescape(str(m.get('name') or m.get('NAME') or '')),
+                              'singer': _html.unescape(str(m.get('artist') or m.get('ARTIST') or '')),
+                              'album': _html.unescape(str(m.get('album') or m.get('ALBUM') or albums[0]['name'])),
+                              'ext': None, 'size_bytes': None, 'duration_s': duration, 'cover': cover,
+                              'source': 'kuwo', 'track_no': n})
+            return {'albums': albums, 'items': items, 'total': len(items)}
+
+        return await self.run(_fetch)

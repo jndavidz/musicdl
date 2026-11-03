@@ -141,6 +141,7 @@ def create_app(st=None) -> FastAPI:
     R('/{source}/song/info', resolve.song_info, methods=['GET'], response_model=Envelope, summary='song meta info by id')
     R('/{source}/lyric', resolve.lyric, methods=['GET'], response_model=Envelope, summary='lyrics (LRC text) by id')
     R('/{source}/album', resolve.album, methods=['GET'], response_model=Envelope, summary='album search: ordered tracks (P6)')
+    R('/{source}/search/multi', resolve.search_multi, methods=['GET'], response_model=Envelope, summary='multi-type search: album/artist/sheet (P7)')
     R('/{source}/playlist', resolve.playlist, methods=['GET'], response_model=Envelope, summary='playlist search: ordered tracks (P6)')
     R('/v2/playback/resolve', playback.resolve, methods=['POST'], response_model=Envelope, summary='v2 managed playback: TrackRef -> resolved candidate')
     R('/v2/cache/invalidate', playback.invalidate, methods=['POST'], response_model=Envelope, summary='v2 scoped invalidation of one cached candidate')

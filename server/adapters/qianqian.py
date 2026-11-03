@@ -133,3 +133,32 @@ class QianqianAdapter(SourceAdapter):
     '''lyric url only exists inside search results; by-id lyric not supported upstream'''
     async def lyric(self, song_id: str) -> str:
         return ''
+
+    '''P7 多类型搜索（官方签名 /v1/search）：type=3 album / type=2 artist（sheet 平台无通道）。
+       形状与 musicfree-plugins qianqian 插件 qXxxItem 对齐（2026-11-03 实测）。'''
+    async def search_multi(self, keywords: str, search_type: str, page: int = 1, limit: int = 20) -> dict:
+        if search_type == 'sheet':
+            raise AdapterError(501, f'type search "sheet" not supported for source "{self.source_key}"')
+        params = self.client._addsignandtstoparams(
+            params={'word': keywords, 'type': '3' if search_type == 'album' else '2',
+                    'pageNo': str(page), 'pageSize': str(limit), 'appid': self.client.APPID})
+        def _get():
+            return self.client.get('https://music.91q.com/v1/search', params=params, timeout=self.io_timeout)
+        resp = await self.run(_get)
+        j = resp.json() or {}
+        if j.get('state') is False or j.get('errno') not in (None, 22000):
+            raise AdapterError(502, f'qianqian multi search errno={j.get("errno")}')
+        data = j.get('data') or {}
+        if search_type == 'album':
+            rows = data.get('typeAlbum') or []
+            items = [{'id': str(a['albumAssetCode']),
+                      'name': a.get('title') or '',
+                      'artist': ', '.join(x.get('name') for x in (a.get('artist') or []) if isinstance(x, dict) and x.get('name')),
+                      'cover': a.get('pic') or None, 'track_count': None, 'source': 'qianqian'}
+                     for a in rows if a.get('albumAssetCode')]
+        else:
+            rows = data.get('typeArtist') or []
+            items = [{'id': str(s['artistCode']), 'name': s.get('name') or '',
+                      'avatar': s.get('pic') or None, 'source': 'qianqian'}
+                     for s in rows if s.get('artistCode')]
+        return {'items': items, 'total': None}

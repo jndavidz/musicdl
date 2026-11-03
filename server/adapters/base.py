@@ -270,3 +270,12 @@ class SourceAdapter:
             'headers': headers or {}, 'parser': parser, 'platform_tag': platform_tag,
             'ekey': ekey, 'elapsed_ms': elapsed_ms, 'cached': cached,
         }
+
+    '''P7 多类型搜索：type ∈ album|artist|sheet → {'items': [type 特定条目], 'total': int|None}。
+       条目形状（MusicFree 语义归一，全部带 source）：
+         album  {id, name, artist, cover, track_count}
+         artist {id, name, avatar}
+         sheet  {id, name, creator, cover, track_count, play_count}
+       默认不支持——routes 层转 501 envelope；支持源在各自 adapter 覆写。'''
+    async def search_multi(self, keywords: str, search_type: str, page: int = 1, limit: int = 20) -> dict:
+        raise AdapterError(501, f'type search "{search_type}" not supported for source "{self.source_key}"')

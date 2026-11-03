@@ -11,7 +11,7 @@ from server.adapters import AdapterError
 from server.cache import cached
 from server.envelope import ok
 from server.quality import resolve as resolve_quality
-from server.schemas import SearchData, SongUrlData, SongInfoData, LyricData, AlbumData, PlaylistData
+from server.schemas import SearchData, SongUrlData, SongInfoData, LyricData, AlbumData, PlaylistData, SearchMultiData
 from server.config import SOURCES
 
 
@@ -86,7 +86,25 @@ async def lyric(request: Request, source: str, id: str = Query(..., min_length=1
     return ok(LyricData(id=id, source=source, lyric=text, cached=hit).model_dump())
 
 
+async def search_multi(request: Request, source: str, keywords: str = Query(..., min_length=1),
+                       type: str = Query('album', pattern='^(album|artist|sheet)$'),
+                       page: int = Query(1, ge=1), limit: int = Query(None, ge=1)):
+    '''P7 多类型搜索：type ∈ album|artist|sheet → 类型特定条目（MusicFree 语义归一，带 source）。
+       qq/kuwo/migu/qianqian 在各自 adapter 实现；netease/kugou 走透传（kwqq 插件直连容器）；
+       其余源由 base.search_multi() 抛 501 envelope。'''
+    s = request.app.state
+    st = s.settings
+    adapter = get_adapter(s, source)
+    limit = min(limit or st.search_size_default, st.search_size_max)
+    result, _ = await cached(s.meta_cache, (source, 'smulti', keywords, type, page, limit),
+                             lambda: adapter.search_multi(keywords, type, page, limit))
+    data = SearchMultiData(source=source, type=type, keywords=keywords, page=page,
+                           total=result.get('total'), items=result.get('items') or [])
+    return ok(data.model_dump())
+
+
 async def album(request: Request, source: str, name: str = Query(..., min_length=1),
+
                 artist: str = Query(''), page: int = Query(1, ge=1)):
     '''P6 专辑检索：专辑名 → 候选专辑 + 首选专辑的有序曲目（item 含 track_no）。
        单次调用覆盖语音点歌"整张连播"场景；未实现源由 base.album() 抛 501 envelope。'''

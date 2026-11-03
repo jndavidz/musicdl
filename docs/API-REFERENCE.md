@@ -120,7 +120,7 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 成功 data：`{source, name, artist, albums: [{id, name, artist, size, cover, source, extra}], items: [<search item 结构> + track_no], total}`。
 
 - **items = 首选专辑的官方曲序**，`track_no` 1 起；item 结构与 `/search` 完全一致 → 曲目解析照走 `/{source}/song/url?id=`（二段式不变）。
-- **逐源能力**（未实现的源返回 **HTTP 501** envelope——能力缺失类，非业务未命中 403/404）：`netease` ✅（ncm-api `/cloudsearch?type=10` → `/album`）；`kugou` ✅（容器 `/search?type=album` → `/album/songs`，按 `extend.disc+sort` 官方曲序）；`migu` ✅（`search_all.do` album=1 → `resource/album/song/v2.0`）；`qianqian` ✅（`/v1/search type=3` → `/v1/album/info`，曲库较稀疏）；`kuwo`/`qq` ◐ 未接入（kuwo 曲目列表需 kw_token；QQ 匿名模块 500003）。
+- **逐源能力**（未实现的源返回 **HTTP 501** envelope——能力缺失类，非业务未命中 403/404）：`netease` ✅（ncm-api `/cloudsearch?type=10` → `/album`）；`kugou` ✅（容器 `/search?type=album` → `/album/songs`，按 `extend.disc+sort` 官方曲序）；`migu` ✅（`search_all.do` album=1 → `resource/album/song/v2.0`）；`qianqian` ✅（`/v1/search type=3` → `/v1/album/info`，曲库较稀疏）；`kuwo` ✅（2026-11-03 v1.13：r.s `ft=album` 候选 → `stype=albuminfo` 曲目，零 Cookie，musicfree kuwo 插件同款）；`qq` ✅（2026-11-03 v1.13：fcg `DoSearchForQQMusicDesktop` search_type=2 候选 → `music.musichallAlbum.AlbumSongList` 曲目，零 Cookie，musicfree qq 插件同款——旧记「匿名模块 500003」仅指旧通道）。
 - 候选检索：先用 `name+artist`，无结果自动退 `name`；排序 = 名字精确匹配 + 歌手提示命中。
 - 缓存：meta_cache，键含 name/artist/page。
 
@@ -137,6 +137,27 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 
 - **逐源能力**：`netease` ✅（ncm-api `cloudsearch?type=1000` → `/playlist/track/all`，上限 1000 曲）；其余源 501（kuwo/qq/qianqian 无公开歌单搜索通道；kugou 歌单曲目端点容器返回 20010）。
 - items 结构与 `/search` 一致，曲目解析仍走 `/{source}/song/url?id=`。缓存：meta_cache。
+
+### 4.5b GET /{source}/search/multi — 多类型搜索（P7，2026-11-03 v1.13）
+
+关键词 → 类型特定条目列表（**非歌曲条目**，形状随 type 变化）。消费方：songloft kwqq 插件浏览搜索（`/browse/search` 的 album/artist/sheet 类型按源 fan-out 聚合）。
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| keywords | ✅ | 搜索词 |
+| type | — | `album`（默认）/ `artist` / `sheet` |
+| page | — | ≥1 |
+| limit | — | 缺省 search_size_default，上限 search_size_max |
+
+成功 data：`{source, type, keywords, page, total, items}`。条目形状（MusicFree 语义归一，全部带 source）：
+
+- `album`：`{id, name, artist, cover, track_count}`
+- `artist`：`{id, name, avatar}`
+- `sheet`：`{id, name, creator, cover, track_count, play_count}`
+
+- **逐源能力**（未实现源 501 envelope）：`qq` ✅ 全三类（fcg Desktop search_type 2/1/3）；`kuwo` ✅ 全三类（r.s ft=album/artist/playlist，itemset=web_2013）；`migu` ✅ album/artist（search_all.do searchSwitch，sheet 501）；`qianqian` ✅ album/artist（/v1/search type=3/2 签名通道，sheet 501）；`netease`/`kugou` **不经本端点**——走透传（`/netease/api/cloudsearch type=10/100/1000`、`/kugou/api/search type=album/author/special`，插件直连容器）；`bilibili` 不支持（501；其插件侧 album 类型与 music 同源，无独立通道）。
+- total 可为 null（qianqian 无总数）；分页 isEnd 由消费方按「返回条数 < limit」启发。
+- 缓存：meta_cache，键含 keywords/type/page/limit。
 
 ### 4.6 POST /v2/playback/resolve — v2 托管播放解析（K-01，2026-10-29）
 

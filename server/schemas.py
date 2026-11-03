@@ -205,3 +205,15 @@ class PlaybackResolveData(BaseModel):
     cached: bool = False
 
     _int_fields = field_validator('size_bytes', 'bitrate_kbps', 'duration_s', mode='before')(_coerce_int)
+
+
+class SearchMultiData(BaseModel):
+    """P7 多类型搜索：items 形状随 type 变化（MusicFree 语义归一，全部带 source）——
+    album {id,name,artist,cover,track_count} / artist {id,name,avatar} /
+    sheet {id,name,creator,cover,track_count,play_count}"""
+    source: str
+    type: str
+    keywords: str
+    page: int = 1
+    total: Optional[int] = None
+    items: List[dict] = []
