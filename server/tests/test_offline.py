@@ -428,5 +428,48 @@ check('P9 comments: id/title both missing -> 400 envelope', b['code'] == 400,
       f"code={b.get('code')}")
 server6.should_exit = True
 
+# ---- section 9: P9c import endpoints (item / sheet) ----
+app7 = create_app(Settings(env={'API_KEY': ''}))
+base7, server7 = start_app(app7)
+
+
+class FakeImportAdapter(FakeAdapter):
+    source_key = 'netease'
+
+    async def import_item(self, url_like):
+        self.calls.append(('impitem', url_like))
+        if 'bad' in url_like:
+            raise AdapterError(400, 'cannot extract song id from urlLike')
+        return {'item': {'id': '186145', 'name': '可爱女人', 'singer': '周杰伦',
+                         'album': 'Jay', 'duration_s': 239, 'source': 'netease'}}
+
+    async def import_sheet(self, url_like, cap=1000):
+        self.calls.append(('impsheet', url_like, cap))
+        return {'items': [{'id': 'f1', 'name': 's1', 'singer': 'a', 'album': None,
+                           'duration_s': 1, 'source': 'netease'}], 'total': 1,
+                'truncated': cap < 1000}
+
+
+app7.state.adapters['netease'] = FakeImportAdapter()
+
+st, b = raw(base7, '/netease/import/item?url=https%3A%2F%2Fmusic.163.com%2F%23%2Fsong%3Fid%3D186145')
+check('P9c import item: urlLike -> SearchItem', st == 200 and b['data']['item']['id'] == '186145'
+      and b['data']['item']['source'] == 'netease')
+raw(base7, '/netease/import/item?url=https%3A%2F%2Fmusic.163.com%2F%23%2Fsong%3Fid%3D186145')
+check('P9c import item cached', len([c for c in app7.state.adapters['netease'].calls if c[0] == 'impitem']) == 1)
+
+st, b = raw(base7, '/netease/import/sheet?url=123&cap=10')
+check('P9c import sheet: items + truncated flag', st == 200 and b['data']['total'] == 1
+      and b['data']['truncated'] is True)
+
+st, b = raw(base7, '/netease/import/item?url=bad')
+check('P9c import item: 400 envelope on unparseable urlLike', b['code'] == 400,
+      f"code={b.get('code')}")
+
+st, b = raw(base7, '/qq/import/item?url=123')
+check('P9c unsupported source: 501 envelope', st == 501 and b['code'] == 501,
+      f"status={st} code={b.get('code')}")
+server7.should_exit = True
+
 print(f'\nRESULT: {PASSED} passed, {len(FAILED)} failed' + (f' -> {FAILED}' if FAILED else ''))
 sys.exit(1 if FAILED else 0)

@@ -152,6 +152,8 @@ def create_app(st=None) -> FastAPI:
     R('/{source}/artist/works', browse.artist_works, methods=['GET'], response_model=Envelope, summary='browse: artist works (P9)')
     R('/{source}/comments', browse.music_comments, methods=['GET'], response_model=Envelope, summary='browse: song comments (P9)')
     R('/{source}/album/detail', browse.album_detail, methods=['GET'], response_model=Envelope, summary='browse: album detail by id (P9b)')
+    R('/{source}/import/item', browse.import_item, methods=['GET'], response_model=Envelope, summary='browse: import single by urlLike (P9c)')
+    R('/{source}/import/sheet', browse.import_sheet, methods=['GET'], response_model=Envelope, summary='browse: import sheet by urlLike (P9c)')
     R('/v2/playback/resolve', playback.resolve, methods=['POST'], response_model=Envelope, summary='v2 managed playback: TrackRef -> resolved candidate')
     R('/v2/cache/invalidate', playback.invalidate, methods=['POST'], response_model=Envelope, summary='v2 scoped invalidation of one cached candidate')
     R('/kugou/vip/day', kugou_vip.vip_day, methods=['POST'], summary='claim today concept listening VIP')

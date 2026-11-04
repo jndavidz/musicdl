@@ -551,3 +551,50 @@ class NeteaseAdapter(SourceAdapter):
             item['track_no'] = s.get('no') or i
             items.append(item)
         return {'albums': albums, 'items': items}
+
+    '''P9c（2026-11-04）：导入协议（MusicFree importMusicItem/importMusicSheet）。
+       urlLike 提取 id：纯数字 / ?id= 参数 / 路径段数字（musicfree shared extractId 同式）。'''
+    _IMPORT_CAP = 1000
+
+    @staticmethod
+    def _extract_id(url_like: str):
+        import re
+        s = str(url_like or '').strip()
+        if re.fullmatch(r'\d+', s):
+            return s
+        m = re.search(r'[?&](?:id|specialid|album_id)=(\d+)', s, re.I)
+        if m:
+            return m.group(1)
+        m2 = re.search(r'/(\d+)/?(?:[?#]|$)', s)
+        return m2.group(1) if m2 else None
+
+    async def import_item(self, url_like: str) -> dict:
+        sid = self._extract_id(url_like)
+        if not sid:
+            raise AdapterError(400, 'cannot extract song id from urlLike')
+        data = await self.run(self._api_get, '/song/detail', {'ids': sid})
+        songs = (data or {}).get('songs') or []
+        if not songs:
+            raise AdapterError(404, f'song not found (id={sid})')
+        return {'item': self.item_from_raw(songs[0])}
+
+    async def import_sheet(self, url_like: str, cap: int = 1000) -> dict:
+        pid = self._extract_id(url_like)
+        if not pid:
+            raise AdapterError(400, 'cannot extract playlist id from urlLike')
+        items, offset, limit, truncated = [], 0, 500, False
+        while len(items) < cap:
+            data = await self.run(self._api_get, '/playlist/track/all',
+                                  {'id': pid, 'limit': limit, 'offset': offset})
+            songs = (data or {}).get('songs') or []
+            if not songs:
+                break
+            for m in songs:
+                if len(items) >= cap:
+                    truncated = True
+                    break
+                items.append(self.item_from_raw(m))
+            if len(songs) < limit or truncated:
+                break
+            offset += limit
+        return {'items': items, 'total': len(items), 'truncated': truncated}

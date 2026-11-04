@@ -323,3 +323,21 @@ class CommentsData(BaseModel):
     has_more: bool = False
     hot: List[CommentEntry] = []
     items: List[CommentEntry] = []
+
+
+# ---- P9c 导入协议（2026-11-04）：importMusicItem / importMusicSheet ----
+
+class ImportItemData(BaseModel):
+    """urlLike → 单曲（MusicFree importMusicItem 语义）"""
+    source: str
+    url: str
+    item: Optional[SearchItem] = None
+
+
+class ImportSheetData(BaseModel):
+    """urlLike → 歌单全量曲目（MusicFree importMusicSheet 语义；超上限截断并标 truncated）"""
+    source: str
+    url: str
+    total: int = 0
+    truncated: bool = False
+    items: List[SearchItem] = []

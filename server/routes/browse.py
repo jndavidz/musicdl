@@ -11,7 +11,8 @@ from fastapi import Query, Request
 from server.cache import cached
 from server.envelope import ok
 from server.routes.resolve import get_adapter
-from server.schemas import (ToplistsData, PlaylistTagsData, SheetListData,
+from server.schemas import (ImportItemData, ImportSheetData,
+                            ToplistsData, PlaylistTagsData, SheetListData,
                             SheetSongsData, ToplistEntry, TagEntry, TagGroup, PlaylistEntry,
                             ArtistData, ArtistWorksData, CommentsData, ArtistEntry, CommentEntry)
 
@@ -156,4 +157,34 @@ async def album_detail(request: Request, source: str, id: str = Query(..., min_l
                      albums=[AlbumEntry(**a) for a in result.get('albums') or []],
                      items=result.get('items') or [],
                      total=len(result.get('items') or []))
+    return ok(data.model_dump())
+
+
+async def import_item(request: Request, source: str, url: str = Query(..., min_length=1)):
+    '''P9c 导入单曲（urlLike → SearchItem；MusicFree importMusicItem 语义）。'''
+    s = request.app.state
+    st = s.settings
+    adapter = get_adapter(s, source)
+    result, _ = await cached(s.meta_cache, (source, 'impitem', url),
+                             lambda: asyncio.wait_for(adapter.import_item(url),
+                                                      timeout=st.hard_timeout_s))
+    from server.schemas import SearchItem
+    item = result.get('item')
+    data = ImportItemData(source=source, url=url,
+                          item=SearchItem(**item) if item else None)
+    return ok(data.model_dump())
+
+
+async def import_sheet(request: Request, source: str, url: str = Query(..., min_length=1),
+                       cap: int = Query(1000, ge=1, le=2000)):
+    '''P9c 导入歌单（urlLike → 全量曲目；cap 截断保护，truncated 标记）。'''
+    s = request.app.state
+    st = s.settings
+    adapter = get_adapter(s, source)
+    result, _ = await cached(s.meta_cache, (source, 'impsheet', url, cap),
+                             lambda: asyncio.wait_for(adapter.import_sheet(url, cap),
+                                                      timeout=st.hard_timeout_s * 3))
+    data = ImportSheetData(source=source, url=url, total=result.get('total', 0),
+                           truncated=result.get('truncated', False),
+                           items=result.get('items') or [])
     return ok(data.model_dump())

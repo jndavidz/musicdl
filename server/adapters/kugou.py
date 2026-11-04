@@ -476,3 +476,72 @@ class KugouAdapter(SourceAdapter):
                           'duration_s': int(float(info.get('duration') or 0)) or None,
                           'cover': cover, 'source': self.source_key, 'track_no': i})
         return {'albums': albums, 'items': items}
+
+    '''P9c（2026-11-04）：导入协议。单曲 = 数字 MixSongID（album_audio_id）→
+       /audio/related 取 original；歌单 = global_collection_id 或数字 specialid
+       （先经 /playlist/detail?ids= 换 gid），/playlist/track/all 300/页自动翻页。'''
+    @staticmethod
+    def _import_song_id(url_like: str):
+        import re
+        s = str(url_like or '').strip()
+        return s if re.fullmatch(r'\d+', s) else None
+
+    @staticmethod
+    def _related_to_item(orig):
+        base = (orig or {}).get('base') or {}
+        info = (orig or {}).get('audio_info') or {}
+        if not base:
+            return None
+        return {'id': str(base.get('album_audio_id') or ''), 'name': base.get('audio_name'),
+                'singer': base.get('author_name'), 'album': base.get('album_name'),
+                'duration_s': int(float(info.get('timelength') or 0)) // 1000 or None,
+                'source': 'kugou'}
+
+    async def import_item(self, url_like: str) -> dict:
+        sid = self._import_song_id(url_like)
+        if not sid:
+            raise AdapterError(400, 'cannot extract MixSongID (numeric) from urlLike')
+        data = await self.run(self._api_get, '/audio/related', {'album_audio_id': sid})
+        if (data or {}).get('status') == 1:
+            orig = ((data or {}).get('extra') or {}).get('original') or [None]
+            item = self._related_to_item(orig[0])
+            if item:
+                return {'item': item}
+        # related 失败给最小占位（musicfree 同款语义：返回 id 占位行）
+        return {'item': {'id': sid, 'name': f'ID:{sid}', 'singer': '未知艺人',
+                         'album': None, 'duration_s': None, 'source': 'kugou'}}
+
+    async def import_sheet(self, url_like: str, cap: int = 1000) -> dict:
+        pid = str(url_like or '').strip()
+        if not pid:
+            raise AdapterError(400, 'playlist id required')
+        # 纯数字 specialid → /playlist/detail?ids= 换 global_collection_id
+        import re
+        if re.fullmatch(r'\d+', pid):
+            try:
+                dr = await self.run(self._api_get, '/playlist/detail', {'ids': pid})
+                info = ((dr or {}).get('data') or [{}])[0]
+                if info.get('global_collection_id'):
+                    pid = info['global_collection_id']
+            except Exception:
+                pass
+        items, page, pagesize, truncated = [], 1, 300, False
+        while len(items) < cap:
+            data = await self.run(self._api_get, '/playlist/track/all',
+                                  {'id': pid, 'page': page, 'pagesize': pagesize})
+            d = (data or {}).get('data') or {}
+            songs = d.get('songs') or []
+            if not songs:
+                break
+            for m in songs:
+                if len(items) >= cap:
+                    truncated = True
+                    break
+                conv = self._playlist_song(m)
+                if conv:
+                    items.append(conv)
+            total = self._kg_int(d.get('count')) or 0
+            if len(items) >= total or len(songs) < pagesize or truncated:
+                break
+            page += 1
+        return {'items': items, 'total': len(items), 'truncated': truncated}

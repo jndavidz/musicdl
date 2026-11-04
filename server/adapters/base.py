@@ -308,3 +308,11 @@ class SourceAdapter:
 
     async def search_multi(self, keywords: str, search_type: str, page: int = 1, limit: int = 20) -> dict:
         raise AdapterError(501, f'type search "{search_type}" not supported for source "{self.source_key}"')
+
+    '''P9c 导入协议（2026-11-04）：urlLike → 单曲 / 歌单全量曲目（MusicFree
+       importMusicItem / importMusicSheet 语义）。默认不支持——routes 层转 501。'''
+    async def import_item(self, url_like: str) -> dict:
+        raise AdapterError(501, f'import item not supported for source "{self.source_key}"')
+
+    async def import_sheet(self, url_like: str, cap: int = 1000) -> dict:
+        raise AdapterError(501, f'import sheet not supported for source "{self.source_key}"')
