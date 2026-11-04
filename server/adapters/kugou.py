@@ -208,3 +208,245 @@ class KugouAdapter(SourceAdapter):
             return base64.b64decode(content).decode('utf-8', errors='ignore') if content else ''
         except Exception:
             return ''
+
+    '''P9（2026-11-04）：浏览能力收编（类型搜索/榜单/推荐/歌手/评论），映射自 kwqq 插件
+    kugou 透传拆包逻辑（2026-11-03/04 现网实测形状）。上游 = kugouapi 容器同名模块。
+    曲目 id=hash（rank/audio 取 hash_320 优先降档，与搜曲通道 128 hash 经 media 链
+    quality 换档均实测可解析）；歌单 id=gid（global_collection_id，specialid 必 20010）。'''
+
+    _KG_COVER_240 = ('{size}', '240')
+
+    @staticmethod
+    def _kg_cover(v, size='240'):
+        return str(v or '').replace('{size}', size) or None
+
+    @staticmethod
+    def _kg_int(v):
+        try:
+            return int(str(v))
+        except (TypeError, ValueError):
+            return None
+
+    async def search_multi(self, keywords: str, search_type: str, page: int = 1, limit: int = 20) -> dict:
+        # kugouapi /search 的 type 是字符串枚举：album / author / special（数字不分流，实测确认）
+        type_map = {'album': 'album', 'artist': 'author', 'sheet': 'special'}
+        data = await self.run(self._api_get, '/search',
+                              {'keywords': keywords, 'type': type_map[search_type],
+                               'page': page, 'pagesize': limit})
+        d = (data or {}).get('data') or data or {}
+        rows = d.get('lists') or []
+        total = self._kg_int(d.get('total')) or len(rows)
+        if search_type == 'album':
+            items = []
+            for r in rows:
+                if not r.get('albumid'):
+                    continue
+                singers = r.get('singers')
+                items.append({'id': str(r['albumid']), 'name': r.get('albumname') or '',
+                              'artist': (' / '.join(x.get('name') for x in singers if isinstance(x, dict))
+                                         if isinstance(singers, list) else (r.get('singer') or '')),
+                              'cover': r.get('img'), 'source': 'kugou'})
+        elif search_type == 'artist':
+            items = []
+            for r in rows:
+                aid = r.get('AuthorId') or r.get('singerid')
+                if not aid:
+                    continue
+                items.append({'id': str(aid), 'name': r.get('AuthorName') or r.get('singername') or '',
+                              'avatar': r.get('Avatar') or r.get('avatar'), 'source': 'kugou'})
+        else:
+            items = []
+            for r in rows:
+                pid = r.get('specialid') or r.get('gid')
+                if not pid:
+                    continue
+                # 歌单详情 /playlist/track/all 只认 gid，id 口径 gid 优先
+                items.append({'id': str(r.get('gid') or pid), 'name': r.get('specialname') or '',
+                              'creator': r.get('nickname') or '', 'cover': r.get('img'),
+                              'track_count': self._kg_int(r.get('song_count')), 'source': 'kugou'})
+        return {'items': items, 'total': total}
+
+    async def toplists(self) -> dict:
+        data = await self.run(self._api_get, '/rank/list')
+        info = ((data or {}).get('data') or {}).get('info') or (data or {}).get('info') or []
+        items = [{'id': str(it.get('rankid') or it.get('rank_cid') or it.get('id')),
+                  'name': it.get('rankname') or '',
+                  'cover': self._kg_cover(it.get('album_img_9') or it.get('img_9') or it.get('imgurl')),
+                  'description': it.get('intro'),
+                  'update_frequency': it.get('update_frequency'),
+                  'source': 'kugou'}
+                 for it in info if it.get('rankid') or it.get('rank_cid') or it.get('id')]
+        return {'items': items}
+
+    async def toplist_songs(self, toplist_id: str, page: int = 1, limit: int = 50) -> dict:
+        data = await self.run(self._api_get, '/rank/audio',
+                              {'rankid': toplist_id, 'page': page, 'pagesize': limit})
+        d = (data or {}).get('data') or {}
+        songs = d.get('songlist') or []
+        total = self._kg_int(d.get('total')) or len(songs)
+        items = [self._rank_song(m) for m in songs]
+        return {'page': page, 'is_end': page * limit >= total,
+                'total': total, 'items': [i for i in items if i]}
+
+    @staticmethod
+    def _rank_song(s):
+        ai = s.get('audio_info') or {}
+        authors = [a.get('author_name') for a in (s.get('authors') or []) if isinstance(a, dict)]
+        artist = ' / '.join(a for a in authors if a) or s.get('author_name') or ''
+        album_name = (s.get('album_info') or {}).get('album_name') or ''
+        cover = ((s.get('album_info') or {}).get('sizable_cover')
+                 or (s.get('trans_param') or {}).get('union_cover') or '')
+        return {'id': (ai.get('hash_320') or ai.get('hash_128') or ai.get('hash') or ''),
+                'name': s.get('songname') or '', 'singer': artist, 'album': album_name,
+                'duration_s': int((ai.get('duration_128') or 0) / 1000) or None,
+                'cover': KugouAdapter._kg_cover(cover), 'source': 'kugou'}
+
+    async def playlist_tags(self) -> dict:
+        data = await self.run(self._api_get, '/playlist/tags')
+        tags = (data or {}).get('data') or []
+        groups = []
+        for cat in tags:
+            son = [{'id': str(s.get('tag_id')), 'title': s.get('tag_name') or ''}
+                   for s in (cat.get('son') or []) if s.get('tag_id')]
+            if son:
+                groups.append({'title': cat.get('tag_name') or '', 'data': son})
+        pinned = [{'id': str(s.get('tag_id')), 'title': s.get('tag_name') or ''}
+                  for s in (((tags[0] or {}).get('son') or [])[:8]) if s.get('tag_id')] if tags else []
+        return {'pinned': pinned, 'groups': groups}
+
+    async def playlist_sheets(self, tag: str, page: int = 1, limit: int = 30) -> dict:
+        data = await self.run(self._api_get, '/top/playlist',
+                              {'category_id': tag or '0', 'page': page, 'pagesize': limit})
+        d = (data or {}).get('data') or {}
+        specials = d.get('special_list') or []
+        items = []
+        for sp in specials:
+            pid = sp.get('global_collection_id') or sp.get('specialid')
+            if not pid:
+                continue
+            items.append({'id': str(pid), 'name': sp.get('specialname') or '',
+                          'creator': sp.get('nickname') or '',
+                          'cover': self._kg_cover(sp.get('flexible_cover') or sp.get('imgurl')),
+                          'track_count': self._kg_int(sp.get('songcount') or sp.get('song_count')),
+                          'play_count': self._kg_int(sp.get('play_count')),
+                          'source': 'kugou'})
+        return {'tag': tag, 'page': page, 'is_end': not d.get('has_next'),
+                'total': len(items) if not d.get('has_next') else None, 'items': items}
+
+    async def playlist_songs(self, playlist_id: str, page: int = 1, limit: int = 50) -> dict:
+        # **必须 gid（global_collection_id）**，specialid 实测 20010；page=1 自带 list_info 元数据
+        data = await self.run(self._api_get, '/playlist/track/all',
+                              {'id': playlist_id, 'page': page, 'pagesize': limit})
+        d = (data or {}).get('data') or {}
+        songs = d.get('songs') or []
+        total = self._kg_int(d.get('count')) or len(songs)
+        items = [i for i in (self._playlist_song(m) for m in songs) if i]
+        meta = None
+        if page == 1 and d.get('list_info'):
+            li = d['list_info']
+            meta = {'id': str(li.get('global_collection_id') or li.get('specialid') or playlist_id),
+                    'name': li.get('name') or '', 'creator': li.get('list_create_username') or '',
+                    'cover': self._kg_cover(li.get('pic'), '480'),
+                    'track_count': self._kg_int(li.get('count')) or total,
+                    'extra': {'play_count': self._kg_int(li.get('collect_total')),
+                              'description': li.get('intro')}}
+        return {'page': page, 'is_end': page * limit >= total,
+                'total': total, 'items': items, 'meta': meta}
+
+    @staticmethod
+    def _playlist_song(it):
+        # 老接口形状：name 是「歌手 - 歌名」，singerinfo 才可靠
+        title = (it or {}).get('name') or ''
+        artist = ''
+        dash = title.find(' - ')
+        if dash >= 0:
+            artist, title = title[:dash], title[dash + 3:]
+        if not artist and isinstance(it.get('singerinfo'), list):
+            artist = ' / '.join(s.get('name') for s in it['singerinfo'] if isinstance(s, dict) and s.get('name'))
+        hash320 = ''
+        for g in (it.get('relate_goods') or []):
+            if isinstance(g, dict) and g.get('level') == 4:
+                hash320 = g.get('hash') or ''
+                break
+        rid_hash = it.get('hash') or hash320
+        if not rid_hash:
+            return None
+        return {'id': str(rid_hash), 'name': (title or '').strip(), 'singer': artist,
+                'album': (it.get('albuminfo') or {}).get('name'),
+                'duration_s': int((it.get('timelen') or 0) / 1000) or None,
+                'cover': KugouAdapter._kg_cover(it.get('cover')
+                                                or (it.get('trans_param') or {}).get('union_cover')),
+                'source': 'kugou'}
+
+    async def artist_info(self, artist_id: str) -> dict:
+        data = await self.run(self._api_get, '/artist/detail', {'id': artist_id})
+        ar = (data or {}).get('data') or {}
+        description = ''
+        if isinstance(ar.get('long_intro'), list) and ar['long_intro']:
+            description = (ar['long_intro'][0] or {}).get('content') or ''
+        return {'artist': {'id': str(ar.get('author_id') or artist_id),
+                           'name': ar.get('author_name') or '',
+                           'avatar': self._kg_cover(ar.get('sizable_avatar')),
+                           'description': description or None,
+                           'album_count': self._kg_int(ar.get('album_count')) or 0,
+                           # 现网字段是 song_count（audio_count 旧形兼容）
+                           'music_count': self._kg_int(ar.get('song_count') or ar.get('audio_count')) or 0,
+                           'source': 'kugou'}}
+
+    async def artist_works(self, artist_id: str, work_type: str = 'music',
+                           page: int = 1, limit: int = 30) -> dict:
+        if work_type == 'music':
+            data = await self.run(self._api_get, '/artist/audios',
+                                  {'id': artist_id, 'page': page, 'pagesize': limit})
+            rows = (data or {}).get('data') or []
+            total = self._kg_int((data or {}).get('total')) or len(rows)
+            items = []
+            for r in rows:
+                # audios 行 id 取 hash_128||hash——kwqq-api /kugou/song/url 以 FileHash 取链
+                rid = r.get('hash_128') or r.get('hash')
+                if not rid:
+                    continue
+                duration = r.get('timelength_128') or r.get('timelength')
+                items.append({'id': str(rid), 'name': r.get('audio_name') or '',
+                              'singer': r.get('author_name') or '', 'album': r.get('album_name'),
+                              'duration_s': int(float(duration) / 1000) if duration else None,
+                              'cover': (r.get('trans_param') or {}).get('union_cover'),
+                              'source': 'kugou'})
+            return {'type': work_type, 'page': page, 'is_end': page * limit >= total,
+                    'total': total, 'items': items}
+        data = await self.run(self._api_get, '/artist/albums',
+                              {'id': artist_id, 'page': page, 'pagesize': limit})
+        rows = (data or {}).get('data') or []
+        total = self._kg_int((data or {}).get('total')) or len(rows)
+        items = [{'id': str(r['album_id']), 'name': r.get('album_name') or '',
+                  'artist': r.get('author_name') or '',
+                  'cover': self._kg_cover(r.get('sizable_cover')),
+                  'extra': {'description': r.get('intro')}, 'source': 'kugou'}
+                 for r in rows if r.get('album_id')]
+        return {'type': work_type, 'page': page, 'is_end': page * limit >= total,
+                'total': total, 'items': items}
+
+    async def music_comments(self, song_id: str = None, title: str = '', artist: str = '',
+                             page: int = 1, limit: int = 20) -> dict:
+        # kugou 评论按 mixsongid（数字 id）取——hash 口径的调用方须先经 song_info 换 id；
+        # kwqq 插件消费时从已入库歌曲的 dedup_key 取 mixsongid 传入
+        if not song_id:
+            raise AdapterError(400, 'kugou comments require numeric mixsongid')
+        data = await self.run(self._api_get, '/comment/music',
+                              {'mixsongid': song_id, 'page': page, 'pagesize': limit, 'folder': 0})
+        if (data or {}).get('status') != 1:
+            return {'id': str(song_id), 'page': page, 'total': 0, 'has_more': False, 'hot': [], 'items': []}
+
+        def _comment(c):
+            if not c:
+                return None
+            return {'id': str(c.get('id') or ''), 'nick_name': c.get('user_name') or '匿名用户',
+                    'avatar': c.get('avatar'), 'content': c.get('content') or '',
+                    'like': c.get('like') if isinstance(c.get('like'), int) else self._kg_int(c.get('like')),
+                    'created_at': self._kg_int(c.get('addtime')), 'replies': []}
+
+        lst = [c for c in (_comment(x) for x in (data or {}).get('list') or []) if c]
+        total = self._kg_int((data or {}).get('total'))
+        return {'id': str(song_id), 'page': page, 'total': total,
+                'has_more': bool(total) and page * limit < total,
+                'hot': [], 'items': lst}

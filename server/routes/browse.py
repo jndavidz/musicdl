@@ -1,6 +1,6 @@
 '''
 Function:
-    Browse endpoints (P8) — online-browse resource domain: toplists / playlist recommend.
+    Browse endpoints (P8/P9) — online-browse resource domain: toplists / playlist recommend / artist / comments.
     MusicFree 语义归一；曲目解析仍走 /song/url by-id（二段式不变）。
     默认 501 由 adapters/base 的缺省实现给出（source 不支持该能力）。
 '''
@@ -12,7 +12,8 @@ from server.cache import cached
 from server.envelope import ok
 from server.routes.resolve import get_adapter
 from server.schemas import (ToplistsData, PlaylistTagsData, SheetListData,
-                            SheetSongsData, ToplistEntry, TagEntry, TagGroup, PlaylistEntry)
+                            SheetSongsData, ToplistEntry, TagEntry, TagGroup, PlaylistEntry,
+                            ArtistData, ArtistWorksData, CommentsData, ArtistEntry, CommentEntry)
 
 
 async def toplists(request: Request, source: str):
@@ -88,4 +89,56 @@ async def playlist_songs(request: Request, source: str, id: str = Query(..., min
                           is_end=result.get('is_end', True), total=result.get('total'),
                           items=result.get('items') or [],
                           meta=PlaylistEntry(**meta) if meta else None)
+    return ok(data.model_dump())
+
+
+async def artist_info(request: Request, source: str, id: str = Query(..., min_length=1)):
+    '''P9 歌手详情（头像/别名/简介/作品数）。'''
+    s = request.app.state
+    adapter = get_adapter(s, source)
+    result, _ = await cached(s.meta_cache, (source, 'artist', id),
+                             lambda: adapter.artist_info(id))
+    data = ArtistData(source=source, artist=ArtistEntry(**(result.get('artist') or {})))
+    return ok(data.model_dump())
+
+
+async def artist_works(request: Request, source: str, id: str = Query(..., min_length=1),
+                       type: str = Query('music', pattern='^(music|album)$'),
+                       page: int = Query(1, ge=1), limit: int = Query(None, ge=1)):
+    '''P9 歌手作品：type=music → SearchItem 形状曲目；type=album → AlbumEntry 形状专辑。'''
+    s = request.app.state
+    st = s.settings
+    adapter = get_adapter(s, source)
+    limit = min(limit or 30, 50)
+    result, _ = await cached(s.meta_cache, (source, 'aworks', id, type, page, limit),
+                             lambda: asyncio.wait_for(adapter.artist_works(id, type, page, limit),
+                                                      timeout=st.hard_timeout_s))
+    data = ArtistWorksData(source=source, id=id, type=result.get('type', type),
+                           page=result.get('page', page), is_end=result.get('is_end', True),
+                           total=result.get('total'), items=result.get('items') or [])
+    return ok(data.model_dump())
+
+
+async def music_comments(request: Request, source: str,
+                         id: str = Query('', min_length=0),
+                         title: str = Query(''), artist: str = Query(''),
+                         page: int = Query(1, ge=1), limit: int = Query(None, ge=1)):
+    '''P9 歌曲评论（netease 支持 id 或 title+artist 回搜；kugou 需数字 mixsongid）。'''
+    s = request.app.state
+    st = s.settings
+    adapter = get_adapter(s, source)
+    if not id and not title:
+        from server.adapters import AdapterError
+        raise AdapterError(400, 'id or title required')
+    limit = min(limit or 20, 50)
+    result, _ = await cached(s.meta_cache, (source, 'comments', id, title, artist, page, limit),
+                             lambda: asyncio.wait_for(
+                                 adapter.music_comments(song_id=id or None, title=title,
+                                                        artist=artist, page=page, limit=limit),
+                                 timeout=st.hard_timeout_s))
+    data = CommentsData(source=source, id=result.get('id') or id,
+                        page=result.get('page', page), total=result.get('total'),
+                        has_more=result.get('has_more', False),
+                        hot=[CommentEntry(**c) for c in result.get('hot') or []],
+                        items=[CommentEntry(**c) for c in result.get('items') or []])
     return ok(data.model_dump())

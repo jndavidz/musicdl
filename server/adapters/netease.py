@@ -212,3 +212,322 @@ class NeteaseAdapter(SourceAdapter):
                     items.append(item)
             return {'playlists': playlists, 'items': items}
         return await self.run(_fetch)
+
+    '''P9（2026-11-04）：浏览能力收编（类型搜索/榜单/推荐/歌手/评论），映射自 kwqq 插件
+       netease 透传拆包逻辑（多年现网形状）。上游 ncm-api 免登即可；评论回搜/详情经
+       /cloudsearch /comment/music。曲目 id=netease song id，与 /netease/song/url 口径一致。'''
+
+    @staticmethod
+    def _nm_cover(url, size=300):
+        return f'{url}?param={size}y{size}' if url else None
+
+    async def search_multi(self, keywords: str, search_type: str, page: int = 1, limit: int = 20) -> dict:
+        type_no = {'album': 10, 'artist': 100, 'sheet': 1000}[search_type]
+        data = await self.run(self._api_get, '/cloudsearch',
+                              {'keywords': keywords, 'type': type_no,
+                               'limit': limit, 'offset': (page - 1) * limit})
+        res = (data or {}).get('result') or {}
+        if search_type == 'album':
+            total = res.get('albumCount') or 0
+            items = [{'id': str(a['id']), 'name': a.get('name') or '',
+                      'artist': ((a.get('artist') or {}).get('name')
+                                 or ', '.join(x.get('name') for x in (a.get('artists') or [])
+                                              if isinstance(x, dict) and x.get('name')) or ''),
+                      'cover': self._nm_cover(a.get('picUrl')),
+                      'track_count': a.get('size') or 0, 'source': 'netease'}
+                     for a in res.get('albums') or [] if a.get('id')]
+        elif search_type == 'artist':
+            total = res.get('artistCount') or 0
+            items = [{'id': str(a['id']), 'name': a.get('name') or '',
+                      'avatar': self._nm_cover(a.get('picUrl') or a.get('img1v1Url'), 200),
+                      'alias': (a.get('alias') or [None])[0] if a.get('alias') else None,
+                      'album_count': a.get('albumSize') or 0,
+                      'music_count': a.get('musicSize') or 0, 'source': 'netease'}
+                     for a in res.get('artists') or [] if a.get('id')]
+        else:
+            total = res.get('playlistCount') or 0
+            items = [{'id': str(p['id']), 'name': p.get('name') or '',
+                      'creator': ((p.get('creator') or {}).get('nickname') or ''),
+                      'cover': self._nm_cover(p.get('coverImgUrl') or p.get('picUrl')),
+                      'track_count': p.get('trackCount') or 0,
+                      'play_count': p.get('playCount') or 0,
+                      'description': p.get('description'), 'source': 'netease'}
+                     for p in res.get('playlists') or [] if p.get('id')]
+        return {'items': items, 'total': total}
+
+    async def toplists(self) -> dict:
+        data = await self.run(self._api_get, '/toplist')
+        items = [{'id': str(it['id']), 'name': it.get('name') or '',
+                  'cover': self._nm_cover(it.get('coverImgUrl') or it.get('picUrl')),
+                  'description': it.get('description'),
+                  'update_frequency': it.get('updateFrequency'),
+                  'source': 'netease'}
+                 for it in (data or {}).get('list') or [] if it.get('id')]
+        return {'items': items}
+
+    async def toplist_songs(self, toplist_id: str, page: int = 1, limit: int = 50) -> dict:
+        # netease 榜单 id 即 playlist id；offset 分页
+        data = await self.run(self._api_get, '/playlist/track/all',
+                              {'id': toplist_id, 'limit': limit, 'offset': (page - 1) * limit})
+        songs = (data or {}).get('songs') or []
+        total = (data or {}).get('total') or len(songs)
+        return {'page': page, 'is_end': (page - 1) * limit + len(songs) >= total,
+                'total': total, 'items': [self.item_from_raw(m) for m in songs]}
+
+    async def playlist_tags(self) -> dict:
+        hot = await self.run(self._api_get, '/playlist/hot')
+        pinned = [{'id': t['name'], 'title': t.get('name') or ''}
+                  for t in ((hot or {}).get('tags') or [])[:8] if t.get('name')]
+        groups = []
+        try:
+            cat = await self.run(self._api_get, '/playlist/catlist')
+            names = (cat or {}).get('categories') or {}
+            grouped = {}
+            for sub in (cat or {}).get('sub') or []:
+                if not sub.get('name'):
+                    continue
+                grouped.setdefault(names.get(str(sub.get('category'))) or '其他', []).append(
+                    {'id': sub['name'], 'title': sub['name']})
+            groups = [{'title': title, 'data': tags} for title, tags in grouped.items()]
+        except Exception:
+            pass  # catlist 失败时只给 pinned（插件既有语义）
+        return {'pinned': pinned, 'groups': groups}
+
+    async def playlist_sheets(self, tag: str, page: int = 1, limit: int = 30) -> dict:
+        params = {'limit': limit, 'offset': (page - 1) * limit, 'order': 'hot'}
+        if tag:
+            params['cat'] = tag
+            path = '/top/playlist'
+        else:
+            path = '/top/playlist'
+        data = await self.run(self._api_get, path, params)
+        playlists = (data or {}).get('playlists') or []
+        total = (data or {}).get('total') or len(playlists)
+        items = [{'id': str(p['id']), 'name': p.get('name') or '',
+                  'creator': ((p.get('creator') or {}).get('nickname') or ''),
+                  'cover': self._nm_cover(p.get('coverImgUrl') or p.get('picUrl')),
+                  'track_count': p.get('trackCount') or 0,
+                  'play_count': p.get('playCount') or 0,
+                  'description': p.get('description'), 'source': 'netease'}
+                 for p in playlists if p.get('id')]
+        return {'tag': tag, 'page': page, 'is_end': (page - 1) * limit + len(items) >= total,
+                'total': total, 'items': items}
+
+    async def playlist_songs(self, playlist_id: str, page: int = 1, limit: int = 50) -> dict:
+        data = await self.run(self._api_get, '/playlist/track/all',
+                              {'id': playlist_id, 'limit': limit, 'offset': (page - 1) * limit})
+        songs = (data or {}).get('songs') or []
+        total = (data or {}).get('total') or len(songs)
+        items = [self.item_from_raw(m) for m in songs]
+        meta = None
+        if page == 1:
+            try:
+                detail = await self.run(self._api_get, '/playlist/detail', {'id': playlist_id})
+                pl = (detail or {}).get('playlist') or {}
+                meta = {'id': str(pl.get('id') or playlist_id), 'name': pl.get('name') or '',
+                        'creator': ((pl.get('creator') or {}).get('nickname') or ''),
+                        'cover': self._nm_cover(pl.get('coverImgUrl'), 500),
+                        'track_count': pl.get('trackCount') or total,
+                        'play_count': pl.get('playCount') or 0,
+                        'extra': {'description': pl.get('description')}}
+            except Exception:
+                meta = None  # 元数据缺失不阻塞曲目
+        return {'page': page, 'is_end': (page - 1) * limit + len(songs) >= total,
+                'total': total, 'items': items, 'meta': meta}
+
+    async def artist_info(self, artist_id: str) -> dict:
+        data = await self.run(self._api_get, '/artists', {'id': artist_id})
+        ar = (data or {}).get('artist') or {}
+        return {'artist': {'id': str(ar.get('id') or artist_id), 'name': ar.get('name') or '',
+                           'avatar': self._nm_cover(ar.get('picUrl') or ar.get('img1v1Url')),
+                           'alias': (ar.get('alias') or [None])[0] if ar.get('alias') else None,
+                           'description': ar.get('briefDesc') or ar.get('description'),
+                           'album_count': ar.get('albumSize') or 0,
+                           'music_count': ar.get('musicSize') or 0, 'source': 'netease'}}
+
+    async def artist_works(self, artist_id: str, work_type: str = 'music',
+                           page: int = 1, limit: int = 30) -> dict:
+        offset = (page - 1) * limi
+
+    '''P9（2026-11-04）：浏览能力收编（类型搜索/榜单/推荐/歌手/评论），映射自 kwqq 插件
+    netease 透传拆包逻辑（多年现网形状）。曲目 id=netease song id，与 song/url 口径一致。'''
+
+    @staticmethod
+    def _nm_cover(url, size=300):
+        return (url + '?param=' + str(size) + 'y' + str(size)) if url else None
+
+    async def search_multi(self, keywords: str, search_type: str, page: int = 1, limit: int = 20) -> dict:
+        type_no = {'album': 10, 'artist': 100, 'sheet': 1000}[search_type]
+        data = await self.run(self._api_get, '/cloudsearch',
+                              {'keywords': keywords, 'type': type_no,
+                               'limit': limit, 'offset': (page - 1) * limit})
+        res = (data or {}).get('result') or {}
+        if search_type == 'album':
+            total = res.get('albumCount') or 0
+            items = [{'id': str(a['id']), 'name': a.get('name') or '',
+                      'artist': ((a.get('artist') or {}).get('name')
+                                 or ', '.join(x.get('name') for x in (a.get('artists') or [])
+                                              if isinstance(x, dict) and x.get('name')) or ''),
+                      'cover': self._nm_cover(a.get('picUrl')),
+                      'track_count': a.get('size') or 0, 'source': 'netease'}
+                     for a in res.get('albums') or [] if a.get('id')]
+        elif search_type == 'artist':
+            total = res.get('artistCount') or 0
+            items = [{'id': str(a['id']), 'name': a.get('name') or '',
+                      'avatar': self._nm_cover(a.get('picUrl') or a.get('img1v1Url'), 200),
+                      'alias': (a.get('alias') or [None])[0] if a.get('alias') else None,
+                      'album_count': a.get('albumSize') or 0,
+                      'music_count': a.get('musicSize') or 0, 'source': 'netease'}
+                     for a in res.get('artists') or [] if a.get('id')]
+        else:
+            total = res.get('playlistCount') or 0
+            items = [{'id': str(p['id']), 'name': p.get('name') or '',
+                      'creator': ((p.get('creator') or {}).get('nickname') or ''),
+                      'cover': self._nm_cover(p.get('coverImgUrl') or p.get('picUrl')),
+                      'track_count': p.get('trackCount') or 0,
+                      'play_count': p.get('playCount') or 0,
+                      'description': p.get('description'), 'source': 'netease'}
+                     for p in res.get('playlists') or [] if p.get('id')]
+        return {'items': items, 'total': total}
+
+    async def toplists(self) -> dict:
+        data = await self.run(self._api_get, '/toplist')
+        items = [{'id': str(it['id']), 'name': it.get('name') or '',
+                  'cover': self._nm_cover(it.get('coverImgUrl') or it.get('picUrl')),
+                  'description': it.get('description'),
+                  'update_frequency': it.get('updateFrequency'),
+                  'source': 'netease'}
+                 for it in (data or {}).get('list') or [] if it.get('id')]
+        return {'items': items}
+
+    async def toplist_songs(self, toplist_id: str, page: int = 1, limit: int = 50) -> dict:
+        # netease 榜单 id 即 playlist id；offset 分页
+        data = await self.run(self._api_get, '/playlist/track/all',
+                              {'id': toplist_id, 'limit': limit, 'offset': (page - 1) * limit})
+        songs = (data or {}).get('songs') or []
+        total = (data or {}).get('total') or len(songs)
+        return {'page': page, 'is_end': (page - 1) * limit + len(songs) >= total,
+                'total': total, 'items': [self.item_from_raw(m) for m in songs]}
+
+    async def playlist_tags(self) -> dict:
+        hot = await self.run(self._api_get, '/playlist/hot')
+        pinned = [{'id': t['name'], 'title': t.get('name') or ''}
+                  for t in ((hot or {}).get('tags') or [])[:8] if t.get('name')]
+        groups = []
+        try:
+            cat = await self.run(self._api_get, '/playlist/catlist')
+            names = (cat or {}).get('categories') or {}
+            grouped = {}
+            for sub in (cat or {}).get('sub') or []:
+                if not sub.get('name'):
+                    continue
+                grouped.setdefault(names.get(str(sub.get('category'))) or '其他', []).append(
+                    {'id': sub['name'], 'title': sub['name']})
+            groups = [{'title': title, 'data': tags} for title, tags in grouped.items()]
+        except Exception:
+            pass  # catlist 失败时只给 pinned（插件既有语义）
+        return {'pinned': pinned, 'groups': groups}
+
+    async def playlist_sheets(self, tag: str, page: int = 1, limit: int = 30) -> dict:
+        params = {'limit': limit, 'offset': (page - 1) * limit, 'order': 'hot'}
+        if tag:
+            params['cat'] = tag
+        data = await self.run(self._api_get, '/top/playlist', params)
+        playlists = (data or {}).get('playlists') or []
+        total = (data or {}).get('total') or len(playlists)
+        items = [{'id': str(p['id']), 'name': p.get('name') or '',
+                  'creator': ((p.get('creator') or {}).get('nickname') or ''),
+                  'cover': self._nm_cover(p.get('coverImgUrl') or p.get('picUrl')),
+                  'track_count': p.get('trackCount') or 0,
+                  'play_count': p.get('playCount') or 0,
+                  'description': p.get('description'), 'source': 'netease'}
+                 for p in playlists if p.get('id')]
+        return {'tag': tag, 'page': page, 'is_end': (page - 1) * limit + len(items) >= total,
+                'total': total, 'items': items}
+
+    async def playlist_songs(self, playlist_id: str, page: int = 1, limit: int = 50) -> dict:
+        data = await self.run(self._api_get, '/playlist/track/all',
+                              {'id': playlist_id, 'limit': limit, 'offset': (page - 1) * limit})
+        songs = (data or {}).get('songs') or []
+        total = (data or {}).get('total') or len(songs)
+        items = [self.item_from_raw(m) for m in songs]
+        meta = None
+        if page == 1:
+            try:
+                detail = await self.run(self._api_get, '/playlist/detail', {'id': playlist_id})
+                pl = (detail or {}).get('playlist') or {}
+                meta = {'id': str(pl.get('id') or playlist_id), 'name': pl.get('name') or '',
+                        'creator': ((pl.get('creator') or {}).get('nickname') or ''),
+                        'cover': self._nm_cover(pl.get('coverImgUrl'), 500),
+                        'track_count': pl.get('trackCount') or total,
+                        'play_count': pl.get('playCount') or 0,
+                        'extra': {'description': pl.get('description')}}
+            except Exception:
+                meta = None  # 元数据缺失不阻塞曲目
+        return {'page': page, 'is_end': (page - 1) * limit + len(songs) >= total,
+                'total': total, 'items': items, 'meta': meta}
+
+    async def artist_info(self, artist_id: str) -> dict:
+        data = await self.run(self._api_get, '/artists', {'id': artist_id})
+        ar = (data or {}).get('artist') or {}
+        return {'artist': {'id': str(ar.get('id') or artist_id), 'name': ar.get('name') or '',
+                           'avatar': self._nm_cover(ar.get('picUrl') or ar.get('img1v1Url')),
+                           'alias': (ar.get('alias') or [None])[0] if ar.get('alias') else None,
+                           'description': ar.get('briefDesc') or ar.get('description'),
+                           'album_count': ar.get('albumSize') or 0,
+                           'music_count': ar.get('musicSize') or 0, 'source': 'netease'}}
+
+    async def artist_works(self, artist_id: str, work_type: str = 'music',
+                           page: int = 1, limit: int = 30) -> dict:
+        offset = (page - 1) * limit
+        if work_type == 'music':
+            data = await self.run(self._api_get, '/artist/songs',
+                                  {'id': artist_id, 'limit': limit, 'offset': offset, 'order': 'hot'})
+            songs = (data or {}).get('songs') or []
+            total = (data or {}).get('total') or len(songs)
+            return {'type': work_type, 'page': page,
+                    'is_end': offset + len(songs) >= total, 'total': total,
+                    'items': [self.item_from_raw(m) for m in songs]}
+        data = await self.run(self._api_get, '/artist/album',
+                              {'id': artist_id, 'limit': limit, 'offset': offset})
+        albums = (data or {}).get('hotAlbums') or []
+        total = ((data or {}).get('artist') or {}).get('albumSize') or len(albums)
+        items = [{'id': str(a['id']), 'name': a.get('name') or '',
+                  'artist': ((a.get('artist') or {}).get('name') or ''),
+                  'cover': self._nm_cover(a.get('picUrl')),
+                  'track_count': a.get('size') or 0,
+                  'extra': {'publish_time': a.get('publishTime'), 'company': a.get('company')},
+                  'source': 'netease'}
+                 for a in albums if a.get('id')]
+        return {'type': work_type, 'page': page,
+                'is_end': offset + len(albums) >= total, 'total': total, 'items': items}
+
+    async def music_comments(self, song_id: str = None, title: str = '', artist: str = '',
+                             page: int = 1, limit: int = 20) -> dict:
+        if not song_id and title:
+            found = await self.run(self._api_get, '/cloudsearch',
+                                   {'keywords': (title + ' ' + artist).strip(),
+                                    'type': 1, 'limit': 1, 'offset': 0})
+            songs = ((found or {}).get('result') or {}).get('songs') or []
+            if not songs:
+                return {'id': '', 'page': page, 'total': 0, 'has_more': False, 'hot': [], 'items': []}
+            song_id = str(songs[0].get('id'))
+        if not song_id:
+            raise AdapterError(400, 'id or title required')
+
+        def _comment(c):
+            if not c:
+                return None
+            user = c.get('user') or {}
+            return {'id': str(c.get('commentId') or ''), 'nick_name': user.get('nickname') or '匿名用户',
+                    'avatar': user.get('avatarUrl'), 'content': c.get('content') or '',
+                    'like': c.get('likedCount'), 'created_at': c.get('time'), 'replies': []}
+
+        data = await self.run(self._api_get, '/comment/music',
+                              {'id': song_id, 'limit': limit, 'offset': (page - 1) * limit})
+        total = (data or {}).get('total')
+        has_more = bool((data or {}).get('more'))
+        hot = [c for c in (_comment(x) for x in (data or {}).get('hotComments') or []) if c]
+        items = [c for c in (_comment(x) for x in (data or {}).get('comments') or []) if c]
+        return {'id': song_id, 'page': page, 'total': total, 'has_more': has_more,
+                'hot': hot if page == 1 else [], 'items': items}

@@ -273,3 +273,52 @@ class SheetSongsData(BaseModel):
     total: Optional[int] = None
     items: List[SearchItem] = []
     meta: Optional[PlaylistEntry] = None
+
+
+# ---- P9 浏览收编二期（2026-11-04，netease/kugou）：歌手 / 评论 ----
+
+class ArtistEntry(BaseModel):
+    id: str
+    name: Optional[str] = None
+    avatar: Optional[str] = None
+    alias: Optional[str] = None
+    description: Optional[str] = None
+    album_count: Optional[int] = None
+    music_count: Optional[int] = None
+    source: str
+
+
+class ArtistData(BaseModel):
+    source: str
+    artist: ArtistEntry
+
+
+class ArtistWorksData(BaseModel):
+    """P9 歌手作品：type=music → items 为 SearchItem 形状；type=album → AlbumEntry 形状"""
+    source: str
+    id: str
+    type: str
+    page: int = 1
+    is_end: bool = True
+    total: Optional[int] = None
+    items: List[dict] = []
+
+
+class CommentEntry(BaseModel):
+    id: str
+    nick_name: Optional[str] = None
+    avatar: Optional[str] = None
+    content: Optional[str] = None
+    like: Optional[int] = None
+    created_at: Optional[int] = None   # 毫秒时间戳
+    replies: List[dict] = []
+
+
+class CommentsData(BaseModel):
+    source: str
+    id: str
+    page: int = 1
+    total: Optional[int] = None
+    has_more: bool = False
+    hot: List[CommentEntry] = []
+    items: List[CommentEntry] = []

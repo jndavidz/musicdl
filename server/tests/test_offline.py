@@ -19,6 +19,7 @@ sys.path.insert(0, REPO)
 
 from server.config import Settings
 from server.quality import ALIASES, resolve as resolve_quality
+from server.adapters import AdapterError
 from server.app import create_app
 from server.cache import TTLCache
 
@@ -313,6 +314,9 @@ class FakeBrowseAdapter(FakeAdapter):
                 'items': [{'id': '2399331172', 'name': 'S', 'creator': 'u', 'cover': 'c',
                            'track_count': 24, 'play_count': 506702, 'source': 'kuwo'}]}
 
+    async def artist_info(self, artist_id):
+        raise AdapterError(501, 'artist info not supported for source "kuwo"')
+
     async def playlist_songs(self, playlist_id, page=1, limit=50):
         self.calls.append(('psongs', playlist_id, page, limit))
         return {'page': page, 'is_end': True, 'total': 24,
@@ -350,11 +354,79 @@ check('P8 playlist songs: meta on page=1', st == 200 and b['data']['meta'] is no
       and b['data']['meta']['id'] == '2399331172'
       and b['data']['items'][0]['id'] == '80458')
 
-st, b = raw(base5, '/netease/toplists')
-check('P8 unsupported source: 501 envelope (HTTP 501 class)', st == 501 and b['code'] == 501, f"status={st} code={b.get('code')}")
+st, b = raw(base5, '/kuwo/artist?id=1')
+check('P9 unsupported source: 501 envelope (HTTP 501 class)', st == 501 and b['code'] == 501, f"status={st} code={b.get('code')} msg={b.get('msg')}")
 st, b = raw(base5, '/nope/toplists')
 check('P8 unknown source: 404 envelope', st == 200 and b['code'] == 404)
 server5.should_exit = True
+
+# ---- section 8: P9 browse integration (artist / works / comments / search_multi) ----
+app6 = create_app(Settings(env={'API_KEY': ''}))
+base6, server6 = start_app(app6)
+
+
+class FakeNeteaseAdapter(FakeAdapter):
+    source_key = 'netease'
+
+    async def search_multi(self, keywords, search_type, page=1, limit=20):
+        self.calls.append(('smulti', keywords, search_type, page, limit))
+        return {'items': [{'id': '1', 'name': 'N专辑', 'artist': 'A', 'cover': 'c',
+                           'track_count': 5, 'source': 'netease'}], 'total': 1}
+
+    async def artist_info(self, artist_id):
+        self.calls.append(('artist', artist_id))
+        return {'artist': {'id': artist_id, 'name': '周杰伦', 'avatar': 'a.jpg', 'alias': 'Jay',
+                           'description': 'd', 'album_count': 49, 'music_count': 1859,
+                           'source': 'netease'}}
+
+    async def artist_works(self, artist_id, work_type='music', page=1, limit=30):
+        self.calls.append(('aworks', artist_id, work_type, page, limit))
+        if work_type == 'music':
+            return {'type': work_type, 'page': page, 'is_end': True, 'total': 1,
+                    'items': [{'id': '186145', 'name': '可爱女人', 'singer': '周杰伦',
+                               'album': 'Jay', 'duration_s': 239, 'source': 'netease'}]}
+        return {'type': work_type, 'page': page, 'is_end': True, 'total': 1,
+                'items': [{'id': '18918', 'name': 'Jay', 'artist': '周杰伦', 'cover': 'c.jpg',
+                           'track_count': 10, 'extra': {}, 'source': 'netease'}]}
+
+    async def music_comments(self, song_id=None, title='', artist='', page=1, limit=20):
+        self.calls.append(('comments', song_id, title, page, limit))
+        return {'id': song_id or '186145', 'page': page, 'total': 2, 'has_more': False,
+                'hot': [{'id': 'h1', 'nick_name': 'u', 'avatar': None, 'content': '热评',
+                         'like': 10, 'created_at': 1700000000000, 'replies': []}],
+                'items': [{'id': 'c1', 'nick_name': 'v', 'avatar': None, 'content': '评论',
+                           'like': 1, 'created_at': 1700000000000, 'replies': []}]}
+
+
+app6.state.adapters['netease'] = FakeNeteaseAdapter()
+
+st, b = raw(base6, '/netease/search/multi?keywords=test&type=album')
+check('P9 search_multi: album items', st == 200 and b['data']['items'][0]['name'] == 'N专辑'
+      and b['data']['total'] == 1)
+
+st, b = raw(base6, '/netease/artist?id=6452')
+check('P9 artist info: alias + counts', st == 200 and b['data']['artist']['alias'] == 'Jay'
+      and b['data']['artist']['music_count'] == 1859)
+
+st, b = raw(base6, '/netease/artist/works?id=6452&type=music')
+check('P9 artist works music: SearchItem shape', st == 200
+      and b['data']['items'][0]['id'] == '186145' and b['data']['type'] == 'music')
+
+st, b = raw(base6, '/netease/artist/works?id=6452&type=album')
+check('P9 artist works album: AlbumEntry shape', st == 200
+      and b['data']['items'][0]['id'] == '18918' and b['data']['type'] == 'album')
+
+st, b = raw(base6, '/netease/comments?id=186145')
+check('P9 comments: hot on page=1 + items', st == 200 and len(b['data']['hot']) == 1
+      and b['data']['items'][0]['id'] == 'c1' and b['data']['has_more'] is False)
+
+st, b = raw(base6, '/netease/comments?title=T&artist=A')
+check('P9 comments title-lookup passes through', st == 200 and b['data']['id'] == '186145')
+
+st, b = raw(base6, '/netease/comments')
+check('P9 comments: id/title both missing -> 400 envelope', b['code'] == 400,
+      f"code={b.get('code')}")
+server6.should_exit = True
 
 print(f'\nRESULT: {PASSED} passed, {len(FAILED)} failed' + (f' -> {FAILED}' if FAILED else ''))
 sys.exit(1 if FAILED else 0)

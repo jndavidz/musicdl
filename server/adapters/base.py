@@ -295,5 +295,16 @@ class SourceAdapter:
     async def playlist_songs(self, playlist_id: str, page: int = 1, limit: int = 50) -> dict:
         raise AdapterError(501, f'playlist songs not supported for source "{self.source_key}"')
 
+    async def artist_info(self, artist_id: str) -> dict:
+        raise AdapterError(501, f'artist info not supported for source "{self.source_key}"')
+
+    async def artist_works(self, artist_id: str, work_type: str = 'music',
+                           page: int = 1, limit: int = 30) -> dict:
+        raise AdapterError(501, f'artist works not supported for source "{self.source_key}"')
+
+    async def music_comments(self, song_id: str = None, title: str = '', artist: str = '',
+                             page: int = 1, limit: int = 20) -> dict:
+        raise AdapterError(501, f'comments not supported for source "{self.source_key}"')
+
     async def search_multi(self, keywords: str, search_type: str, page: int = 1, limit: int = 20) -> dict:
         raise AdapterError(501, f'type search "{search_type}" not supported for source "{self.source_key}"')
