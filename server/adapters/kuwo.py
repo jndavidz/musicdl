@@ -524,7 +524,7 @@ class KuwoAdapter(SourceAdapter):
                     'creator': (data or {}).get('uname') or '',
                     'cover': (data or {}).get('pic'),
                     'track_count': total,
-                    'extra': {'play_count': self._kw_int((data or {}).get('playnum')),
-                              'description': (data or {}).get('info')}}
+                    'play_count': self._kw_int((data or {}).get('playnum')),
+                    'extra': {'description': (data or {}).get('info')}}
         return {'page': page, 'is_end': (page - 1) * limit + len(songs) >= total,
                 'total': total, 'items': items, 'meta': meta}
