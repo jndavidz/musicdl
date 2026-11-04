@@ -337,6 +337,9 @@ class KugouAdapter(SourceAdapter):
         # **必须 gid（global_collection_id）**，specialid 实测 20010；page=1 自带 list_info 元数据
         data = await self.run(self._api_get, '/playlist/track/all',
                               {'id': playlist_id, 'page': page, 'pagesize': limit})
+        if (data or {}).get('error_code') not in (0, None):
+            raise AdapterError(404, 'playlist tracks unavailable: '
+                               + str(data.get('errmsg') or data.get('error_code')))
         d = (data or {}).get('data') or {}
         songs = d.get('songs') or []
         total = self._kg_int(d.get('count')) or len(songs)
@@ -518,13 +521,19 @@ class KugouAdapter(SourceAdapter):
         # 纯数字 specialid → /playlist/detail?ids= 换 global_collection_id
         import re
         if re.fullmatch(r'\d+', pid):
+            # specialid → gid 换算依赖 /playlist/detail（现网实测稳定返回空 data，
+            # 疑似需登录态）——失败即报 404 引导用户输入 collection_… 形态
             try:
                 dr = await self.run(self._api_get, '/playlist/detail', {'ids': pid})
                 info = ((dr or {}).get('data') or [{}])[0]
-                if info.get('global_collection_id'):
+                if isinstance(info, dict) and info.get('global_collection_id'):
                     pid = info['global_collection_id']
-            except Exception:
-                pass
+                else:
+                    raise AdapterError(404, 'playlist not found: /playlist/detail returned no gid; use global_collection_id (collection_...)')
+            except AdapterError:
+                raise
+            except Exception as e:
+                raise AdapterError(404, f'playlist lookup failed: {e}')
         items, page, pagesize, truncated = [], 1, 300, False
         while len(items) < cap:
             data = await self.run(self._api_get, '/playlist/track/all',
