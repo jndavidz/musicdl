@@ -354,6 +354,24 @@ GET /{source}/playlist/songs?id=&page=&limit= → 歌单曲目（by id 分页；
 - 默认 501 envelope；kuwo 已实现（官方 wapi 免登通道在 adapter 内归一，形状 2026-11-04 现网实测；曲目 id=rid）。netease/kugou 榜单/推荐继续走透传族（§5）。
 - kwqq 插件消费映射：cover→cover_url、SearchItem→source_data（`itemToResult`）、dedup_key `kwqq_kuwo_<rid>`。
 
+### 5.1c P9 收编二期 + 导入协议（2026-11-04，netease/kugou 全量）
+
+```
+GET /{source}/artist                → 歌手详情（alias/描述/作品数）
+GET /{source}/artist/works?type=music|album&page=  → 歌手作品（music=SearchItem / album=AlbumEntry）
+GET /{source}/comments?id=|title=&artist=          → 歌曲评论（netease 支持回搜；kugou 需数字 mixsongid）
+GET /{source}/album/detail?id=      → 专辑 by-id 详情（官方曲序 track_no；netease /album、kugou /album/songs）
+GET /{source}/import/item?url=      → 导入单曲（urlLike 提取 id；MusicFree importMusicItem）
+GET /{source}/import/sheet?url=&cap= → 导入歌单（自动翻页全量；cap 截断保护默认 1000）
+GET /{source}/search/multi          → netease/kugou P9 收编（此前走透传）
+GET /{source}/toplists|toplist/songs|playlist/tags|sheets|songs  → netease/kugou P9 收编
+```
+
+- 全部走统一 Envelope + schema；501 缺省（base）；kugou 曲目 id=hash（rank/audio hash_320 优先降档）、歌单 id=gid、import item id=mixsongid（media 链实测可解析）。
+- kugou specialid→gid 换算（/playlist/detail）现网稳定返回空 data（疑似需登录态）→ import/sheet 对纯数字 specialid 报 404 引导 collection_… 形态。
+- netease 评论 IComment 归一（nick_name/content/created_at snake_case → 消费方转 camelCase）。
+- **透传族收缩后仅剩**：云盘 user/cloud、登录态端点、VIP（/kugou/vip/*）、排错转发。
+
 ### 5.2 VIP 运维精装端点（酷狗概念版畅听 VIP，已实测）
 
 业务流程：**每日先领畅听 VIP(tvip) → 再升级为概念版(svip)**；升级会把当天记录的 vip_type 从 tvip 改写为 svip 并追加 24h。
