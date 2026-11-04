@@ -153,7 +153,8 @@ async def album_detail(request: Request, source: str, id: str = Query(..., min_l
                              lambda: asyncio.wait_for(adapter.album_detail(id),
                                                       timeout=st.hard_timeout_s))
     from server.schemas import AlbumEntry, AlbumData
-    data = AlbumData(source=source, id=id,
+    albums0 = (result.get('albums') or [{}])[0]
+    data = AlbumData(source=source, id=id, name=(albums0.get('name') or ''),
                      albums=[AlbumEntry(**a) for a in result.get('albums') or []],
                      items=result.get('items') or [],
                      total=len(result.get('items') or []))
