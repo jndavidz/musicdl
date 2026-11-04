@@ -142,3 +142,18 @@ async def music_comments(request: Request, source: str,
                         hot=[CommentEntry(**c) for c in result.get('hot') or []],
                         items=[CommentEntry(**c) for c in result.get('items') or []])
     return ok(data.model_dump())
+
+async def album_detail(request: Request, source: str, id: str = Query(..., min_length=1)):
+    '''P9b 专辑 by-id 详情（albums 单条 + 官方曲序曲目 track_no）；base 缺省 501。'''
+    s = request.app.state
+    st = s.settings
+    adapter = get_adapter(s, source)
+    result, _ = await cached(s.meta_cache, (source, 'adetail', id),
+                             lambda: asyncio.wait_for(adapter.album_detail(id),
+                                                      timeout=st.hard_timeout_s))
+    from server.schemas import AlbumEntry, AlbumData
+    data = AlbumData(source=source, id=id,
+                     albums=[AlbumEntry(**a) for a in result.get('albums') or []],
+                     items=result.get('items') or [],
+                     total=len(result.get('items') or []))
+    return ok(data.model_dump())

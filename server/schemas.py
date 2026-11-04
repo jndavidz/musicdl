@@ -65,6 +65,7 @@ class AlbumEntry(BaseModel):
 
 class AlbumData(BaseModel):
     """P6 专辑检索：albums = 候选专辑（首个为最优匹配），items = 首选专辑的有序曲目（track_no 1 起）"""
+    id: Optional[str] = None
     source: str
     name: str
     artist: Optional[str] = None

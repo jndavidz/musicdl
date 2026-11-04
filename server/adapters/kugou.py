@@ -450,3 +450,29 @@ class KugouAdapter(SourceAdapter):
         return {'id': str(song_id), 'page': page, 'total': total,
                 'has_more': bool(total) and page * limit < total,
                 'hot': [], 'items': lst}
+
+    '''P9b（2026-11-04）：专辑 by-id 详情（曲目官方曲序 + album_info 元数据）。'''
+    async def album_detail(self, album_id: str) -> dict:
+        detail = await self.run(self._api_get, '/album/songs', {'id': album_id})
+        songs = ((detail.get('data') or {}).get('songs')) or []
+        alb = (songs[0].get('album_info') or {}) if songs else {}
+        albums = [{'id': str(album_id), 'name': alb.get('album_name'),
+                   'artist': None, 'size': len(songs),
+                   'cover': (alb.get('cover') or '').replace('{size}', '400') or None,
+                   'source': self.source_key, 'extra': {}}] if songs else []
+
+        def _official_order(pair):
+            ext = pair[1].get('extend') or {}
+            return (int(ext.get('disc') or 1), int(ext.get('sort') or 0), pair[0])
+        items = []
+        for i, (_, s) in enumerate(sorted(enumerate(songs), key=_official_order), 1):
+            base, info, alb2 = s.get('base') or {}, s.get('audio_info') or {}, s.get('album_info') or {}
+            if not info.get('hash'):
+                continue
+            cover = (alb2.get('cover') or '').replace('{size}', '400') or None
+            items.append({'id': str(info['hash']), 'name': base.get('audio_name'),
+                          'singer': base.get('author_name'), 'album': alb2.get('album_name'),
+                          'ext': None, 'size_bytes': None,
+                          'duration_s': int(float(info.get('duration') or 0)) or None,
+                          'cover': cover, 'source': self.source_key, 'track_no': i})
+        return {'albums': albums, 'items': items}

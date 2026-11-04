@@ -531,3 +531,23 @@ class NeteaseAdapter(SourceAdapter):
         items = [c for c in (_comment(x) for x in (data or {}).get('comments') or []) if c]
         return {'id': song_id, 'page': page, 'total': total, 'has_more': has_more,
                 'hot': hot if page == 1 else [], 'items': items}
+
+    '''P9b（2026-11-04）：专辑 by-id 详情（kwqq 插件 album/info 的 netease id 精确分支收编）。'''
+    async def album_detail(self, album_id: str) -> dict:
+        data = await self.run(self._api_get, '/album', {'id': album_id})
+        al = (data or {}).get('album') or {}
+        songs = (data or {}).get('songs') or []
+        albums = [{'id': str(al.get('id') or album_id), 'name': al.get('name') or '',
+                   'artist': ((al.get('artist') or {}).get('name') or ''),
+                   'size': al.get('size') or len(songs),
+                   'cover': self._nm_cover(al.get('picUrl'), 500),
+                   'source': self.source_key,
+                   'extra': {'publish_time': al.get('publishTime'), 'company': al.get('company'),
+                             'description': al.get('description')}}] if al else []
+        items = []
+        for i, s in enumerate(sorted((s for s in songs if s.get('id')),
+                                     key=lambda s: (s.get('no') or 0)), 1):
+            item = self.item_from_raw(s)
+            item['track_no'] = s.get('no') or i
+            items.append(item)
+        return {'albums': albums, 'items': items}
