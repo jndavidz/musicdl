@@ -115,8 +115,10 @@ async def album(request: Request, source: str, name: str = Query(..., min_length
         lambda: asyncio.wait_for(adapter.album(name, artist, page),
                                  timeout=s.settings.hard_timeout_s))
     items = result.get('items') or []
+    # 曲目数只在 adapter 承诺整册曲目时给出（album_track_count）；其余源留 None（不臆造）。
     data = AlbumData(source=source, name=name, artist=artist or None,
-                     albums=result.get('albums') or [], items=items, total=len(items))
+                     albums=result.get('albums') or [], items=items, total=len(items),
+                     track_count=len(items) if getattr(adapter, 'album_track_count', False) else None)
     return ok(data.model_dump())
 
 

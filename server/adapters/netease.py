@@ -12,6 +12,7 @@ from .kugou import requests_get
 
 class NeteaseAdapter(SourceAdapter):
     source_key = 'netease'
+    album_track_count = True
     LEVELS = {'128k': 'standard', '192k': 'higher', '320k': 'exhigh', 'auto': 'exhigh',
               'flac': 'lossless', 'hires': 'hires'}
 
@@ -344,10 +345,6 @@ class NeteaseAdapter(SourceAdapter):
                            'description': ar.get('briefDesc') or ar.get('description'),
                            'album_count': ar.get('albumSize') or 0,
                            'music_count': ar.get('musicSize') or 0, 'source': 'netease'}}
-
-    async def artist_works(self, artist_id: str, work_type: str = 'music',
-                           page: int = 1, limit: int = 30) -> dict:
-        offset = (page - 1) * limi
 
     '''P9（2026-11-04）：浏览能力收编（类型搜索/榜单/推荐/歌手/评论），映射自 kwqq 插件
     netease 透传拆包逻辑（多年现网形状）。曲目 id=netease song id，与 song/url 口径一致。'''

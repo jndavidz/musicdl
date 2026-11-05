@@ -81,6 +81,28 @@ class QianqianAdapter(SourceAdapter):
             return {'albums': albums, 'items': items}
         return await self.run(_fetch)
 
+    '''P9b（2026-11-04，对照 MusicFree qianqian）：歌手作品走官方签名 /v1/artist/song
+       （artistCode 分页，返回 TSID 曲目）。上游没有「歌手专辑列表」通道
+       （MusicFree 同款只实现 music），album 返回空集合而非 501。'''
+    async def artist_works(self, artist_id: str, work_type: str = 'music',
+                           page: int = 1, limit: int = 30) -> dict:
+        if work_type != 'music':
+            return {'type': work_type, 'page': page, 'is_end': True, 'total': 0, 'items': []}
+
+        def _fetch():
+            params = self.client._addsignandtstoparams(
+                params={'artistCode': str(artist_id), 'pageNo': str(page),
+                        'pageSize': str(limit), 'appid': self.client.APPID})
+            resp = self.client.get('https://music.91q.com/v1/artist/song',
+                                   params=params, timeout=self.io_timeout)
+            data = (resp.json() or {}).get('data') or {}
+            rows = data.get('result') or []
+            total = int(data.get('total') or 0) or len(rows)
+            items = [x for x in (self.item_from_raw(r) for r in rows) if x.get('id')]
+            return {'type': 'music', 'page': page, 'is_end': page * limit >= total,
+                    'total': total, 'items': items}
+        return await self.run(_fetch)
+
     def _tracklink(self, tsid: str, rate: str) -> dict:
         params = self.client._addsignandtstoparams(params={'TSID': tsid, 'appid': self.client.APPID, 'rate': rate})
         resp = self.client.get('https://music.91q.com/v1/song/tracklink', params=params, timeout=self.io_timeout)

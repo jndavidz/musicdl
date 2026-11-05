@@ -40,6 +40,7 @@ def requests_get(url: str, params: dict = None, timeout: int = 20) -> dict:
 
 class KugouAdapter(SourceAdapter):
     source_key = 'kugou'
+    album_track_count = True
     QUALITY = {'128k': '128', '320k': '320', 'auto': '320', 'flac': 'flac', 'hires': 'high'}
 
     def _build_client(self):
@@ -245,7 +246,9 @@ class KugouAdapter(SourceAdapter):
                 items.append({'id': str(r['albumid']), 'name': r.get('albumname') or '',
                               'artist': (' / '.join(x.get('name') for x in singers if isinstance(x, dict))
                                          if isinstance(singers, list) else (r.get('singer') or '')),
-                              'cover': r.get('img'), 'source': 'kugou'})
+                              'cover': r.get('img'),
+                              'track_count': self._kg_int(r.get('songcount') or r.get('song_count')),
+                              'source': 'kugou'})
         elif search_type == 'artist':
             items = []
             for r in rows:

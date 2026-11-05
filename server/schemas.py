@@ -72,6 +72,8 @@ class AlbumData(BaseModel):
     albums: List[AlbumEntry] = []
     items: List[SearchItem] = []
     total: int = 0
+    # 整册曲目数（仅 adapter.album_track_count=True 的源给出；其余源为 None，客户端不显示）
+    track_count: Optional[int] = None
 
 
 class PlaylistEntry(BaseModel):

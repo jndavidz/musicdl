@@ -137,7 +137,7 @@ check('netease album artist-hint ranking', b5['code'] == 200 and albums5
       and '周杰伦' in (first5.get('artist') or ''), detail5)
 # album on a source without support = capability miss (HTTP 501, not business-miss class)
 try:
-    b6, _ = get('/kuwo/album?name=x')
+    b6, _ = get('/bilibili/album?name=x')
     code6 = b6.get('code')
 except urllib.error.HTTPError as e:
     code6 = e.code
@@ -167,6 +167,43 @@ try:
 except urllib.error.HTTPError as e:
     codep = e.code
 check('playlist unsupported source -> 501 envelope', codep == 501, f'code={codep}')
+
+# P9b artist works (2026-11-04): qq(singermid) / kuwo(artistid) 单曲与专辑必须非空
+for _src, _aid in (('qq', '0025NhlN2yWrP4'), ('kuwo', '336')):
+    _bm, msm = get(f'/{_src}/artist/works?id={_aid}&type=music&limit=5', timeout=40)
+    _dm = _bm.get('data') or {}
+    _im = _dm.get('items') or []
+    check(f'{_src} artist works music', _bm['code'] == 200 and len(_im) >= 3,
+          f'{msm}ms total={_dm.get("total")} items={len(_im)}')
+    _ba, msa = get(f'/{_src}/artist/works?id={_aid}&type=album&limit=5', timeout=40)
+    _da = _ba.get('data') or {}
+    _ia = _da.get('items') or []
+    check(f'{_src} artist works album', _ba['code'] == 200 and len(_ia) >= 3,
+          f'{msa}ms total={_da.get("total")} items={len(_ia)}')
+# qianqian: 官方签名 /v1/artist/song 出单曲；上游无「歌手专辑列表」通道 → album 空集合（不是 501）
+_bq, msq = get('/qianqian/artist/works?id=A10047663&type=music&limit=5', timeout=40)
+_dq = _bq.get('data') or {}
+_iq = _dq.get('items') or []
+check('qianqian artist works music', _bq['code'] == 200 and len(_iq) >= 3,
+      f'{msq}ms total={_dq.get("total")} items={len(_iq)}')
+_baq, msaq = get('/qianqian/artist/works?id=A10047663&type=album&limit=5', timeout=40)
+_daq = _baq.get('data') or {}
+check('qianqian artist works album empty (no upstream channel)',
+      _baq['code'] == 200 and not (_daq.get('items') or []) and _daq.get('total') == 0,
+      f'{msaq}ms total={_daq.get("total")} items={len(_daq.get("items") or [])}')
+# migu: MusicFree 未实现 getArtistWorks，上游无歌手作品聚合通道 → 能力缺省按 501 如实标注
+try:
+    _bm2, _ = get('/migu/artist/works?id=1&type=music&limit=5', timeout=40)
+    _cm2 = _bm2.get('code')
+except urllib.error.HTTPError as e:
+    _cm2 = e.code
+check('migu artist works -> 501 (no upstream channel)', _cm2 == 501, f'code={_cm2}')
+# QQ 推荐歌单分类：分组标题读 categoryGroupName，不允许空标题回落「分类」占位
+bt, _ = get('/qq/playlist/tags', timeout=40)
+_dt = bt.get('data') or {}
+_gt = [g.get('title') for g in (_dt.get('groups') or [])]
+check('qq playlist tags readable group titles', bt['code'] == 200 and bool(_gt) and all(_gt),
+      f'groups={_gt}')
 
 b, _ = get('/status')
 lossless_enabled = (b.get('data') or {}).get('settings', {}).get('enable_lossless')

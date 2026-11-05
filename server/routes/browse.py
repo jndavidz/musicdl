@@ -154,10 +154,13 @@ async def album_detail(request: Request, source: str, id: str = Query(..., min_l
                                                       timeout=st.hard_timeout_s))
     from server.schemas import AlbumEntry, AlbumData
     albums0 = (result.get('albums') or [{}])[0]
+    items = result.get('items') or []
+    # 曲目数同 resolve.album：仅 adapter 承诺整册曲目时给出，未知源留 None。
     data = AlbumData(source=source, id=id, name=(albums0.get('name') or ''),
                      albums=[AlbumEntry(**a) for a in result.get('albums') or []],
-                     items=result.get('items') or [],
-                     total=len(result.get('items') or []))
+                     items=items,
+                     total=len(items),
+                     track_count=len(items) if getattr(adapter, 'album_track_count', False) else None)
     return ok(data.model_dump())
 
 

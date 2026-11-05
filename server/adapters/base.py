@@ -39,6 +39,9 @@ class _Job:
 
 class SourceAdapter:
     source_key = 'base'
+    '''album 通道是否返回整册曲目（count 可信）。True 的源门面给出 track_count；
+    migu/qianqian 上游无整册计数，产品决定不显示（选项 A：不为补数字逐专辑查详情）→ False。'''
+    album_track_count = False
     '''subclass builds the musicdl client (no cookies! third-party chain relies on that)'''
     def _build_client(self) -> BaseMusicClient:
         raise NotImplementedError

@@ -15,6 +15,7 @@ MIN_KBPS = {'128k': 112, '320k': 256}
 
 class KuwoAdapter(SourceAdapter):
     source_key = 'kuwo'
+    album_track_count = True
 
     def _build_client(self) -> KuwoMusicClient:
         return KuwoMusicClient(
@@ -390,6 +391,92 @@ class KuwoAdapter(SourceAdapter):
                               'source': 'kuwo', 'track_no': n})
             return {'albums': albums, 'items': items, 'total': len(items)}
 
+        return await self.run(_fetch)
+
+    '''P9b（2026-11-04 现网实测）：歌手详情/作品走 search.kuwo.cn/r.s
+       （stype=artistinfo / artist2music / albumlist；rsWorkParams 附加参数缺一不可，
+       缺了会返回 HTML 而非 JSON）。id 口径 = 数字 artistid（search_multi artist 项即 ARTISTID）。'''
+
+    def _kw_rs_work(self, extra: dict) -> dict:
+        from urllib.parse import urlencode
+        rule = {'client': 'kt', 'rn': '30', 'rformat': 'json', 'encoding': 'utf8', 'pcjson': '1'}
+        rule.update(self._KUWO_ALBUM_WORK_PARAMS)
+        rule.update(extra)
+        url = 'http://search.kuwo.cn/r.s?' + urlencode(rule)
+        resp = self.client.get(url, timeout=self.io_timeout)
+        try:
+            return resp.json() or {}
+        except Exception:
+            raise AdapterError(502, 'kuwo r.s non-json response')
+
+    @staticmethod
+    def _kw_album_cover(a: dict):
+        cover = a.get('hts_img') or a.get('img')
+        if cover:
+            return cover
+        short = str(a.get('pic') or '')
+        i = short.find('/')
+        return ('https://img4.kuwo.cn/star/albumcover/256' + short[i:]) if i >= 0 else None
+
+    async def artist_info(self, artist_id: str) -> dict:
+        def _fetch():
+            j = self._kw_rs_work({'artistid': str(artist_id), 'stype': 'artistinfo',
+                                  'pn': '0', 'rn': '1'})
+            if not j.get('name'):
+                raise AdapterError(404, 'artist not found')
+            pic = j.get('hts_pic') or j.get('pic') or ''
+            if pic and not str(pic).startswith('http'):
+                pic = 'https://img4.kuwo.cn/star/starheads/' + str(pic)
+            return {'artist': {'id': str(j.get('id') or artist_id), 'name': j.get('name') or '',
+                               'avatar': pic or None, 'alias': j.get('oname') or None,
+                               'description': j.get('desc') or None,
+                               'album_count': self._kw_int(j.get('albumnum')),
+                               'music_count': self._kw_int(j.get('musicnum')),
+                               'source': 'kuwo'}}
+        return await self.run(_fetch)
+
+    async def artist_works(self, artist_id: str, work_type: str = 'music',
+                           page: int = 1, limit: int = 30) -> dict:
+        import html as _html
+
+        def _txt(v):
+            return _html.unescape(str(v)).strip() if v else ''
+
+        def _fetch():
+            offset = max(0, (page - 1) * limit)
+            if work_type == 'music':
+                j = self._kw_rs_work({'artistid': str(artist_id), 'stype': 'artist2music',
+                                      'sortby': '0', 'pn': str(page - 1), 'rn': str(limit)})
+                rows = j.get('musiclist') or []
+                total = self._kw_int(j.get('total')) or len(rows)
+                items = []
+                for m in rows:
+                    sid = str(m.get('musicrid') or m.get('id') or '').removeprefix('MUSIC_')
+                    if not sid:
+                        continue
+                    short = str(m.get('web_albumpic_short') or '')
+                    i = short.find('/')
+                    cover = ('https://img4.kuwo.cn/star/albumcover/256' + short[i:]) if i >= 0 else None
+                    items.append({'id': sid, 'name': _txt(m.get('name') or m.get('NAME')),
+                                  'singer': _txt(m.get('artist') or m.get('ARTIST')),
+                                  'album': _txt(m.get('album') or m.get('ALBUM')),
+                                  'ext': None, 'size_bytes': None,
+                                  'duration_s': self._kw_int(m.get('duration')),
+                                  'cover': cover, 'source': 'kuwo'})
+                return {'type': work_type, 'page': page, 'is_end': offset + len(rows) >= total,
+                        'total': total, 'items': items}
+            j = self._kw_rs_work({'artistid': str(artist_id), 'stype': 'albumlist',
+                                  'sortby': '1', 'pn': str(page - 1), 'rn': str(limit)})
+            rows = j.get('albumlist') or []
+            total = self._kw_int(j.get('total')) or len(rows)
+            items = [{'id': str(a['albumid']), 'name': _txt(a.get('name')), 'artist': _txt(a.get('artist')),
+                      'cover': self._kw_album_cover(a),
+                      'size': self._kw_int(a.get('musiccnt')),
+                      'extra': {'publish_time': a.get('pub'), 'description': a.get('info')},
+                      'source': 'kuwo'}
+                     for a in rows if a.get('albumid')]
+            return {'type': work_type, 'page': page, 'is_end': offset + len(rows) >= total,
+                    'total': total, 'items': items}
         return await self.run(_fetch)
 
     '''P8（2026-11-04）：榜单/推荐歌单走官方 wapi 免登通道（musicfree-plugins kuwo
