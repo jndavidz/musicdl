@@ -355,6 +355,15 @@
 | `mp3juice.sc` 动态 apiKey / `jbsou.cn` `mk_visit` cookie | 库层自校验 |
 | QQ l1 截断后无损命中率 | 专挑 QQ 无损批量冒烟，观察是否大面积落 l2 |
 
+### 10.1 歌词端点（2026-11-06 登记）
+
+| 端点 | 现状 | 凭证/参数 | 实测 | 角色 |
+|---|---|---|---|---|
+| `https://app.c.nf.migu.cn/MIGUM3.0/strategy/pc/listen/v1.0` | 取 `data.lrcUrl` 再 GET；须 headers `birth:h5page`、`signature:1`、`Content-Type: application/json;charset=UTF-8`，并走客户端 `get()` + `_decryptresp`（裸请求返回 `code 299999`）。域名是 `app.c.nf.migu.cn`，`app.c.migu.cn` 本地 DNS 不解析 | 匿名；参数 `scene=&netType=01&resourceType=2&copyrightId=<版权ID>&contentId=<歌曲ID>&toneFlag=PQ`，`copyrightId` 来自搜索项 `extra` | ✅ 2026-11-06 NAS 实测（865 字符/45 行） | 🟢 migu 歌词主通道 |
+| `91q.com /v1/search` 结果行 `lyric` 字段 | 千千静听（qianqian）**没有 by-id 歌词频道**，歌词 URL 只随搜索结果下发 → 门面用进程内 id→url 缓存（上限 500，`workers=1` 才一致）；缓存未命中（如直接按 id 取）返回空串 | 匿名，需 `_addsignandtstoparams` 签名 | ✅ 2026-11-06 NAS 实测（450 字符） | 🟡 qianqian 歌词（受限） |
+| `https://krcs.kugou.com/download?...&fmt=krc` | 逐字歌词：`lyrics.kugou.com/search`（`ver=1&man=yes&client=pc&hash=<hash>`）取 candidates 的 `id`/`accesskey`，再 `fmt=krc&charset=utf8` 取 base64；KRC = 4 字节 `krc1` 头 + XOR(16 字节固定 key，从索引 4 起) + zlib 压缩，解出后转洛雪逐字格式（`[mm:ss.mmm]` + `<偏移ms,时长ms>文本`） | 匿名 | ✅ 2026-11-06 NAS 实测（4624 字符/47 逐字行） | 🟢 kugou 逐字主通道 |
+
+
 后续增量维护建议：
 1. 监控 [Huibq/keep-alive](https://github.com/Huibq/keep-alive) 与元力公众号的端点更新
 2. 每季度重跑 `.state/probe_endpoints.py` 探测矩阵复核存活状态

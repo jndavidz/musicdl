@@ -88,7 +88,7 @@ v2 托管播放端点 `/v2/*` **不走** `API_KEY`、也不享受内网免 key�
 
 item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, source, extra}`。
 **migu 的 `extra.copyrightId` 必须在后续 song/url、song/info、lyric 时以 `?copyright=` 回传。**
-**kugou 的封面在 `songsearch` 里是 `http://imge.kugou.com/stdmusic/{size}/...` 模板串，门面已替换为 `240`（不替换会 404）；album/多类型搜索返回的 `img` 也走同一归一。**
+**kugou 的封面在 `songsearch` 里是 `http://imge.kugou.com/stdmusic/{size}/...` 模板串，门面已替换为 `240`；album/多类型搜索返回的 `img` 也走同一归一。** 未归一模板串**不是 404**——上游对 `{size}` 字面量一律回同一张 17853 B 通用占位图（所有歌曲 md5 相同），所以这个 bug 的表象是"有图但不是专辑封面"；`/240/` 才是逐曲真实封面（2026-11-06 实测：同一首歌 17866 B、不同歌曲分别 29970/16193/26112 B，md5 各自不同）。
 
 ### 4.2 GET /{source}/song/url — 播放直链
 

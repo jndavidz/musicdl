@@ -44,11 +44,10 @@ def check(name, cond, detail=''):
     else: FAILED.append(name)
 
 
-def find_song_id(source, keywords):
+def find_song(source, keywords):
     body, _ = get(f'/{source}/search?keywords={urllib.parse.quote(keywords)}&limit=5')
     items = (body.get('data') or {}).get('items') or []
-    first = items[0] if items else {}   # empty upstream result must degrade to a FAIL, not crash
-    return first.get('id'), first.get('name'), (first.get('extra') or {})
+    return items[0] if items else {}   # empty upstream result must degrade to a FAIL, not crash
 
 
 print(f'== smoke against {BASE} ==')
@@ -88,10 +87,13 @@ ALL_SOURCES = [
 
 
 def run_source(source, keywords, needs_copyright, has_lyric):
-    sid, sname, extra = find_song_id(source, keywords)
+    first = find_song(source, keywords)
+    sid, sname, extra = first.get('id'), first.get('name'), (first.get('extra') or {})
     check(f'{source} search', bool(sid), f'id={sid} name={sname}')
     if not sid:
         return
+    cover = first.get('cover') or ''
+    check(f'{source} cover url', cover.startswith('http') and '{size}' not in cover, cover[:110])
     cr = str(extra.get('copyrightId') or '')
     if needs_copyright:
         check(f'{source} copyright in extra', bool(cr), f'copyrightId={cr or "MISSING"}')
@@ -234,6 +236,9 @@ if ALL:
     _ik, _nk = _dk.get('items') or [], [i.get('track_no') for i in (_dk.get('items') or [])]
     check('kugou album ordered tracks', bk['code'] == 200 and len(_ik) >= 5
           and _nk == list(range(1, len(_ik) + 1)), f'{msk}ms items={len(_ik)}')
+    # 专辑封面前缀是 /400/（单曲搜索是 /240/），两者都不能残留 {size} 模板串
+    _ck = (_ik[0].get('cover') or '') if _ik else ''
+    check('kugou album cover url', _ck.startswith('http') and '{size}' not in _ck, _ck[:110])
     st, body = raw('/kugou/api/search?keywords=%E6%9E%97%E4%BF%8A%E6%9D%B0')
     ok_json = st == 200 and body[:1] in (b'{', b'[')
     check('kugou passthrough search', ok_json, f'status={st} bytes={len(body)}')
