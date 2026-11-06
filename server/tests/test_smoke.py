@@ -133,6 +133,62 @@ def run_source(source, keywords, needs_copyright, has_lyric):
 for cfg in DEFAULT_SOURCES:
     run_source(*cfg)
 
+
+MV_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
+
+
+def mv_media(url):
+    '''只取前 1KB 验证直链可用性与 Content-Type（不下载完整视频）。
+       必须带浏览器 UA：netease CDN（vodkgeyttp8.vod.126.net）对非浏览器 UA（如 Python-urllib 默认）
+       直接 403，同一 URL 带 UA 即 206；真实客户端（media_kit / Web video / hls.js）均自带 UA。'''
+    last = ''
+    for attempt in range(2):
+        req = urllib.request.Request(url, headers={'Range': 'bytes=0-1023', 'User-Agent': MV_UA})
+        try:
+            with urllib.request.urlopen(req, timeout=25) as resp:
+                ctype = resp.headers.get('Content-Type', '')
+                sample = resp.read(1024)
+            if resp.status in (200, 206) and ctype.startswith('video/') and len(sample) > 128:
+                return True, f'status={resp.status} ctype={ctype} bytes={len(sample)}'
+            last = f'status={resp.status} ctype={ctype} bytes={len(sample)}'
+        except Exception as e:
+            last = str(e)[:100]
+        if attempt == 0:
+            time.sleep(1)
+    return False, last
+
+
+def run_mv(source, keywords, expect_playable=True):
+    '''MV 契约：data 固定字段 {id,source,url,cover,duration_s,quality}；
+       无 MV/不可匿名访问 = HTTP 200 + code 200 + url None（绝不是 404/空对象）。'''
+    first = find_song(source, keywords)
+    sid, sname, singer = first.get('id'), first.get('name') or '', first.get('singer') or ''
+    check(f'{source} mv precondition (song found)', bool(sid), f'id={sid} name={sname}')
+    if not sid:
+        return
+    path = (f'/{source}/mv?id={urllib.parse.quote(str(sid))}'
+            f'&title={urllib.parse.quote(sname)}&artist={urllib.parse.quote(singer)}')
+    b, ms = get(path, timeout=45)
+    d = b.get('data') or {}
+    check(f'{source} mv contract keys', b['code'] == 200
+          and {'id', 'source', 'url', 'cover', 'duration_s', 'quality'} <= set(d), f'{ms}ms keys={sorted(d)}')
+    if not expect_playable:
+        check(f'{source} mv no channel -> url None (code 200)', d.get('url') is None,
+              f'{ms}ms url={str(d.get("url"))[:60]}')
+        return
+    url = d.get('url') or ''
+    check(f'{source} mv playable url', url.startswith('http'),
+          f'{ms}ms quality={d.get("quality")} duration_s={d.get("duration_s")} title={d.get("title")}')
+    if url.startswith('http'):
+        ok, detail = mv_media(url)
+        check(f'{source} mv media reachable (Range GET 1KB)', ok, detail)
+
+
+# MV（2026-11-06 实测接入 netease/qq/kugou；kuwo 无匿名 MV 通道 → url None 契约）
+run_mv('qq', '邓紫棋 光年之外')
+run_mv('netease', '林俊杰 江南')
+run_mv('kuwo', '林俊杰 江南', expect_playable=False)
+
 # P6 album (netease-first): one call -> candidates + ordered tracks of best match
 b5, ms5 = get('/netease/album?name=%E5%8F%B6%E6%83%A0%E7%BE%8E&artist=%E5%91%A8%E6%9D%B0%E4%BC%A6')
 items5 = (b5.get('data') or {}).get('items') or []
@@ -230,6 +286,7 @@ check('passthrough blocked path', st == 403 and b'blocked' in body, f'status={st
 if ALL:
     for cfg in ALL_SOURCES:
         run_source(*cfg)
+    run_mv('kugou', '林俊杰 江南')
     _qa = urllib.parse.quote('叶惠美') + '&artist=' + urllib.parse.quote('周杰伦')
     bk, msk = get(f'/kugou/album?name={_qa}', timeout=40)
     _dk = bk.get('data') or {}

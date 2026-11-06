@@ -335,6 +335,53 @@ v2 与 v1 共用 adapter 出链能力，但**准入判断独立且更严**。以
 - **限流分类**：本地限流器 429 带 `X-RateLimit-Scope: local`；上游 429 带 `X-RateLimit-Scope: upstream` + `Retry-After`。两者都是 HTTP 429 + 信封 `code=429`。
 - `/status` 的 `parsers` 快照新增 `cooldown_remaining_s`、`throttled`。
 
+### 4.11 GET /{source}/mv — 歌曲 MV（2026-11-06 v1.19）
+
+```
+GET /{source}/mv?id=<song id>&title=<可选>&artist=<可选>
+```
+
+**契约（字段名固定，客户端直接消费顶层字段）**
+
+```json
+{"code": 200, "msg": "ok", "data": {
+  "id": "<same song id you passed>", "source": "qq",
+  "url": "https://...mp4", "cover": null, "duration_s": 235, "quality": "sd",
+  "title": "...", "artist": "...", "items": []
+}}
+```
+
+- `id` 回显**传入的歌曲 id**（不是 MV 自身的 id），`source` 回显源名；`url` 是可直接播放的地址。
+- **拿不到 MV 时 `url: null`**（HTTP 200 + `code: 200`，不做 404、不返回空对象）；未知源仍是 404 信封。
+- 可选 `items`：同一首歌存在多个 MV 候选时给出（按可播性排序）；**首个可直接播放的必是顶层字段**，客户端不需要读 `items` 也能播放。
+- `title`/`artist` 是可选提示：当 `id` 无法直接映射到 MV（如跨源反查）时，源侧按标题+歌手匹配；不传也能按 id 走主通道。
+
+**各源实测结论（2026-11-06，匿名只读实测）**
+
+| 源 | 歌曲→MV 映射 | 播放地址 | Cookie/签名 | cover | 结果 |
+|---|---|---|---|---|---|
+| netease | `/song/detail` 的 `songs[].mv`（0=无）；查不到时 `/search?type=1004` 只接受**同名** MV | `/mv/url?id=<mvid>&r=1080`（`r` 是上限，返回实际 `r`）→ mp4 直链 | 匿名；`wsSecret/wsTime` 由 ncm-api 生成 | `mv/detail.cover` | ✅ 可播 |
+| qq | 搜索行自带 `mv{id,vid}`（按 `mid` 对齐） | `vv.video.qq.com/getinfo` → `ul.url + fn + "?vkey="` → mp4 直链 | 匿名零 Cookie；`fvkey` 每次现取 | 无公开通道 → `null` | ✅ 可播（匿名档位偏低，实测 `vh` 多为 270~486） |
+| kugou | `/search?type=mv` 行的 `FileHash` 与歌曲 hash **精确对齐** | `/video/detail?id=<MvID>` 取逐档 hash → `/video/url?hash=` → mp4 直链 | 容器自带概念版 Cookie；无需额外签名 | `hdpic`（`{size}` 换 480） | ✅ 可播（`fhd` 实测 1080p） |
+| kuwo | 无匿名 MV 通道（`searchMvByKeyWord` / `m/v1/mv/*` 均要求 CSRF Token） | — | — | — | `url: null` |
+| migu | 搜索可带出 MV 条目，但播放路由矩阵全部「路由请求不支持」 | — | — | — | `url: null` |
+| qianqian | 签名 API 无 MV 搜索类型（type 4~12/1004 均「不被支持」） | — | — | — | `url: null` |
+
+**质量枚举与直链形态**
+
+- `quality` 统一为 `ld` / `sd` / `hd` / `fhd`（按源实际清晰度归一，不照抄平台档位名）：
+  `<=300` → `ld`，`<=480` → `sd`，`<=720` → `hd`，`>720` → `fhd`（netease 按实际 `r`，QQ 按 `vh`，kugou 按 `*_height`）。
+- 三源实测返回的均为 **mp4 直链**（`Range` 请求 206 + `video/mp4`），**没有 m3u8 通道**；契约不区分形态，`url` 原样透出，客户端按 URL/`Content-Type` 自行选播放器。
+- kugou `MvHash` 直接取 `/video/url` 会返回 **mkv（application/octet-stream）**，因此实现只使用 `/video/detail` 的逐档 mp4 hash。
+- **客户端播发时须带浏览器类 User-Agent**：netease 的 `vodkgeyttp8.vod.126.net` 对非浏览器 UA（如 `Python-urllib/3.x` 默认值）直接 403，带任意 `Mozilla/5.0` UA 即 206。media_kit / Web `video` / hls.js 均自带 UA，正常场景无需额外处理；仅脚本化探测要注意。
+
+**有效期策略（客户端每次点击现取，不做长期缓存）**
+
+- netease：`wsSecret/wsTime` 签名（实测约 1 小时窗口；ncm-api 自身会短暂复用同一签名）。
+- QQ：`fvkey` 随 `getinfo` 现取，短时效。
+- kugou：`downurl` 为带时效的 CDN 路径。
+- 因此本端点**不接进程内缓存**：每次调用现取，避免把过期链接交给播放器。
+
 ---
 
 ## 5. 透传端点（酷狗/网易云全量能力）
@@ -526,6 +573,7 @@ server/tests/test_smoke.py <url> [--auth K:] # 冒烟默认档（含 netease 与
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-11-06 | 1.19 | +`/{source}/mv`（歌曲 MV：顶层恒为首个可直接播放项 `{id,source,url,cover,duration_s,quality}`，可选 `items`；无 MV 走 HTTP 200 + `url:null`，不做 404/空对象）。实测可用源：netease（`/mv/detail`+`/mv/url`，r 为上限）、qq（`vv.video.qq.com/getinfo` 的 `<fvkey>` 拼链）、kugou（容器 `/search?type=mv` 按 FileHash 精确对齐 + `/video/detail`+`/video/url` 逐档 mp4）；kuwo/migu/qianqian 无匿名 MV 通道 → `url:null`。全部为 mp4 直链（三源均无 m3u8）；签名短链不缓存、客户端每次现取 |
 | 2026-10-29 | 1.9 | +`POST /v2/playback/resolve`（K-01：TrackRef 身份契约、`X-Service-Token` scoped 服务凭证、结构化缓存键含身份/策略/凭据代次）；bilibili v2 支持受验证 cid/page（不再固定 pages[0]），`/song/info` 回传 `extra.cid/page` + `raw.pages`；migu 保留 contentId+copyrightId；v1 全部端点与 ekey 下载契约不变 |
 | 2026-10-29 | 1.10 | v2 严格播放准入（K-02 §4.8）：原始 quality 白名单先于归一化（无损请求 400 而非回落 auto）；FLAC/加密件/>320k 415；AAC 仅 `media:prepare` scope 的 `target=media_prepare` 可进转码准备且 `requires_transcode=true`；`verified` 语义修正（v2 恒 false + `requires_byte_verification=true`，完整验证归 Songloft）；v1 语义不变 |
 | 2026-10-29 | 1.11 | 执行层真实并发（K-03）：每源独立线程池，容量仅在 worker 线程真正退出后释放（调用方超时不释放）；等待队列 `MAX_WAITERS` 有界，满则 503 capacity；所有裸同步请求带 `IO_TIMEOUT_S`；netease 高档 HEAD 移入受测执行边界；迟到结果丢弃不投送；`/status` 新增 `runtime` 逐源计数（active/waiting/timed_out/late_dropped）供跨项目容量验收汇总 |

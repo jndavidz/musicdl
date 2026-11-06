@@ -11,7 +11,8 @@ from server.adapters import AdapterError
 from server.cache import cached
 from server.envelope import ok
 from server.quality import resolve as resolve_quality
-from server.schemas import SearchData, SongUrlData, SongInfoData, LyricData, AlbumData, PlaylistData, SearchMultiData
+from server.schemas import (SearchData, SongUrlData, SongInfoData, LyricData, MvData, MvItem,
+                            AlbumData, PlaylistData, SearchMultiData)
 from server.config import SOURCES
 
 
@@ -90,6 +91,32 @@ async def lyric(request: Request, source: str, id: str = Query(..., min_length=1
                                                         timeout=s.settings.hard_timeout_s))
     return ok(LyricData(id=id, source=source, lyric=result.get('lyric') or '',
                         lxlyric=result.get('lxlyric') or None, cached=hit).model_dump())
+
+
+async def mv(request: Request, source: str, id: str = Query(..., min_length=1),
+             title: str = Query('', description='optional hint: song title for sources whose id cannot map to an MV'),
+             artist: str = Query('', description='optional hint: song artist for MV match disambiguation')):
+    '''MV 契约（字段名固定，客户端按顶层字段直接消费）：
+       data = {id, source, url, cover, duration_s, quality}；url=None 表示该源无 MV / 不可匿名访问 /
+       本曲无匹配（HTTP 仍为 200 + code 200，业务未命中不做 404、不返回空对象）。
+       可选 items 仅在源确有多个 MV 时出现，且**首个可直接播放的必是顶层字段**。
+       MV URL 是签名短链（netease wsTime / QQ fvkey / kugou 日期路径，均短时效），
+       这里**不接进程内缓存**：客户端每次点击都现取，避免把过期链接交给播放器。'''
+    s = request.app.state
+    adapter = get_adapter(s, source)
+    result = await asyncio.wait_for(adapter.mv(str(id), title=title, artist=artist),
+                                    timeout=s.settings.hard_timeout_s)
+    raw_items = [it for it in (result.get('items') or []) if isinstance(it, dict)]
+    playable = [it for it in raw_items if str(it.get('url') or '').startswith('http')]
+    primary = playable[0] if playable else (raw_items[0] if raw_items else result)
+    url = primary.get('url')
+    if not (isinstance(url, str) and url.startswith('http')):
+        url = None
+    data = MvData(id=str(result.get('id') or id), source=source, url=url,
+                  cover=primary.get('cover'), duration_s=primary.get('duration_s'),
+                  quality=primary.get('quality'), title=primary.get('title'),
+                  artist=primary.get('artist'), items=raw_items)
+    return ok(data.model_dump())
 
 
 async def search_multi(request: Request, source: str, keywords: str = Query(..., min_length=1),

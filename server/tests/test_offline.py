@@ -121,6 +121,19 @@ class FakeAdapter:
         self.calls.append(('lyric', song_id, kw))
         return {'lyric': 'x' * 120, 'lxlyric': '[00:00.000]<0,200>ab'}
 
+    async def mv(self, song_id, title='', artist=''):
+        self.calls.append(('mv', song_id, title, artist))
+        # 顶层 url=None（源无 MV）+ 一条不可播 items + 一条可播 items：
+        # 契约要求顶层取「首个可直接播放的」（第二条），而不是照抄顶层或第一条。
+        return {'id': song_id, 'source': self.source_key, 'url': None,
+                'cover': None, 'duration_s': None, 'quality': None,
+                'items': [{'id': 'mv-nourl', 'source': self.source_key, 'title': title or None,
+                           'artist': artist or None, 'cover': None, 'duration_s': 200,
+                           'url': None, 'quality': None},
+                          {'id': 'mv-ok', 'source': self.source_key, 'title': title or None,
+                           'artist': artist or None, 'cover': 'c.jpg', 'duration_s': 201,
+                           'url': 'http://example.test/mv.mp4', 'quality': 'hd'}]}
+
     async def album(self, name, artist='', page=1):
         self.calls.append(('album', name, artist, page))
         return {'albums': [{'id': 'a1', 'name': name, 'artist': artist or None, 'size': 3,
@@ -169,6 +182,23 @@ check('lyric envelope', st == 200 and len((b['data'] or {}).get('lyric') or '') 
 check('lyric envelope carries lxlyric', (b['data'] or {}).get('lxlyric') == '[00:00.000]<0,200>ab')
 st, b = raw(base, '/qq/lyric?id=f1')
 check('lyric cached flag on hit', (b['data'] or {}).get('cached') is True)
+
+# MV 契约：顶层必为「首个可直接播放」；无 MV 的源 HTTP 200 + code 200 + url None（不是 404/空对象）
+st, b = raw(base, '/qq/mv?id=f1&title=t&artist=a')
+d = b['data'] or {}
+check('mv fixed contract keys', st == 200 and b['code'] == 200
+      and {'id', 'source', 'url', 'cover', 'duration_s', 'quality'} <= set(d), f'keys={sorted(d)}')
+check('mv top-level = first playable item', d.get('url') == 'http://example.test/mv.mp4'
+      and d.get('cover') == 'c.jpg' and d.get('quality') == 'hd'
+      and d.get('duration_s') == 201, f"url={d.get('url')} quality={d.get('quality')}")
+check('mv keeps song id on envelope (not the MV candidate id)', d.get('id') == 'f1' and d.get('source') == 'qq')
+check('mv items passthrough (non-playable kept in items)', len(d.get('items') or []) == 2)
+st, b = raw(base, '/kuwo/mv?id=123')
+d = b['data'] or {}
+check('mv source without channel: HTTP 200 + code 200 + url None', st == 200 and b['code'] == 200
+      and d.get('url') is None and d.get('source') == 'kuwo', f"code={b.get('code')} url={d.get('url')}")
+st, b = raw(base, '/nope/mv?id=1')
+check('mv unknown source -> 404 envelope', st == 200 and b['code'] == 404, f"code={b.get('code')}")
 
 # P6 album: ordered tracks via adapter album(); unsupported source -> 501 envelope
 st, b = raw(base, '/qq/album?name=%E5%8F%B6%E6%83%A0%E7%BE%8E&artist=%E5%91%A8%E6%9D%B0%E4%BC%A6')

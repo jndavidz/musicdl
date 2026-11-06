@@ -131,6 +131,36 @@ class SongInfoData(BaseModel):
     raw: dict = {}
 
 
+class MvItem(BaseModel):
+    '''单条 MV 候选；quality 统一为 ld/sd/hd/fhd（按源实际清晰度归一，不照抄平台档位名）'''
+    id: str
+    source: str
+    title: Optional[str] = None
+    artist: Optional[str] = None
+    cover: Optional[str] = None
+    duration_s: Optional[int] = None
+    url: Optional[str] = None
+    quality: Optional[str] = None
+
+    _int_fields = field_validator('duration_s', mode='before')(_coerce_int)
+
+
+class MvData(BaseModel):
+    '''MV 契约：顶层永远是「首个可直接播放的 MV」。拿不到时 url=None（HTTP 200 + code 200，
+       业务未命中不做 404、不返回空对象）。items 仅在源确有多个 MV 时给出（按可播性排序）。'''
+    id: str
+    source: str
+    url: Optional[str] = None
+    cover: Optional[str] = None
+    duration_s: Optional[int] = None
+    quality: Optional[str] = None
+    title: Optional[str] = None
+    artist: Optional[str] = None
+    items: List[MvItem] = []
+
+    _int_fields = field_validator('duration_s', mode='before')(_coerce_int)
+
+
 class LyricData(BaseModel):
     id: str
     source: str

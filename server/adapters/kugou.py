@@ -221,6 +221,98 @@ class KugouAdapter(SourceAdapter):
         lxlyric = await self.run(self._lxlyric_official, str(song_id))
         return {'lyric': lyric or '', 'lxlyric': lxlyric or None}
 
+    '''MV 契约（2026-11-06 实测，文档端点 /search?type=mv + /video/detail + /video/url）：
+       搜索行带 MvID/MvHash 与 FileHash（**FileHash 就是歌曲 hash，可与门面 id 直接对齐**）；
+       /video/detail?id=MvID 给各档 *_hash 与 hdpic/timelength；/video/url?hash=<档位 hash>
+       返回 mp4 直链。注意 /video/url?hash=<MvHash> 返回的是 mkv（application/octet-stream），
+       因此只使用 detail 的逐档 mp4 hash，避免把 mkv 当默认播放地址。'''
+    async def mv(self, song_id: str, title: str = '', artist: str = '') -> dict:
+        def _norm(v) -> str:
+            return ''.join(str(v or '').lower().split())
+
+        def _fetch() -> dict:
+            empty = {'id': str(song_id), 'source': self.source_key, 'url': None,
+                     'cover': None, 'duration_s': None, 'quality': None}
+            kw = (str(title or '') + ' ' + str(artist or '')).strip()
+            rows = []
+            for query in ([kw, str(title or '')] if kw else []):
+                if not query:
+                    continue
+                try:
+                    payload = self._api_get('/search', {'keywords': query, 'type': 'mv',
+                                                        'page': 1, 'pagesize': 10})
+                except Exception:
+                    payload = {}
+                rows = ((payload.get('data') or {}).get('lists')) or []
+                if rows:
+                    break
+            if not rows:
+                return empty
+            sid = str(song_id).lower()
+            exact = [r for r in rows if str(r.get('FileHash') or '').lower() == sid]
+            pick = exact[0] if exact else None
+            if pick is None and title:
+                # FileHash 对不上时按 MvName + SingerName 双条件匹配（同名翻唱多，不能只看标题）
+                nt, na = _norm(title), _norm(artist)
+                for r in rows:
+                    rn, ra = _norm(r.get('MvName')), _norm(r.get('SingerName'))
+                    if not rn or (nt not in rn and rn not in nt):
+                        continue
+                    if na and not (na in ra or ra in na):
+                        continue
+                    if not ra and na:
+                        continue
+                    pick = r
+                    break
+            if pick is None:
+                return empty
+            item = {}
+            if pick.get('MvID'):
+                try:
+                    detail = self._api_get('/video/detail', {'id': str(pick.get('MvID'))})
+                except Exception:
+                    detail = {}
+                data = detail.get('data') or []
+                item = data[0] if isinstance(data, list) and data else {}
+            cover = None
+            if item.get('hdpic'):
+                cover = str(item['hdpic']).replace('{size}', '480')
+            elif pick.get('Pic'):
+                cover = 'http://imge.kugou.com/mvhdpic/480/' + str(pick['Pic'])
+            dur_s = None
+            try:
+                ms = int(float(item.get('timelength') or 0))
+            except (TypeError, ValueError):
+                ms = 0
+            if ms > 0:
+                dur_s = ms // 1000
+            if dur_s is None:
+                try:
+                    dur_s = int(float(pick.get('Duration') or 0)) or None
+                except (TypeError, ValueError):
+                    dur_s = None
+            name = item.get('video_name') or pick.get('MvName') or title or None
+            singer = item.get('author_name') or pick.get('SingerName') or artist or None
+            fallback_h = {'fhd': 1080, 'hd': 720, 'qhd': 540, 'sd': 480, 'ld': 270}
+            for level in ('fhd', 'hd', 'qhd', 'sd', 'ld'):
+                h = item.get(f'{level}_hash')
+                if not h:
+                    continue
+                try:
+                    payload = self._api_get('/video/url', {'hash': str(h)})
+                except Exception:
+                    continue
+                v = ((payload.get('data') or {}).get(str(h).lower()) or {})
+                url = v.get('downurl')
+                if isinstance(url, str) and url.startswith('http'):
+                    return {'id': str(song_id), 'source': self.source_key, 'url': url,
+                            'cover': cover, 'duration_s': dur_s,
+                            'quality': self.mv_quality(item.get(f'{level}_height') or fallback_h[level]),
+                            'title': name, 'artist': singer}
+            return empty
+
+        return await self.run(_fetch)
+
     '''krc 文件结构（2026-11-06 现网实测）：4 字节 'krc1' 头 + XOR(key) + zlib 压缩的 UTF-8 文本；
        行格式 [行起始ms,行时长ms]……逐字 <相对行首偏移ms,时长ms,保留位>文本。'''
     _KRC_KEY = (0x40, 0x47, 0x61, 0x77, 0x5e, 0x32, 0x74, 0x47,

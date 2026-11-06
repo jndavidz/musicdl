@@ -6,6 +6,7 @@
 > 最后全量探测：2026-08-24 · 标注 ✅=可用 ⚠️=不稳定 ❌=失效 🔐=需凭证
 > ⬆️ **上游同步基线：musicdl v2.14.2**（merge `74c6ac1`，2026-10-24）。标 ⬆️ 的条目取自上游源码 diff，**本轮未复测**，其存活状态以下一轮探测为准
 > 2026-10-27 补登记：§3.4 网易链重排、§5.4 Apple Music 重构、§5.5 五个网页源的端点修正、§5.2 社区鉴权链——同属 **⬆️ 未复测** 范围
+> 2026-11-06 补登记：**§12 MV 端点**（netease/qq/kugou ✅ 已接入，kuwo/migu/qianqian ❌ 无匿名通道）——本轮现网只读实测
 
 ---
 
@@ -382,3 +383,25 @@
 | DASH 音频流提取（`bili.dash.*` parser） | m4a 192k 上下，URL 需 `Referer: www.bilibili.com` | 同上 | ✅ 2026-10-27 | 🟢 取链主通道 |
 
 修复记录：`server/adapters/bilibili.py` `_search_raw` 原先裸请求未走 `_api_get`（注释声称带 buvid 实则未带），2026-10-27 统一走 `_api_get` 修复 412。
+
+---
+
+## 12. MV 端点登记（2026-11-06 全量只读实测）
+
+门面：`GET /{source}/mv?id=<歌曲 id>&title=&artist=` → `data{id,source,url,cover,duration_s,quality[,items]}`；无 MV 一律 HTTP 200 + `url:null`（不做 404/空对象）。质量归一枚举 `ld|sd|hd|fhd`（按实测高度：≤300 ld / ≤480 sd / ≤720 hd / >720 fhd）。**三源实测全为 mp4 直链，无 m3u8 通道**。
+
+| 源 | 通道 | 鉴权 | 返回形态 | 清晰度 | 状态 | 集成 |
+|------|------|------|------|------|------|------|
+| netease | `/song/detail?ids=` 取 `songs[].mv`（0=无）→ `/mv/detail?mvid=` → `/mv/url?id=&r=` | 匿名（ncm-api 容器 :3000） | mp4 直链（`wsSecret`/`wsTime` 签名），URL 内为 CDN 域名 | `r` 为**上限**：请求 1080 实际回落 480/240；付费 MV `code:-125`+url null | ✅ 实测（江南 108914 → sd；孤勇者 1901371647 → ld） | 🟢 `/{source}/mv` |
+| qq | 搜索结果行自带 `mv{id,vid,vt}` → `vv.video.qq.com/getinfo?vids=<vid>&platform=101001&charge=0&newplatform=1&defn=<fhd/hd/sd>&fmt=json` | 匿名零 Cookie、无签名 | XML：`<td>`(秒) `<vh>`(高) `<fn>`(mp4 名) `<fvkey>` `<ui><url>`；URL=`host+fn+"?vkey="+fvkey`；HEAD 403 属正常，**Range GET 206 video/mp4** | `defn` 三档请求，实际按 `<vh>` 回落（匿名 270/486 → sd） | ✅ 实测（光年之外 002E3MtF0IAMMY、告白气球） | 🟢 `/{source}/mv` |
+| kugou | 容器 `/search?type=mv`（行含 `MvID`/`MvHash`/`FileHash`；**FileHash 即歌曲 hash，与门面 id 精确对齐**）→ `/video/detail?id=<MvID>` → `/video/url?hash=<档位 hash>` | 🔐 容器内 cookie（cookie-server 注入；裸搜 error_code 152） | `downurl` = mp4 直链（`fsmvpc.tx.kugou.com`）；封面 `hdpic`（`{size}`→480）/`Pic` | ld/sd/hd/qhd/fhd 逐档 `*_hash` + `*_height`（实测 fhd 1080） | ✅ 实测（江南 B83DBB8E…、七里香 9218D816…） | 🟢 `/{source}/mv` |
+| kuwo | `searchMvByKeyWord` / `m/v1/mv/*` 需 CSRF Token；`search.kuwo.cn/r.s?ft=mv` 恒 `Hit=0` | 🔐 需 Web 会话 | — | — | ❌ 无匿名 MV 通道 | `url:null` |
+| migu | `search_all.do` 带 `searchSwitch={"mvSong":1}` 有 MV 条目，但播放路由矩阵全部「路由请求不支持」 | 匿名搜索可，取链不可 | — | — | ❌ | `url:null` |
+| qianqian | 签名 API `/v1/search` 各 `type`（4~12/1004）均「不被支持的搜索类型」 | 匿名 | — | — | ❌ 无 MV 搜索类型 | `url:null` |
+
+**弃用条目（避免复活）**：
+- kugou `/video/url?hash=<MvHash>` 返回 **mkv**（`application/octet-stream`），非 mp4 → 只用 `/video/detail` 的逐档 `ld/sd/hd/qhd/fhd_hash`。
+- kugou `/kmr/audio/mv?album_audio_id=`（文档有载，2026-11-06 实测返回**推荐 MV**：七里香 → 薛之谦「天份」，`is_recommend:1`）→ 不采用。
+- netease `/search?type=1004` 只接受**同名**命中（否则命中访谈/翻唱），仅作 `/song/detail` 无 mvid 时的退路，且须 title 归一相等 + artist 包含。
+
+**有效期策略**：三源链接均为短时效签名（netease `wsTime` ≈ 请求时刻、QQ `fvkey` 现取、kugou CDN 路径）→ **服务端不做缓存，客户端每次点击现取**（门面路由不写 TTL 缓存）。

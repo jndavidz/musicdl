@@ -175,6 +175,88 @@ class QQAdapter(SourceAdapter):
             lx = ''
         return {'lyric': lrc, 'lxlyric': lx or None}
 
+    '''MV 契约（2026-11-06 实测）：搜索行自带 mv{id,vid}（vt=1 的剪辑版 id=0 但有 vid）；
+       播放走 vv.video.qq.com/getinfo（XML：td 秒 / vh 高度 / fn 文件名 / fvkey / ul 首 host），
+       URL = host + fn + "?vkey=" + fvkey（Range GET 实测 206 video/mp4；HEAD 403 属正常）。
+       匿名零 Cookie；该接口没有公开封面通道 → cover=None。'''
+    async def mv(self, song_id: str, title: str = '', artist: str = '') -> dict:
+        import re
+
+        def _fetch() -> dict:
+            empty = {'id': str(song_id), 'source': self.source_key, 'url': None,
+                     'cover': None, 'duration_s': None, 'quality': None}
+            rows = []
+            query = (str(title or '') + ' ' + str(artist or '')).strip()
+            for kw in ([query, str(title or '')] if query else [str(song_id)]):
+                if not kw:
+                    continue
+                try:
+                    rows = self._search_raw(kw, 10, 1)
+                except Exception:
+                    rows = []
+                if rows:
+                    break
+            if not rows:
+                return empty
+            mid = str(song_id).lower()
+            exact = [r for r in rows if str(r.get('mid') or r.get('songmid') or '').lower() == mid]
+            order = exact + [r for r in rows if r not in exact]
+            mv = {}
+            # 优先同曲的完整 MV（id>0）；mid 精确行只带 '剪辑版' vid 时继续在候选里找
+            for r in order:
+                m = r.get('mv') if isinstance(r.get('mv'), dict) else {}
+                try:
+                    ok = int(m.get('id') or 0) > 0
+                except (TypeError, ValueError):
+                    ok = False
+                if ok and m.get('vid'):
+                    mv = m
+                    break
+            if not mv:
+                for r in order:
+                    m = r.get('mv') if isinstance(r.get('mv'), dict) else {}
+                    if m.get('vid'):
+                        mv = m
+                        break
+            if not mv:
+                return empty
+            vid = str(mv.get('vid'))
+            for defn in ('fhd', 'hd', 'sd'):
+                try:
+                    resp = self.client.get('https://vv.video.qq.com/getinfo',
+                                           params={'vids': vid, 'platform': '101001', 'charge': 0,
+                                                   'newplatform': 1, 'defn': defn, 'fmt': 'json'},
+                                           headers=self._QQ_FCG_HEADERS, timeout=self.io_timeout)
+                    xml = (resp.text or '')
+                except Exception:
+                    continue
+                vi = re.search(r'<vi>(.*?)</vi>', xml, re.S)
+                body = vi.group(1) if vi else xml
+                fn = re.search(r'<fn>([^<]+\.mp4)</fn>', body)
+                fvkey = re.search(r'<fvkey>([^<]+)</fvkey>', body)
+                if not (fn and fvkey):
+                    continue
+                host = 'https://video-cdn01.tc.qq.com/'
+                ui = re.search(r'<ui><url>(http[^<]+)</url>', body)
+                if ui:
+                    host = ui.group(1)
+                url = host + fn.group(1) + '?vkey=' + fvkey.group(1)
+                vh = re.search(r'<vh>([^<]*)</vh>', body)
+                td = re.search(r'<td>([^<]*)</td>', body)
+                ti = re.search(r'<ti>([^<]*)</ti>', body)
+                try:
+                    dur_s = int(float(td.group(1))) if td else None
+                except (TypeError, ValueError):
+                    dur_s = None
+                return {'id': str(song_id), 'source': self.source_key, 'url': url,
+                        'cover': None, 'duration_s': dur_s,
+                        'quality': self.mv_quality(vh.group(1) if vh else None),
+                        'title': (ti.group(1) if ti else None) or title or None,
+                        'artist': artist or None}
+            return empty
+
+        return await self.run(_fetch)
+
     '''P7 多类型搜索（官方 fcg Desktop 通道，零 Cookie）：search_type 2=album / 1=artist / 3=songlist。
        形状与 musicfree-plugins qq 插件 officialXxxItem 对齐（2026-11-03 实测）。'''
     _QQ_MULTI_SEARCH_TYPE = {'album': 2, 'artist': 1, 'sheet': 3}

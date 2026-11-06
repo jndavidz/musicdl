@@ -163,6 +163,84 @@ class NeteaseAdapter(SourceAdapter):
             lrc = await self.lyric(song_id) or ''
         return {'lyric': lrc, 'lxlyric': (yrc2lxlyric(yrc) or None) if yrc else None}
 
+    '''MV 契约（2026-11-06 实测，文档端点 /mv/detail + /mv/url）：
+       /song/detail 的 songs[].mv 给 mvid（0=无 MV）→ /mv/detail 给 name/cover/duration(ms)，
+       /mv/url 的 r 是**上限**（返回实际 r 与 URL，实测 1080 请求可回落 480）。
+       无 mvid 时按 title(+artist) 走 /search?type=1004 只接受**同名**命中——
+       宁可 url=None 也不把访谈/翻唱当成本曲 MV。匿名可用；付费 MV 返回 code:-125 + url:null。'''
+    @staticmethod
+    def _mvnorm(v) -> str:
+        return ''.join(str(v or '').lower().split())
+
+    async def mv(self, song_id: str, title: str = '', artist: str = '') -> dict:
+        def _song_mvid() -> int:
+            detail = self._api_get('/song/detail', {'ids': str(song_id)})
+            songs = detail.get('songs') or []
+            try:
+                return int((songs[0].get('mv') or 0) if songs else 0)
+            except (TypeError, ValueError):
+                return 0
+
+        def _search_mvid() -> int:
+            if not title:
+                return 0
+            data = self._api_get('/search', {'keywords': title, 'type': 1004, 'limit': 10})
+            mvs = ((data.get('result') or {}).get('mvs')) or []
+            nt = self._mvnorm(title)
+            for m in mvs:
+                if self._mvnorm(m.get('name')) != nt:
+                    continue
+                if artist:
+                    na = self._mvnorm(artist)
+                    names = [self._mvnorm(a.get('name')) for a in (m.get('artists') or [])]
+                    names.append(self._mvnorm(m.get('artistName')))
+                    names = [n for n in names if n]
+                    if not any(na in n or n in na for n in names):
+                        continue
+                try:
+                    return int(m.get('id') or 0)
+                except (TypeError, ValueError):
+                    return 0
+            return 0
+
+        def _fetch() -> dict:
+            empty = {'id': str(song_id), 'source': self.source_key, 'url': None,
+                     'cover': None, 'duration_s': None, 'quality': None}
+            try:
+                mvid = _song_mvid() or _search_mvid()
+            except Exception:
+                mvid = 0
+            if not mvid:
+                return empty
+            cover, dur_s, name, singer = None, None, (title or None), (artist or None)
+            try:
+                info = (self._api_get('/mv/detail', {'mvid': str(mvid)}).get('data') or {})
+            except Exception:
+                info = {}
+            if info:
+                cover = info.get('cover') or None
+                try:
+                    dur_s = int(float(info.get('duration') or 0)) // 1000 or None
+                except (TypeError, ValueError):
+                    dur_s = None
+                name = info.get('name') or name
+                singer = info.get('artistName') or singer
+            for r in (1080, 720, 480, 240):
+                try:
+                    payload = self._api_get('/mv/url', {'id': str(mvid), 'r': r})
+                except Exception:
+                    continue
+                data = payload.get('data') or {}
+                url = data.get('url')
+                if isinstance(url, str) and url.startswith('http'):
+                    return {'id': str(song_id), 'source': self.source_key, 'url': url,
+                            'cover': cover, 'duration_s': dur_s,
+                            'quality': self.mv_quality(data.get('r') or r),
+                            'title': name, 'artist': singer}
+            return empty
+
+        return await self.run(_fetch)
+
     '''P6 专辑检索（netease 先行实现）：ncm-api /cloudsearch?type=10（专辑候选）
        → /album?id=（官方曲序 songs，ar/al/dt 与 cloudsearch 同构，item_from_raw 直接复用）。
        artist 提示用于候选排序（平台专辑搜索常有同名异手专辑）。'''

@@ -215,6 +215,29 @@ class SourceAdapter:
     async def lyric_data(self, song_id: str, **kwargs) -> dict:
         return {'lyric': await self.lyric(song_id, **kwargs) or '', 'lxlyric': None}
 
+    '''MV 契约：{id, source, url, cover, duration_s, quality}，顶层永远是首个可直接播放的 MV。
+       默认无 MV 能力 → url=None（契约要求业务未命中走 url:null，而不是 404/501）。
+       有 MV 通道的源（netease/qq/kugou）覆写本方法。'''
+    async def mv(self, song_id: str, title: str = '', artist: str = '') -> dict:
+        return {'id': str(song_id), 'source': self.source_key, 'url': None,
+                'cover': None, 'duration_s': None, 'quality': None}
+
+    '''MV 清晰度归一：各源档位命名/高度口径不同，统一落到 ld/sd/hd/fhd 简单枚举。
+       height 可以是像素高度（qq vh / kugou *_height）或纵向清晰度标记（netease br）。'''
+    @staticmethod
+    def mv_quality(height) -> str:
+        try:
+            h = int(float(height))
+        except (TypeError, ValueError):
+            return 'hd'
+        if h <= 300:
+            return 'ld'
+        if h <= 480:
+            return 'sd'
+        if h <= 720:
+            return 'hd'
+        return 'fhd'
+
     '''P6 专辑检索：专辑名 → {'albums': [候选], 'items': [首选专辑有序曲目]}。
        items 与 search_items 同构（附加 track_no，1 起）；曲目解析仍走 /song/url by-id（二段式不变）。
        默认不支持——routes 层转 501 envelope；支持源在各自 adapter 覆写。'''
