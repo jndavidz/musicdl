@@ -149,6 +149,20 @@ class NeteaseAdapter(SourceAdapter):
         data = await self.run(self._api_get, '/lyric', {'id': str(song_id)})
         return ((data.get('lrc') or {}).get('lyric')) or ''
 
+    '''lyric_data: /lyric/new 一次取回 lrc + yrc（逐字）。yrc 覆盖是逐曲的事实而非全量
+       （20 首抽样 7 首有），无 yrc 时 lxlyric=None，只回退普通 LRC，不造坏数据。'''
+    async def lyric_data(self, song_id: str) -> dict:
+        from musicdl.modules.utils.lyricfmt import yrc2lxlyric
+        try:
+            data = await self.run(self._api_get, '/lyric/new', {'id': str(song_id)})
+        except Exception:
+            return {'lyric': await self.lyric(song_id) or '', 'lxlyric': None}
+        lrc = ((data.get('lrc') or {}).get('lyric')) or ''
+        yrc = ((data.get('yrc') or {}).get('lyric')) or ''
+        if not lrc:
+            lrc = await self.lyric(song_id) or ''
+        return {'lyric': lrc, 'lxlyric': (yrc2lxlyric(yrc) or None) if yrc else None}
+
     '''P6 专辑检索（netease 先行实现）：ncm-api /cloudsearch?type=10（专辑候选）
        → /album?id=（官方曲序 songs，ar/al/dt 与 cloudsearch 同构，item_from_raw 直接复用）。
        artist 提示用于候选排序（平台专辑搜索常有同名异手专辑）。'''

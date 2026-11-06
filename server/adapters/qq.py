@@ -144,6 +144,37 @@ class QQAdapter(SourceAdapter):
         if not lyric_b64: return ''
         return base64.b64decode(lyric_b64).decode('utf-8', errors='ignore')
 
+    '''QRC 密文（musicu.fcg GetPlayLyricInfo, qrc=1，匿名零 Cookie）。
+       响应 `lyric` 字段是 HEX 串（不是 base64），解密见 lyricfmt.qrcdecrypt。'''
+    def _qrc_cipher(self, song_id: str) -> str:
+        import json as _json
+        from musicdl.modules.utils.qqutils import QQMusicClientUtils
+        payload = {'comm': {'ct': 24, 'cv': 0},
+                   'req': {'module': 'music.musichallSong.PlayLyricInfo',
+                           'method': 'GetPlayLyricInfo',
+                           'param': {'songMID': str(song_id), 'songID': 0, 'qrc': 1}}}
+        resp = self.client.get(QQMusicClientUtils.endpoint,
+                               params={'format': 'json', 'data': _json.dumps(payload)},
+                               headers=self._QQ_FCG_HEADERS, timeout=self.io_timeout)
+        data = ((resp.json() or {}).get('req') or {}).get('data') or {}
+        return data.get('lyric') or ''
+
+    '''lyric_data: 明文 LRC 与 QRC 逐字独立取样——任一失败都不影响另一项。
+       QRC 解不出（加密格式变化/该曲无 QRC）时 lxlyric=None，只给普通 LRC。'''
+    async def lyric_data(self, song_id: str) -> dict:
+        from musicdl.modules.utils.lyricfmt import qrcdecrypt, qrc2lxlyric
+        try:
+            lrc = await self.lyric(song_id) or ''
+        except Exception:
+            lrc = ''
+        lx = ''
+        try:
+            cipher = await self.run(self._qrc_cipher, song_id)
+            lx = qrc2lxlyric(qrcdecrypt(cipher)) if cipher else ''
+        except Exception:
+            lx = ''
+        return {'lyric': lrc, 'lxlyric': lx or None}
+
     '''P7 多类型搜索（官方 fcg Desktop 通道，零 Cookie）：search_type 2=album / 1=artist / 3=songlist。
        形状与 musicfree-plugins qq 插件 officialXxxItem 对齐（2026-11-03 实测）。'''
     _QQ_MULTI_SEARCH_TYPE = {'album': 2, 'artist': 1, 'sheet': 3}

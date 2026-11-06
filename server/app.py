@@ -139,7 +139,7 @@ def create_app(st=None) -> FastAPI:
     R('/{source}/search', resolve.search, methods=['GET'], response_model=Envelope, summary='search songs')
     R('/{source}/song/url', resolve.song_url, methods=['GET'], response_model=Envelope, summary='resolve playback url by song id')
     R('/{source}/song/info', resolve.song_info, methods=['GET'], response_model=Envelope, summary='song meta info by id')
-    R('/{source}/lyric', resolve.lyric, methods=['GET'], response_model=Envelope, summary='lyrics (LRC text) by id')
+    R('/{source}/lyric', resolve.lyric, methods=['GET'], response_model=Envelope, summary='lyrics (LRC text + per-char lxlyric) by id')
     R('/{source}/album', resolve.album, methods=['GET'], response_model=Envelope, summary='album search: ordered tracks (P6)')
     R('/{source}/search/multi', resolve.search_multi, methods=['GET'], response_model=Envelope, summary='multi-type search: album/artist/sheet (P7)')
     R('/{source}/playlist', resolve.playlist, methods=['GET'], response_model=Envelope, summary='playlist search: ordered tracks (P6)')

@@ -118,9 +118,20 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 成功 `data`：`{id, source, lyric, lxlyric, cached}`。
 
 - `lxlyric`：**逐字歌词**，字符串，可为 `null`。格式为洛雪逐字格式——每行 `[mm:ss.mmm]` 行时间戳 + 逐字 `<偏移ms,时长ms>文本`，偏移**相对行首**（与 songloft 播放器/TV 解析器、LX Music 一致）。字段名固定，客户端按此消费。
-- 逐字能力现状：`kugou` 有（官方 `krcs.kugou.com/download` `fmt=krc`，KRC = 4 字节 `krc1` 头 + XOR + zlib，门面内解密并转洛雪格式，现网实测 2026-11-06）；其他源为 `null`。netease 的 `yrc/klyric` 与 QQ 的 `QRC` 未做：容器 `/lyric` 对 `yv=1` 实测不回逐字正文（登录态才有），QRC 需 3DES 解密的额外成本，收益不稳，暂留空。
+- **逐字源与实测覆盖率（2026-11-06 现网抽样，仅记条数/长度，不记歌词正文）**：
+
+  | 源 | 上游逐字资源 | 抽样覆盖 | 门面实现 |
+  |---|---|---|---|
+  | `qq` | QRC（`musicu.fcg` `GetPlayLyricInfo` + `qrc:1`，匿名零 Cookie） | **18/18** | `lyric` 字段是 **HEX 串而非 base64** → hex 解码 → QQ 自研 DES 变体 `D(K1)→E(K2)→D(K3)` → zlib → XML；`[start,dur](绝对ms,dur,0)` 片段偏移减行头 |
+  | `kuwo` | LRCX（`newlyric.kuwo.cn/newlyric.lrc` + `lrcx=1`） | **14/18** | `[kuwo:<八进制>]` 标度 → `k1=k//10, k2=k%10`，`start=(a+b)/(2k1)`、`dur=(a-b)/(2k2)`；整行 `<0,0>` 的译文行丢弃 |
+  | `netease` | YRC（`/lyric/new?id=` → `yrc.lyric`，ncm-api 匿名即可） | **7/20（35%）** | 跳过首行 JSON 元信息；`[start,dur](绝对ms,dur,0)` 片段偏移减行头（`klyric` 20/20 为空，不用） |
+  | `kugou` | KRC（`krcs.kugou.com/download` `fmt=krc`） | — | 4 字节 `krc1` 头 + XOR + zlib |
+  | `qianqian` | 无 | **0/15** | 歌词 URL 内容无任何 `<…>`/`(…)` 逐字标记，纯行级 LRC |
+  | `migu` | 仅有 `mrcUrl`（`application/marc`，hex 21.8k–34k 字符） | — | **不可解**：无公开 MRC 算法，QRC/KRC/LRCX 均不适用；`trcUrl` 恒空、`lrcUrl` 纯行级 → 一律不出 `lxlyric` |
+
+- 取不到逐字时 `lxlyric` 为 `null`，`lyric` 照常返回（不返回半成品逐字）。QQ 验收判据：「同一首歌能同时取到 QRC 密文与明文 LRC 且行时间对得上」——`我记得`（MID `002dw4gv1ZmiGt`）QRC 密文 10512 hex 字符 → 解密 XML 8724 字符，66 条逐字行与明文 LRC 行头最大偏差 **9ms**。
 - **qianqian 的歌词 URL 只挂在搜索结果行上**（行内 `lyric`），无 by-id 通道：门面在 `_search_raw` 里写进程内 `id → url` 缓存（上限 500 条，满则清空），因此 `lyric` 必须紧跟同进程内的一次搜索（kwqq 插件正是「先回搜再取词」）；服务重启或跨进程后未搜索过的 id 返回空歌词。
-- 缓存键含版本标签 `lyric2`，值形状从字符串变为 `{lyric, lxlyric}`，避免旧进程缓存串味。
+- 缓存键 `lyric2` **不变**：值形状仍是 `{lyric, lxlyric}`，只是原先恒为 `null` 的三个源开始填充内容；插件侧 `lyric2|` 键同理无需再换前缀（重启容器即清空进程内 24h 缓存）。
 
 ### 4.4 GET /{source}/album — 专辑检索（P6，2026-10-28 v1.8）
 

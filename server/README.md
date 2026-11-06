@@ -12,7 +12,7 @@
 | GET | `/{source}/search` | `keywords`*、`page`=1、`limit`=20(>50 截断到 50) | 元数据搜索（单上游请求，无解析链，~200ms） |
 | GET | `/{source}/song/url` | `id`*、`quality`=auto\|320k\|192k\|128k\|flac\|hires\|master\|surround51（MusicFree 四档：low=128k/standard=192k/high=320k/super 封顶 320k；后两档仅酷我，无损档仅下载有效）、`copyright`（仅 migu：搜索项 `extra.copyrightId` 回传） | 播放直链（酷我 nmobi 直出 ~120ms；QQ 第三方链 1–11s，长尾由健康度冷却收敛） |
 | GET | `/{source}/song/info` | `id`*、`copyright`（仅 migu） | 单曲元数据（封面/专辑/时长） |
-| GET | `/{source}/lyric` | `id`* | LRC 歌词（migu/qianqian/bilibili/deezer 恒空） |
+| GET | `/{source}/lyric` | `id`*、`copyright`（仅 migu：搜索项 `extra.copyrightId` 回传） | LRC 歌词 + 逐字 `lxlyric`（洛雪格式；qianqian 无逐字源、migu 的 `mrcUrl` 无公开解密，恒 `null`） |
 | GET | `/{source}/album` | `name`*、`artist`、`page`=1 | 专辑检索：候选 + 首选专辑有序曲目（`track_no`）；netease/kugou/migu/qianqian 可用，其余 501 |
 | GET | `/{source}/playlist` | `name`*、`page`=1 | 歌单检索：候选 + 首选歌单有序曲目（`track_no`）；当前仅 netease，其余 501 |
 | POST | `/v2/playback/resolve` | JSON `{track_ref, profile, freshness}`；`X-Service-Token`（scope `playback:issue`） | v2 托管播放：只收稳定身份（migu 必带 `copyrightId`；bilibili 必带 `cid`/`page`），返回身份回显、实际来源与验证等级；v1 不受影响 |

@@ -264,6 +264,24 @@ class KuwoAdapter(SourceAdapter):
         except Exception:
             return ''
 
+    '''lyric_data: 同一次 lrcx=1 抓取同时产出普通 LRC 与逐字（LRCX 即酷我逐字源）。
+       lrcx 缺失/解不出时退回既有 lyric() 双路链，lxlyric=None。'''
+    async def lyric_data(self, song_id: str) -> dict:
+        from musicdl.modules.utils import cleanlrc
+        from musicdl.modules.utils.lyricfmt import lrcx2lxlyric
+        raw_text = ''
+        try:
+            encoded_params = KuwoMusicClientUtils.buildlyricsparams(song_id, True)
+            resp = await self.run(self.client.get, f"http://newlyric.kuwo.cn/newlyric.lrc?{encoded_params}")
+            raw_text = KuwoMusicClientUtils.decodelyrics(resp.content, True)
+        except Exception:
+            raw_text = ''
+        if raw_text:
+            text = cleanlrc(KuwoMusicClientUtils.convertrawlrc(raw_text))
+            if text and text not in {'NULL', ''}:
+                return {'lyric': text, 'lxlyric': lrcx2lxlyric(raw_text) or None}
+        return {'lyric': await self.lyric(song_id) or '', 'lxlyric': None}
+
     '''P7 多类型搜索（老搜索接口 r.s，零 Cookie）：ft=album/artist/playlist + itemset=web_2013。
        形状与 musicfree-plugins kuwo 插件 kwXxxItem 对齐（2026-11-03 实测：album→albumlist、
        artist/playlist→abslist；total 大小写不一：album 小写 total、artist/playlist 大写 TOTAL）。'''
