@@ -87,7 +87,8 @@ v2 托管播放端点 `/v2/*` **不走** `API_KEY`、也不享受内网免 key�
 | limit | — | 条数 ≤50 |
 
 item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, source, extra}`。
-**migu 的 `extra.copyrightId` 必须在后续 song/url、song/info 时以 `?copyright=` 回传。**
+**migu 的 `extra.copyrightId` 必须在后续 song/url、song/info、lyric 时以 `?copyright=` 回传。**
+**kugou 的封面在 `songsearch` 里是 `http://imge.kugou.com/stdmusic/{size}/...` 模板串，门面已替换为 `240`（不替换会 404）；album/多类型搜索返回的 `img` 也走同一归一。**
 
 ### 4.2 GET /{source}/song/url — 播放直链
 
@@ -105,7 +106,21 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 
 ### 4.3 GET /{source}/song/info · GET /{source}/lyric
 
-单曲元数据 / LRC 歌词。migu 两端点同样需要 `copyright=`。netease lyric 需容器登录态才有完整翻译/罗马音。
+单曲元数据 / LRC 歌词。netease lyric 需容器登录态才有完整翻译/罗马音。
+
+**lyric 参数与契约（2026-11-06）**
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| id | ✅ | 歌曲 id |
+| copyright | — | 仅 migu：搜索条目 `extra.copyrightId`（歌词按版权下发，缺省直接返回空歌词） |
+
+成功 `data`：`{id, source, lyric, lxlyric, cached}`。
+
+- `lxlyric`：**逐字歌词**，字符串，可为 `null`。格式为洛雪逐字格式——每行 `[mm:ss.mmm]` 行时间戳 + 逐字 `<偏移ms,时长ms>文本`，偏移**相对行首**（与 songloft 播放器/TV 解析器、LX Music 一致）。字段名固定，客户端按此消费。
+- 逐字能力现状：`kugou` 有（官方 `krcs.kugou.com/download` `fmt=krc`，KRC = 4 字节 `krc1` 头 + XOR + zlib，门面内解密并转洛雪格式，现网实测 2026-11-06）；其他源为 `null`。netease 的 `yrc/klyric` 与 QQ 的 `QRC` 未做：容器 `/lyric` 对 `yv=1` 实测不回逐字正文（登录态才有），QRC 需 3DES 解密的额外成本，收益不稳，暂留空。
+- **qianqian 的歌词 URL 只挂在搜索结果行上**（行内 `lyric`），无 by-id 通道：门面在 `_search_raw` 里写进程内 `id → url` 缓存（上限 500 条，满则清空），因此 `lyric` 必须紧跟同进程内的一次搜索（kwqq 插件正是「先回搜再取词」）；服务重启或跨进程后未搜索过的 id 返回空歌词。
+- 缓存键含版本标签 `lyric2`，值形状从字符串变为 `{lyric, lxlyric}`，避免旧进程缓存串味。
 
 ### 4.4 GET /{source}/album — 专辑检索（P6，2026-10-28 v1.8）
 

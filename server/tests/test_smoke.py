@@ -1,6 +1,7 @@
 '''stage-2 smoke test: real-chain endpoint verification against a running server'''
 import sys
 import json
+import re
 import time
 import base64
 import urllib.request
@@ -73,8 +74,8 @@ def get_retry(path, timeout=45, retries=1):
 DEFAULT_SOURCES = [
     ('kuwo', '林俊杰 江南', False, True),
     ('qq', '邓紫棋 光年之外', False, True),
-    ('migu', '周杰伦 晴天', True, False),
-    ('qianqian', '林俊杰 江南', False, False),
+    ('migu', '周杰伦 晴天', True, True),
+    ('qianqian', '林俊杰 江南', False, True),   # 歌词 URL 只随搜索结果下发：本例先搜后取，靠门面进程内缓存
     ('netease', '林俊杰 江南', False, True),   # ncm-api container (NAS); anonymous search/url/lyric
 ]
 ALL_SOURCES = [
@@ -113,12 +114,18 @@ def run_source(source, keywords, needs_copyright, has_lyric):
     check(f'{source} url cached', (b2.get('data') or {}).get('cached') is True, f'{ms2}ms')
     b3, ms3 = get(f'/{source}/song/info?id={sid}{qs}')
     check(f'{source} song/info', b3['code'] == 200 and bool((b3.get('data') or {}).get('name')), f'{ms3}ms')
-    b4, ms4 = get(f'/{source}/lyric?id={sid}', timeout=30)
+    b4, ms4 = get(f'/{source}/lyric?id={sid}{qs}', timeout=30)
     lyric_text = (b4.get('data') or {}).get('lyric') or ''
     if has_lyric:
         check(f'{source} lyric non-empty', len(lyric_text) > 50, f'{ms4}ms len={len(lyric_text)}')
     else:
         check(f'{source} lyric endpoint (empty ok)', b4['code'] == 200, f'{ms4}ms')
+    if source == 'kugou':
+        # 逐字（lxlyric）：洛雪格式，行前缀 [mm:ss.mmm]，逐字 <偏移ms,时长ms>
+        lx = (b4.get('data') or {}).get('lxlyric') or ''
+        first = (lx.splitlines() or [''])[0]
+        check('kugou lxlyric non-empty', len(lx) > 50, f'len={len(lx)} lines={len(lx.splitlines())}')
+        check('kugou lxlyric 洛雪格式', bool(re.match(r'\[\d{2}:\d{2}\.\d{3}\]', first)) and '<' in first, first[:40])
 
 
 for cfg in DEFAULT_SOURCES:

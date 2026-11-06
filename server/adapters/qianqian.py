@@ -23,7 +23,24 @@ class QianqianAdapter(SourceAdapter):
                                                   'pageNo': str(page), 'pageSize': str(limit),
                                                   'appid': self.client.APPID})
         resp = self.client.get('https://music.91q.com/v1/search', params=params, timeout=self.io_timeout)
-        return ((resp.json().get('data') or {}).get('typeTrack')) or []
+        rows = ((resp.json().get('data') or {}).get('typeTrack')) or []
+        # 千千的歌词 URL 只挂在搜索结果行上（行内 lyric），没有 by-id 歌词通道；
+        # 进程内 id→url 缓存让随后的 /{source}/lyric 能按 id 取到（进程间不共享）。
+        self._remember_lyric_urls(rows)
+        return rows
+
+    def _remember_lyric_urls(self, rows: list) -> None:
+        cache = getattr(self, '_lyric_urls', None)
+        if cache is None:
+            cache = self._lyric_urls = {}
+        for r in rows:
+            tsid = str((r or {}).get('TSID') or '')
+            url = str((r or {}).get('lyric') or '').strip()
+            if not (tsid and url.startswith('http')):
+                continue
+            if len(cache) >= 500:
+                cache.clear()  # 简单有界，不做 LRU：命中率靠「搜索紧跟歌词请求」的调用序
+            cache[tsid] = url
 
     @staticmethod
     def item_from_raw(raw: dict) -> dict:
@@ -152,9 +169,21 @@ class QianqianAdapter(SourceAdapter):
                         'raw': {'qqy_note': 'full artist/album available in search items'}}
         raise AdapterError(404, 'song not found')
 
-    '''lyric url only exists inside search results; by-id lyric not supported upstream'''
+    '''千千没有 by-id 歌词通道：URL 只能从搜索结果行拿到，靠 _search_raw 的进程内缓存；
+       缓存未命中（服务重启 / 跨进程）时返回空串，由上层降级为「无歌词」。'''
     async def lyric(self, song_id: str) -> str:
-        return ''
+        from musicdl.modules.utils import cleanlrc
+        url = (getattr(self, '_lyric_urls', None) or {}).get(str(song_id))
+        if not url:
+            return ''
+        try:
+            # 不能把 timeout 传给 run()：run(fn, *args, **kwargs) 的第二个位置参数已是
+            # hard timeout，再传 timeout= 会与内置参数重名（TypeError）。
+            resp = await self.run(self.client.get, url)
+            resp.encoding = 'utf-8'
+            return cleanlrc(resp.text)
+        except Exception:
+            return ''
 
     '''P7 多类型搜索（官方签名 /v1/search）：type=3 album / type=2 artist（sheet 平台无通道）。
        形状与 musicfree-plugins qianqian 插件 qXxxItem 对齐（2026-11-03 实测）。'''

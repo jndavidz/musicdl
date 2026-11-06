@@ -119,9 +119,35 @@ class MiguAdapter(SourceAdapter):
                 'duration_s': int(float(song.get('duration') or 0)) or None, 'cover': song.get('img') or None,
                 'raw': {'migu_song': {k: song.get(k) for k in list(song)[:12]}}}
 
-    '''lyric via lyricUrl strategy (needs search item's lyric info); simplified to empty otherwise'''
+    '''lyric: MIGUM3.0 pc listen（toneFlag=PQ）→ data.lrcUrl → GET 正文。
+       需要 copyrightId：米咕同一 contentId 可对应多份版权，歌词 URL 按版权下发，
+       故 by-id 歌词必须由调用方带上搜索条目的 extra.copyrightId（与 song_url 同约束）。'''
     async def lyric(self, song_id: str, copyright_id: str = '') -> str:
-        return ''
+        from musicdl.modules.utils import cleanlrc
+        if not copyright_id:
+            return ''
+        headers = {'Content-Type': 'application/json;charset=UTF-8', 'birth': 'h5page', 'signature': '1'}
+        params = [('scene', ''), ('netType', '01'), ('resourceType', '2'),
+                  ('copyrightId', copyright_id), ('contentId', song_id), ('toneFlag', 'PQ')]
+
+        def _listen():
+            resp = self.client.get('https://app.c.nf.migu.cn/MIGUM3.0/strategy/pc/listen/v1.0',
+                                   params=params, headers=headers, timeout=self.io_timeout)
+            return self.client._decryptresp(resp=resp)
+
+        def _download(url):
+            resp = self.client.get(url, timeout=self.io_timeout)
+            resp.encoding = 'utf-8'
+            return resp.text
+
+        try:
+            data = (await self.run(_listen) or {}).get('data') or {}
+            lrc_url = data.get('lrcUrl') or ''
+            if not lrc_url:
+                return ''
+            return cleanlrc(await self.run(_download, lrc_url))
+        except Exception:
+            return ''
 
     '''P6 专辑检索：search_all.do（searchSwitch.album=1）→
        app.c.nf.migu.cn /resource/album/song/v2.0（contentId + copyrightId + 官方曲序）。'''

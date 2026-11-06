@@ -78,12 +78,18 @@ async def song_info(request: Request, source: str, id: str = Query(..., min_leng
     return ok(SongInfoData(**result).model_dump())
 
 
-async def lyric(request: Request, source: str, id: str = Query(..., min_length=1)):
+async def lyric(request: Request, source: str, id: str = Query(..., min_length=1),
+                copyright: str = Query('', description='migu only: copyrightId from search item extra')):
     s = request.app.state
     adapter = get_adapter(s, source)
-    text, hit = await cached(s.lyric_cache, (source, 'lyric', id),
-                             lambda: asyncio.wait_for(adapter.lyric(id), timeout=s.settings.hard_timeout_s))
-    return ok(LyricData(id=id, source=source, lyric=text, cached=hit).model_dump())
+    kwargs = {'copyright_id': copyright} if source == 'migu' else {}
+    # cache key carries a version tag: the value shape changed from str to {lyric, lxlyric},
+    # so pre-deploy in-process entries must not be served to the new contract.
+    result, hit = await cached(s.lyric_cache, (source, 'lyric2', id, copyright or ''),
+                               lambda: asyncio.wait_for(adapter.lyric_data(id, **kwargs),
+                                                        timeout=s.settings.hard_timeout_s))
+    return ok(LyricData(id=id, source=source, lyric=result.get('lyric') or '',
+                        lxlyric=result.get('lxlyric') or None, cached=hit).model_dump())
 
 
 async def search_multi(request: Request, source: str, keywords: str = Query(..., min_length=1),

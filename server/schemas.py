@@ -135,6 +135,9 @@ class LyricData(BaseModel):
     id: str
     source: str
     lyric: str = ''
+    # 逐字歌词（洛雪格式：行前缀 [mm:ss.mmm]，逐字 <偏移ms,时长ms>文本，偏移相对行首）。
+    # 字段名固定，客户端按此消费；源无逐字通道时为 null。
+    lxlyric: Optional[str] = None
     cached: bool = False
 
 

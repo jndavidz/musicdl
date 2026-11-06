@@ -208,6 +208,13 @@ class SourceAdapter:
     def item_from_raw(raw: dict) -> dict:
         raise NotImplementedError
 
+    '''歌词契约：{'lyric': str, 'lxlyric': str|None}。
+       lxlyric = 逐字歌词，洛雪格式——行前缀 [mm:ss.mmm]，逐字 <偏移ms,时长ms>文本，
+       偏移相对行首；客户端按此格式解析（字段名固定，不得改名）。
+       默认无逐字能力；有逐字通道的源（目前 kugou）覆写本方法。'''
+    async def lyric_data(self, song_id: str, **kwargs) -> dict:
+        return {'lyric': await self.lyric(song_id, **kwargs) or '', 'lxlyric': None}
+
     '''P6 专辑检索：专辑名 → {'albums': [候选], 'items': [首选专辑有序曲目]}。
        items 与 search_items 同构（附加 track_no，1 起）；曲目解析仍走 /song/url by-id（二段式不变）。
        默认不支持——routes 层转 501 envelope；支持源在各自 adapter 覆写。'''

@@ -92,10 +92,14 @@ class KugouAdapter(SourceAdapter):
         singer = raw.get('SingerName') or raw.get('singername')
         if ' - ' in name and not singer:
             singer, _, rest = name.partition(' - '); name = rest or name
+        # songsearch returns the cover as a template URL with a literal `{size}`
+        # placeholder (http://imge.kugou.com/stdmusic/{size}/...); 240 is the size
+        # every other kugou path uses, and unsubstituted `{size}` 404s.
         return {'id': str(raw.get('FileHash') or ''), 'name': name.strip(), 'singer': singer,
                 'album': raw.get('AlbumName'), 'ext': None, 'size_bytes': None,
                 'duration_s': int(float(raw.get('Duration') or 0)) or None,
-                'cover': raw.get('Image') or raw.get('cover'), 'source': 'kugou'}
+                'cover': KugouAdapter._kg_cover(raw.get('Image') or raw.get('cover')),
+                'source': 'kugou'}
 
     @staticmethod
     def _first_url(v) -> str:
@@ -122,7 +126,7 @@ class KugouAdapter(SourceAdapter):
                     continue
                 albums.append({'id': str(a['albumid']), 'name': a.get('albumname'),
                                'artist': a.get('singer'), 'size': a.get('songcount'),
-                               'cover': a.get('img'), 'source': self.source_key, 'extra': {}})
+                               'cover': self._kg_cover(a.get('img')), 'source': self.source_key, 'extra': {}})
             self.rank_candidates(albums, name, artist)
             if not albums:
                 return {'albums': [], 'items': []}
@@ -172,7 +176,7 @@ class KugouAdapter(SourceAdapter):
                 'singer': first('singername', 'SINGERNAME', 'author_name', 'artist'),
                 'album': first('album_name', 'ALBUMNAME', 'album'),
                 'duration_s': int(float(first('duration') or 0)) or None,
-                'cover': first('cover_url', 'img'), 'raw': {}}
+                'cover': self._kg_cover(first('cover_url', 'img')), 'raw': {}}
 
     '''lyric chain: KuGouMusicApi container /lyric first; on failure or empty body
        fall back to kugou's official lyric service (lyrics.kugou.com search ->
@@ -210,6 +214,68 @@ class KugouAdapter(SourceAdapter):
         except Exception:
             return ''
 
+    '''逐字歌词（lxlyric）：与上方 lyric 同一官方通道，仅把 fmt 换成 krc。
+       KuGouMusicApi 容器没有 krc 能力（/lyric 只返回 lrc），故逐字固定走官方零 Cookie 链。'''
+    async def lyric_data(self, song_id: str) -> dict:
+        lyric = await self.lyric(song_id)
+        lxlyric = await self.run(self._lxlyric_official, str(song_id))
+        return {'lyric': lyric or '', 'lxlyric': lxlyric or None}
+
+    '''krc 文件结构（2026-11-06 现网实测）：4 字节 'krc1' 头 + XOR(key) + zlib 压缩的 UTF-8 文本；
+       行格式 [行起始ms,行时长ms]……逐字 <相对行首偏移ms,时长ms,保留位>文本。'''
+    _KRC_KEY = (0x40, 0x47, 0x61, 0x77, 0x5e, 0x32, 0x74, 0x47,
+                0x51, 0x36, 0x31, 0x2d, 0xce, 0xd2, 0x6e, 0x69)
+
+    @staticmethod
+    def _lxlyric_official(song_id: str) -> str:
+        import base64
+        try:
+            c = requests_get('https://lyrics.kugou.com/search',
+                             {'ver': 1, 'man': 'yes', 'client': 'pc', 'hash': str(song_id)})
+            cand = next((x for x in (c.get('candidates') or []) if isinstance(x, dict) and x.get('id')), None)
+            if not cand:
+                return ''
+            d = requests_get('https://krcs.kugou.com/download',
+                             {'ver': 1, 'client': 'pc', 'fmt': 'krc', 'charset': 'utf8',
+                              'id': cand.get('id'), 'accesskey': cand.get('accesskey') or ''})
+            content = d.get('content') or ''
+            return KugouAdapter._krc_to_lxlyric(base64.b64decode(content)) if content else ''
+        except Exception:
+            return ''
+
+    '''KRC → 洛雪逐字格式（行 [mm:ss.mmm] + 逐字 <偏移,时长>文本）。
+       KRC 的第三个数字是保留位，客户端解析器只认两段 <a,b>，必须丢弃。'''
+    @staticmethod
+    def _krc_to_lxlyric(raw: bytes) -> str:
+        import re
+        import zlib
+        if not raw or raw[:4] != b'krc1':
+            return ''
+        body = bytearray(raw[4:])
+        key = KugouAdapter._KRC_KEY
+        for i in range(len(body)):
+            body[i] ^= key[i % 16]
+        try:
+            text = zlib.decompress(bytes(body)).decode('utf-8', errors='ignore')
+        except Exception:
+            return ''
+        out = []
+        for line in text.splitlines():
+            m = re.match(r'\[(\d+),\d+\](.*)', line.strip('\r'))
+            if not m:
+                continue
+            start, content = int(m.group(1)), m.group(2)
+            parts = re.split(r'<(\d+),(\d+)(?:,\d+)?>', content)
+            segs = [(0, 0, parts[0])] if parts[0] else []
+            for i in range(1, len(parts), 3):
+                segs.append((int(parts[i]), int(parts[i + 1]), parts[i + 2]))
+            segs = [s for s in segs if s[2]]
+            if not segs:
+                continue
+            ts = f'[{start // 60000:02d}:{start // 1000 % 60:02d}.{start % 1000:03d}]'
+            out.append(ts + ''.join(f'<{off},{dur}>{txt}' for off, dur, txt in segs))
+        return '\n'.join(out)
+
     '''P9（2026-11-04）：浏览能力收编（类型搜索/榜单/推荐/歌手/评论），映射自 kwqq 插件
     kugou 透传拆包逻辑（2026-11-03/04 现网实测形状）。上游 = kugouapi 容器同名模块。
     曲目 id=hash（rank/audio 取 hash_320 优先降档，与搜曲通道 128 hash 经 media 链
@@ -246,7 +312,7 @@ class KugouAdapter(SourceAdapter):
                 items.append({'id': str(r['albumid']), 'name': r.get('albumname') or '',
                               'artist': (' / '.join(x.get('name') for x in singers if isinstance(x, dict))
                                          if isinstance(singers, list) else (r.get('singer') or '')),
-                              'cover': r.get('img'),
+                              'cover': self._kg_cover(r.get('img')),
                               'track_count': self._kg_int(r.get('songcount') or r.get('song_count')),
                               'source': 'kugou'})
         elif search_type == 'artist':

@@ -117,6 +117,10 @@ class FakeAdapter:
         self.calls.append(('lyric', song_id, kw))
         return 'x' * 120
 
+    async def lyric_data(self, song_id, **kw):
+        self.calls.append(('lyric', song_id, kw))
+        return {'lyric': 'x' * 120, 'lxlyric': '[00:00.000]<0,200>ab'}
+
     async def album(self, name, artist='', page=1):
         self.calls.append(('album', name, artist, page))
         return {'albums': [{'id': 'a1', 'name': name, 'artist': artist or None, 'size': 3,
@@ -162,6 +166,7 @@ url_calls = [c for c in fake.calls if c[0] == 'url']
 check('url cache keyed by normalized quality (one resolve)', len(url_calls) == 2, f'resolves={len(url_calls)}')
 st, b = raw(base, '/qq/lyric?id=f1')
 check('lyric envelope', st == 200 and len((b['data'] or {}).get('lyric') or '') > 50)
+check('lyric envelope carries lxlyric', (b['data'] or {}).get('lxlyric') == '[00:00.000]<0,200>ab')
 st, b = raw(base, '/qq/lyric?id=f1')
 check('lyric cached flag on hit', (b['data'] or {}).get('cached') is True)
 
