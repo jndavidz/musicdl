@@ -238,6 +238,12 @@ class SourceAdapter:
             return 'hd'
         return 'fhd'
 
+    '''MV 搜索契约（`/{source}/search?type=mv`）：{'items': [MvItem], 'total': int}。
+       item 与 mv() 同构，url 恒为 None（点击后再按 id 现取）；id 必须是该源 mv() 能直接吃的 id。
+       默认不支持——routes 层转 501 envelope；有 MV 通道的源（netease/qq/kugou/kuwo）覆写。'''
+    async def search_mv(self, keywords: str, page: int = 1, limit: int = 20) -> dict:
+        raise AdapterError(501, f'MV search not supported for source "{self.source_key}"')
+
     '''P6 专辑检索：专辑名 → {'albums': [候选], 'items': [首选专辑有序曲目]}。
        items 与 search_items 同构（附加 track_no，1 起）；曲目解析仍走 /song/url by-id（二段式不变）。
        默认不支持——routes 层转 501 envelope；支持源在各自 adapter 覆写。'''

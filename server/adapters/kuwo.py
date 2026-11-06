@@ -633,3 +633,110 @@ class KuwoAdapter(SourceAdapter):
                     'extra': {'description': (data or {}).get('info')}}
         return {'page': page, 'is_end': (page - 1) * limit + len(songs) >= total,
                 'total': total, 'items': items, 'meta': meta}
+
+    '''MV（2026-11-06 现网实测，见 docs/MUSIC-SOURCES-REGISTRY.md §12.3）：
+       匿名网关 m.kuwo.cn/newh5app/wapi/**（www.kuwo.cn/api/** 对本机 IP 恒 "The request is illegal!"，
+       Secret 复刻无效；wapi 前缀无需 Cookie/预热即可通过）。
+
+       两条通道，结论都经现网取证：
+       1) **歌曲 id → MV**：musicInfo.mvpayinfo.vid → playUrl(type=mv)；
+          但酷我已把**歌曲关联 MV 全量下线**（对 mvpayinfo.vid 逐一实测恒 code:-1001「该MV已下线」，
+          含 2025-2026 新歌），故此路径正常返回 url:null（业务未命中，不 404）。
+       2) **MV 目录在架**：mvList(pid=9 个分类) 共约 2400 条，id 即播放用的 MV id；playUrl 直链 mp4 全部可播。
+          id 先查目录命中（避免与歌曲 rid 数值空间撞号），未命中再走歌曲路径。'''
+    _KW_MV_BASE = 'https://m.kuwo.cn/newh5app/'
+    _KW_MV_HEADERS = {'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) '
+                                    'AppleWebKit/605.1.15 Mobile/15E148',
+                      'referer': 'https://m.kuwo.cn/'}
+    '''MV 目录分类（前端 tags 原值）：首播/华语/日韩/网络/欧美/现场/热舞/伤感/剧情'''
+    _KW_MV_CATEGORIES = ('236682871', '236682731', '236742444', '236682773', '236682735',
+                         '236742576', '236682777', '236742508', '236742578')
+    _kw_mv_catalog = {'ts': 0.0, 'items': {}}
+    _kw_mv_lock = None
+
+    def _kw_mv_json(self, path: str, params: dict) -> dict:
+        resp = self.client.get(self._KW_MV_BASE + path, params=params,
+                               headers=self._KW_MV_HEADERS, timeout=self.io_timeout)
+        try:
+            return resp.json() or {}
+        except Exception:
+            return {}
+
+    '''全量 MV 目录（9 分类分页拉齐，进程内缓存 6h）。命中即保证可播，供 /search?type=mv 与 mv() 复用。'''
+    def _kw_mv_catalog_items(self) -> dict:
+        import threading
+        import time as _t
+        if type(self)._kw_mv_lock is None:
+            type(self)._kw_mv_lock = threading.Lock()
+        cache = type(self)._kw_mv_catalog
+        if cache['items'] and _t.time() - cache['ts'] < 6 * 3600:
+            return cache['items']
+        with type(self)._kw_mv_lock:
+            if cache['items'] and _t.time() - cache['ts'] < 6 * 3600:
+                return cache['items']
+            items = {}
+            for pid in self._KW_MV_CATEGORIES:
+                pn, pages = 1, 1
+                for _ in range(pages):
+                    j = self._kw_mv_json('wapi/api/www/music/mvList',
+                                         {'pid': pid, 'pn': pn, 'rn': 200})
+                    data = j.get('data') or {}
+                    rows = data.get('mvlist') or []
+                    total = self._kw_int(data.get('total')) or 0
+                    pages = max(1, -(-total // 200))
+                    for r in rows:
+                        mid = str(r.get('id') or '')
+                        if not mid:
+                            continue
+                        items.setdefault(mid, {
+                            'id': mid, 'source': 'kuwo', 'title': r.get('name') or None,
+                            'artist': r.get('artist') or None, 'cover': r.get('pic') or None,
+                            'duration_s': self._kw_int(r.get('duration')), 'quality': None,
+                            'url': None, 'play_count': self._kw_int(r.get('mvPlayCnt'))})
+                    pn += 1
+            if items:
+                cache['items'], cache['ts'] = items, _t.time()
+            return cache['items']
+
+    def _kw_mv_play(self, mv_id: str) -> str | None:
+        play = self._kw_mv_json('wapi/api/v1/www/music/playUrl',
+                                {'mid': str(mv_id), 'type': 'mv', 'httpsStatus': '1'})
+        data = play.get('data') if isinstance(play.get('data'), dict) else {}
+        url = data.get('url') if play.get('code') == 200 else None
+        return url if isinstance(url, str) and url.startswith('http') else None
+
+    async def mv(self, song_id: str, title: str = '', artist: str = '') -> dict:
+        def _fetch():
+            catalog = self._kw_mv_catalog_items()
+            hit = catalog.get(str(song_id))
+            if hit:
+                return {**hit, 'url': self._kw_mv_play(str(song_id))}
+            info = self._kw_mv_json('wapi/api/www/music/musicInfo', {'mid': str(song_id)})
+            d = info.get('data') or {}
+            vid = str(((d.get('mvpayinfo') or {}).get('vid')) or '')
+            base = {'id': str(song_id), 'source': 'kuwo', 'url': None,
+                    'title': d.get('name') or (title or None),
+                    'artist': d.get('artist') or (artist or None),
+                    'cover': d.get('pic'), 'duration_s': self._kw_int(d.get('duration')),
+                    'quality': None}
+            if vid:
+                base['url'] = self._kw_mv_play(vid)   # 实测：歌曲关联 MV 已全量下线 → 多为 None
+            return base
+        return await self.run(_fetch)
+
+    '''MV 搜索（首页目录本地检索）：分词全命中 title+artist，按 mvPlayCnt 降序分页。
+       id = 在架 MV id（mv() 命中目录直取，**保证搜到的都能播**）；url 恒为 None（点击现取）。
+       酷我按歌曲关键词的 MV 库（searchMvBykeyWord）仍返回歌曲，但这些歌的 MV 已下线，故不采用。'''
+    async def search_mv(self, keywords: str, page: int = 1, limit: int = 20) -> dict:
+        def _norm(v) -> str:
+            return ''.join(str(v or '').lower().split())
+
+        def _fetch():
+            catalog = self._kw_mv_catalog_items()
+            toks = [t for t in _norm(keywords).replace('/', ' ').split() if t] or [_norm(keywords)]
+            matched = [it for it in catalog.values()
+                       if all(t in _norm(it.get('title')) or t in _norm(it.get('artist')) for t in toks)]
+            matched.sort(key=lambda it: it.get('play_count') or 0, reverse=True)
+            start = max(0, (page - 1) * limit)
+            return {'items': matched[start:start + limit], 'total': len(matched)}
+        return await self.run(_fetch)

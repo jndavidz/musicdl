@@ -12,7 +12,7 @@ from server.cache import cached
 from server.envelope import ok
 from server.quality import resolve as resolve_quality
 from server.schemas import (SearchData, SongUrlData, SongInfoData, LyricData, MvData, MvItem,
-                            AlbumData, PlaylistData, SearchMultiData)
+                            AlbumData, PlaylistData, SearchMultiData, SearchMvData)
 from server.config import SOURCES
 
 
@@ -26,11 +26,24 @@ def get_adapter(state, source: str):
 
 
 async def search(request: Request, source: str, keywords: str = Query(..., min_length=1),
-                 page: int = Query(1, ge=1), limit: int = Query(None, ge=1)):
+                 page: int = Query(1, ge=1), limit: int = Query(None, ge=1),
+                 type: str = Query('music', pattern='^(music|mv)$')):
+    '''type=music（默认）→ 歌曲搜索（形状与字段完全不变，旧客户端零影响）；
+       type=mv → MV 搜索：data 改回 {source, type:'mv', keywords, page, total, items:[MvItem]}，
+       item 的 url 恒为 None，点击后按 id 走 /{source}/mv 现取（不做两段外的新契约）。
+       不支持 MV 搜索的源由 base.search_mv() 抛 501 envelope。'''
     s = request.app.state
     st = s.settings
     adapter = get_adapter(s, source)
     limit = min(limit or st.search_size_default, st.search_size_max)
+    if type == 'mv':
+        result, _ = await cached(s.search_cache, (source, 'mv', keywords, page, limit),
+                                 lambda: adapter.search_mv(keywords, page, limit))
+        items = result.get('items') or []
+        data = SearchMvData(source=source, keywords=keywords, page=page,
+                            total=result.get('total') if result.get('total') is not None else len(items),
+                            items=items[:limit])
+        return ok(data.model_dump())
     items, _ = await cached(s.search_cache, (source, keywords, page, limit),
                             lambda: adapter.search_items(keywords, limit, page))
     data = SearchData(keywords=keywords, page=page, total=len(items), items=items[:limit])

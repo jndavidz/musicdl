@@ -221,6 +221,33 @@ class KugouAdapter(SourceAdapter):
         lxlyric = await self.run(self._lxlyric_official, str(song_id))
         return {'lyric': lyric or '', 'lxlyric': lxlyric or None}
 
+    '''MV 搜索（kugou）：容器 /search?type=mv 直出 MV 行（MvID/MvHash/FileHash/MvName/SingerName/Pic）。
+       id = FileHash（= 歌曲 hash，与 mv() 的 id 口径衔接；mv() 靠 FileHash 精确对齐）；
+       无 FileHash 的行不进结果（避免"搜到却点不开"）。url 恒为 None。'''
+    async def search_mv(self, keywords: str, page: int = 1, limit: int = 20) -> dict:
+        def _fetch():
+            payload = self._api_get('/search', {'keywords': keywords, 'type': 'mv',
+                                                'page': page, 'pagesize': limit})
+            rows = ((payload.get('data') or {}).get('lists')) or []
+            items = []
+            for r in rows:
+                fh = str(r.get('FileHash') or '')
+                if not fh:
+                    continue
+                cover = None
+                if r.get('Pic'):
+                    cover = 'http://imge.kugou.com/mvhdpic/480/' + str(r['Pic'])
+                try:
+                    dur = int(float(r.get('Duration') or 0)) or None
+                except (TypeError, ValueError):
+                    dur = None
+                items.append({'id': fh, 'source': self.source_key, 'title': r.get('MvName'),
+                              'artist': r.get('SingerName'), 'cover': cover,
+                              'duration_s': dur, 'quality': None, 'url': None})
+            total = ((payload.get('data') or {}).get('total'))
+            return {'items': items, 'total': total if total is not None else len(items)}
+        return await self.run(_fetch)
+
     '''MV 契约（2026-11-06 实测，文档端点 /search?type=mv + /video/detail + /video/url）：
        搜索行带 MvID/MvHash 与 FileHash（**FileHash 就是歌曲 hash，可与门面 id 直接对齐**）；
        /video/detail?id=MvID 给各档 *_hash 与 hdpic/timelength；/video/url?hash=<档位 hash>

@@ -161,6 +161,18 @@ class MvData(BaseModel):
     _int_fields = field_validator('duration_s', mode='before')(_coerce_int)
 
 
+class SearchMvData(BaseModel):
+    '''MV 搜索契约（`GET /{source}/search?type=mv`）：只换 items 形状，不改歌曲搜索字段。
+       type 固定回显 'mv'；items 与 MvItem 同构，url 恒为 None（点击后再走 /{source}/mv?id= 现取），
+       id 是该源 MV 端点可直接接收的 id（详见 docs/API-REFERENCE.md §4.12）。'''
+    source: str
+    type: str = 'mv'
+    keywords: str
+    page: int = 1
+    total: int = 0
+    items: List[MvItem] = []
+
+
 class LyricData(BaseModel):
     id: str
     source: str

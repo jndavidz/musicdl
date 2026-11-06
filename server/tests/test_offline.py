@@ -134,6 +134,12 @@ class FakeAdapter:
                            'artist': artist or None, 'cover': 'c.jpg', 'duration_s': 201,
                            'url': 'http://example.test/mv.mp4', 'quality': 'hd'}]}
 
+    async def search_mv(self, keywords, page=1, limit=20):
+        self.calls.append(('search_mv', keywords, page, limit))
+        return {'items': [{'id': 'mv-ok', 'source': self.source_key, 'title': keywords,
+                           'artist': 'fake singer', 'cover': 'c.jpg', 'duration_s': 201,
+                           'url': None, 'quality': None}], 'total': 1}
+
     async def album(self, name, artist='', page=1):
         self.calls.append(('album', name, artist, page))
         return {'albums': [{'id': 'a1', 'name': name, 'artist': artist or None, 'size': 3,
@@ -193,12 +199,29 @@ check('mv top-level = first playable item', d.get('url') == 'http://example.test
       and d.get('duration_s') == 201, f"url={d.get('url')} quality={d.get('quality')}")
 check('mv keeps song id on envelope (not the MV candidate id)', d.get('id') == 'f1' and d.get('source') == 'qq')
 check('mv items passthrough (non-playable kept in items)', len(d.get('items') or []) == 2)
-st, b = raw(base, '/kuwo/mv?id=123')
+st, b = raw(base, '/migu/mv?id=123')
 d = b['data'] or {}
 check('mv source without channel: HTTP 200 + code 200 + url None', st == 200 and b['code'] == 200
-      and d.get('url') is None and d.get('source') == 'kuwo', f"code={b.get('code')} url={d.get('url')}")
+      and d.get('url') is None and d.get('source') == 'migu', f"code={b.get('code')} url={d.get('url')}")
 st, b = raw(base, '/nope/mv?id=1')
 check('mv unknown source -> 404 envelope', st == 200 and b['code'] == 404, f"code={b.get('code')}")
+
+# MV 搜索契约：type=mv 只换 items 形状（id/source/title/artist/cover/duration_s/quality/url），
+# url 恒为 None；歌曲搜索字段不受影响（默认 type=music 回 {keywords,page,total,items}）
+st, b = raw(base, '/qq/search?type=mv&keywords=fake&limit=3')
+d = b['data'] or {}
+check('mv search envelope shape', st == 200 and b['code'] == 200 and d.get('type') == 'mv'
+      and {'source', 'keywords', 'page', 'total', 'items'} <= set(d), f'keys={sorted(d)}')
+mv0 = (d.get('items') or [{}])[0]
+check('mv search item keys + url None', {'id', 'source', 'title', 'artist', 'cover', 'duration_s',
+                                        'quality', 'url'} <= set(mv0) and mv0.get('url') is None,
+      f'keys={sorted(mv0)} url={mv0.get("url")}')
+check('mv search hits fake adapter', any(c[0] == 'search_mv' for c in fake.calls))
+st, b = raw(base, '/qq/search?keywords=fake&limit=3')
+check('song search shape unchanged by type param', {'keywords', 'page', 'total', 'items'} <= set(b['data'] or {})
+      and (b['data'] or {}).get('items'))
+st, b = raw(base, '/migu/search?type=mv&keywords=x')
+check('mv search unsupported source -> 501', st == 501 and b['code'] == 501, f'status={st} code={b.get("code")}')
 
 # P6 album: ordered tracks via adapter album(); unsupported source -> 501 envelope
 st, b = raw(base, '/qq/album?name=%E5%8F%B6%E6%83%A0%E7%BE%8E&artist=%E5%91%A8%E6%9D%B0%E4%BC%A6')

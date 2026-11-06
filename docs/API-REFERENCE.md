@@ -1,6 +1,6 @@
 # kw-qq-music-api 接口开发文档
 
-> 版本：1.1 · 更新：2026-08-23 · 源码分支：`api-server`（musicdl 仓库）
+> 版本：1.20 · 更新：2026-11-06 · 源码分支：`api-server`（musicdl 仓库）
 > 服务定位：自托管多源音乐 API —— **六源解析**（酷我/QQ/千千/咪咕/网易云/酷狗）+ **两容器全量曲库透传**（网易云/酷狗生态全覆盖）
 > 计划与决策：见 `docs/KUWO-QQ-API-SERVER-PLAN.md`；快速上手见 `server/README.md`
 
@@ -363,7 +363,7 @@ GET /{source}/mv?id=<song id>&title=<可选>&artist=<可选>
 | netease | `/song/detail` 的 `songs[].mv`（0=无）；查不到时 `/search?type=1004` 只接受**同名** MV | `/mv/url?id=<mvid>&r=1080`（`r` 是上限，返回实际 `r`）→ mp4 直链 | 匿名；`wsSecret/wsTime` 由 ncm-api 生成 | `mv/detail.cover` | ✅ 可播 |
 | qq | 搜索行自带 `mv{id,vid}`（按 `mid` 对齐） | `vv.video.qq.com/getinfo` → `ul.url + fn + "?vkey="` → mp4 直链 | 匿名零 Cookie；`fvkey` 每次现取 | 无公开通道 → `null` | ✅ 可播（匿名档位偏低，实测 `vh` 多为 270~486） |
 | kugou | `/search?type=mv` 行的 `FileHash` 与歌曲 hash **精确对齐** | `/video/detail?id=<MvID>` 取逐档 hash → `/video/url?hash=` → mp4 直链 | 容器自带概念版 Cookie；无需额外签名 | `hdpic`（`{size}` 换 480） | ✅ 可播（`fhd` 实测 1080p） |
-| kuwo | 无匿名 MV 通道（`searchMvByKeyWord` / `m/v1/mv/*` 均要求 CSRF Token） | — | — | — | `url: null` |
+| kuwo | `m.kuwo.cn/newh5app/wapi/api/www/music/musicInfo` 的 `mvpayinfo.vid`；但**歌曲关联 MV 已被官方全量下线**（对该 vid 走 `playUrl` 恒 `code:-1001「该MV已下线」`，含 2025-2026 新歌） | **在架 MV 目录**：`wapi/api/www/music/mvList`（9 分类，共约 2400 条）的 id → `wapi/api/v1/www/music/playUrl?mid=<MV id>&type=mv` → mp4 直链 | 匿名、零 Cookie、无需预热；但**必须走 `m.kuwo.cn/newh5app/wapi/**` 前缀**——同路径的 `www.kuwo.cn/api/**` 对本机 IP 恒 `{"success":false,"message":"The request is illegal!"}`（WAF，前端 `Secret` 算法复刻亦无效） | `mvList.pic` / `musicInfo.pic` | ✅ 目录 MV 可播；歌曲关联 MV 已下线 → `url: null` |
 | migu | 搜索可带出 MV 条目，但播放路由矩阵全部「路由请求不支持」 | — | — | — | `url: null` |
 | qianqian | 签名 API 无 MV 搜索类型（type 4~12/1004 均「不被支持」） | — | — | — | `url: null` |
 
@@ -381,6 +381,49 @@ GET /{source}/mv?id=<song id>&title=<可选>&artist=<可选>
 - QQ：`fvkey` 随 `getinfo` 现取，短时效。
 - kugou：`downurl` 为带时效的 CDN 路径。
 - 因此本端点**不接进程内缓存**：每次调用现取，避免把过期链接交给播放器。
+- kuwo 例外：MV 目录（约 2400 条元数据，不含直链）在进程内缓存 6 小时；直链仍是每次现取。
+
+---
+
+### 4.12 GET /{source}/search?type=mv — MV / 视频搜索（2026-11-06 v1.20）
+
+```
+GET /{source}/search?type=mv&keywords=<关键词>&page=<从 1 起>&limit=<默认 settings.search_size_default>
+```
+
+**契约（`type=music` 是默认值，歌曲搜索的字段与形状完全不变；本节只在显式 `type=mv` 时生效）**
+
+```json
+{"code": 200, "msg": "ok", "data": {
+  "source": "kuwo", "type": "mv", "keywords": "林俊杰", "page": 1, "total": 4,
+  "items": [{"id": "3244328", "source": "kuwo", "title": "修炼爱情", "artist": "林俊杰",
+             "cover": "https://img1.kuwo.cn/wmvpic/...", "duration_s": 268,
+             "quality": null, "url": null}]
+}}
+```
+
+- `data` 从 `{keywords,page,total,items}` 变为 `{source,type,keywords,page,total,items}`；`items` 的元素与 §4.11 的 `MvItem` **同构**（`id/source/title/artist/cover/duration_s/quality/url`）。
+- **`url` 恒为 `null`**：MV 搜索只做"找到"，不做"取直链"；点击后按 `id` 走 `GET /{source}/mv?id=` 现取（避免把大批短效链接塞进搜索响应）。
+- **`id` 口径 = 该源 `/mv?id=` 能直接接收的 id**，四源实测可衔接：
+  | 源 | MV 搜索 `id` 是 | 说明 |
+  |---|---|---|
+  | netease | **mvid** | `mv()` 对"不存在的歌曲 id"回退按其作为 mvid 直取 |
+  | qq | **歌曲 mid** | `mv()` 原口径（搜索行 `mv{id,vid}` 按 mid 对齐） |
+  | kugou | **歌曲 FileHash** | `mv()` 按 `FileHash` 精确对齐 `/search?type=mv` 行 |
+  | kuwo | **在架 MV id** | `mv()` 先查 MV 目录命中（避免与歌曲 rid 撞号），未命中再走歌曲路径 |
+- **不支持 MV 搜索的源**（migu / qianqian / bilibili）→ HTTP 501 + `{"code":501,"msg":"MV search not supported ..."}`，与 §4.1 的能力缺失口径一致。
+- 备案：`type` 只接受 `music` / `mv`（其它值 422），避免静默回落造成"以为是 MV 结果"。
+
+**各源 MV 搜索通道（2026-11-06 实测）**
+
+| 源 | 通道 | 结果特征 | 可播性 |
+|---|---|---|---|
+| netease | `cloudsearch?type=1004` → `result.mvs[]` | 标准 MV 目录，字段全 | 视 MV 是否下架/付费 |
+| qq | 歌曲搜索行自带 `mv{id,vid}`，只保留带 `vid` 的行 | "有 MV 的歌" | 老 MV 大量被 QQ 下架（`getinfo` 回"视频被外星人劫走"），点击时由插件侧闸门过滤 |
+| kugou | `/search?type=mv`（容器） | MV 行含 `FileHash/MvID/MvHash` | ✅ 逐档 mp4 |
+| kuwo | **在架 MV 目录 `mvList` 本地检索**（9 分类 ≈2400 条，按 name+artist 分词全命中，`mvPlayCnt` 降序） | 只有酷我目前仍在架的 MV（以自家/新歌为主，华语老歌 MV 基本不在架） | ✅ 目录内全可播 |
+
+> kuwo 说明：按歌曲关键词的 MV 库（`wapi/api/www/search/searchMvBykeyWord`）仍能匿名返回"有 MV 的歌"，但**这些歌的 MV 直链已被官方全量下线**；因此 MV 搜索改用"在架目录"通道，从源头保证搜到的都能点开。
 
 ---
 
@@ -573,6 +616,7 @@ server/tests/test_smoke.py <url> [--auth K:] # 冒烟默认档（含 netease 与
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-11-06 | 1.20 | +`/{source}/search?type=mv`（MV/视频搜索：`data={source,type,keywords,page,total,items}`，item 与 §4.11 MvItem 同构、`url` 恒 null，点击后按 `id` 走 `/mv` 现取；`type=music` 默认行为与歌曲搜索字段完全不变；migu/qianqian/bilibili 501）。`id` 口径对齐 `/mv?id=`：netease=mvid、qq=mid、kugou=FileHash、kuwo=在架 MV id。**酷我 MV 更正**：上一版判"无匿名通道"不成立——匿名通道在 `m.kuwo.cn/newh5app/wapi/**`（`www.kuwo.cn/api/**` 被 WAF 恒回 `The request is illegal!`，前端 Secret 算法复刻无效）；但酷我已把**歌曲关联 MV 全量下线**（`mvpayinfo.vid` 走 `playUrl` 恒 `code:-1001`），故 `/{source}/mv` 改从**在架 MV 目录**（9 分类 `mvList` ≈2400 条，直链全可播）取址；MV 搜索按目录本地检索，从源头保证"搜到的都能点开" |
 | 2026-11-06 | 1.19 | +`/{source}/mv`（歌曲 MV：顶层恒为首个可直接播放项 `{id,source,url,cover,duration_s,quality}`，可选 `items`；无 MV 走 HTTP 200 + `url:null`，不做 404/空对象）。实测可用源：netease（`/mv/detail`+`/mv/url`，r 为上限）、qq（`vv.video.qq.com/getinfo` 的 `<fvkey>` 拼链）、kugou（容器 `/search?type=mv` 按 FileHash 精确对齐 + `/video/detail`+`/video/url` 逐档 mp4）；kuwo/migu/qianqian 无匿名 MV 通道 → `url:null`。全部为 mp4 直链（三源均无 m3u8）；签名短链不缓存、客户端每次现取 |
 | 2026-10-29 | 1.9 | +`POST /v2/playback/resolve`（K-01：TrackRef 身份契约、`X-Service-Token` scoped 服务凭证、结构化缓存键含身份/策略/凭据代次）；bilibili v2 支持受验证 cid/page（不再固定 pages[0]），`/song/info` 回传 `extra.cid/page` + `raw.pages`；migu 保留 contentId+copyrightId；v1 全部端点与 ekey 下载契约不变 |
 | 2026-10-29 | 1.10 | v2 严格播放准入（K-02 §4.8）：原始 quality 白名单先于归一化（无损请求 400 而非回落 auto）；FLAC/加密件/>320k 415；AAC 仅 `media:prepare` scope 的 `target=media_prepare` 可进转码准备且 `requires_transcode=true`；`verified` 语义修正（v2 恒 false + `requires_byte_verification=true`，完整验证归 Songloft）；v1 语义不变 |

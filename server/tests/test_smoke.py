@@ -184,10 +184,45 @@ def run_mv(source, keywords, expect_playable=True):
         check(f'{source} mv media reachable (Range GET 1KB)', ok, detail)
 
 
-# MV（2026-11-06 实测接入 netease/qq/kugou；kuwo 无匿名 MV 通道 → url None 契约）
+def run_mv_search(source, keywords, expect_click=True):
+    '''MV 搜索契约（/{source}/search?type=mv）：data 改回 {source,type,keywords,page,total,items}，
+       item 与 mv 端点同构且 url=None；expect_click 时用 item.id 走 /mv 验证能拿到真直链。'''
+    path = f'/{source}/search?type=mv&keywords={urllib.parse.quote(keywords)}&limit=5'
+    b, ms = get(path, timeout=60)
+    d = b.get('data') or {}
+    items = d.get('items') or []
+    check(f'{source} mv search envelope', b['code'] == 200 and d.get('type') == 'mv'
+          and {'source', 'keywords', 'page', 'total', 'items'} <= set(d),
+          f'{ms}ms code={b.get("code")} keys={sorted(d)}')
+    check(f'{source} mv search item shape + url None', bool(items) and
+          {'id', 'source', 'title', 'artist', 'cover', 'duration_s', 'quality', 'url'} <= set(items[0])
+          and items[0].get('url') is None,
+          f'{ms}ms n={len(items)} first={json.dumps(items[0], ensure_ascii=False)[:120] if items else "none"}')
+    if not (items and expect_click):
+        return
+    it = items[0]
+    p = (f'/{source}/mv?id={urllib.parse.quote(str(it.get("id")))}'
+         f'&title={urllib.parse.quote(str(it.get("title") or ""))}'
+         f'&artist={urllib.parse.quote(str(it.get("artist") or ""))}')
+    b2, ms2 = get(p, timeout=45)
+    url = (b2.get('data') or {}).get('url') or ''
+    check(f'{source} mv search id -> playable mv', url.startswith('http'), f'{ms2}ms url={url[:70]}')
+    if url.startswith('http'):
+        ok, detail = mv_media(url)
+        check(f'{source} mv search id media reachable', ok, detail)
+
+
+# MV（2026-11-06 实测接入 netease/qq/kugou/kuwo）
 run_mv('qq', '邓紫棋 光年之外')
 run_mv('netease', '林俊杰 江南')
+# kuwo：通道已接入，但「歌曲关联 MV」被官方全量下线 → 这条老歌按契约 url None；
+# kuwo 的可播面在「在架 MV 目录」，由 run_mv_search 覆盖
 run_mv('kuwo', '林俊杰 江南', expect_playable=False)
+
+# MV 搜索（能搜到的 id 必须能点开：kuwo=目录 id / netease/kugou=MV 或歌曲 id）
+run_mv_search('kuwo', '林俊杰')
+run_mv_search('netease', '林俊杰 江南')
+run_mv_search('kugou', '林俊杰 江南')
 
 # P6 album (netease-first): one call -> candidates + ordered tracks of best match
 b5, ms5 = get('/netease/album?name=%E5%8F%B6%E6%83%A0%E7%BE%8E&artist=%E5%91%A8%E6%9D%B0%E4%BC%A6')

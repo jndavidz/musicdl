@@ -210,6 +210,12 @@ class NeteaseAdapter(SourceAdapter):
                 mvid = _song_mvid() or _search_mvid()
             except Exception:
                 mvid = 0
+            if not mvid and str(song_id).isdigit():
+                # id 在歌曲库里不存在 → 视为 MV 搜索给出的 mvid（/mv?id= 双口径）
+                try:
+                    self._api_get('/song/detail', {'ids': str(song_id)})['songs'][0]
+                except Exception:
+                    mvid = int(song_id)
             if not mvid:
                 return empty
             cover, dur_s, name, singer = None, None, (title or None), (artist or None)
@@ -239,6 +245,29 @@ class NeteaseAdapter(SourceAdapter):
                             'title': name, 'artist': singer}
             return empty
 
+        return await self.run(_fetch)
+
+    '''MV 搜索（netease）：cloudsearch type=1004 → result.mvs；id = mvid，与 mv() 的 mvid 口径衔接。
+       url 恒为 None（点击后按 id 现取）；quality 无高度信息，置 None 不臆造档位。'''
+    async def search_mv(self, keywords: str, page: int = 1, limit: int = 20) -> dict:
+        def _fetch():
+            data = self._api_get('/cloudsearch', {'keywords': keywords, 'type': 1004,
+                                                  'limit': limit, 'offset': (page - 1) * limit})
+            res = data.get('result') or {}
+            rows = res.get('mvs') or []
+            items = []
+            for m in rows:
+                if not m.get('id'):
+                    continue
+                try:
+                    dur = int(float(m.get('duration') or 0)) // 1000 or None
+                except (TypeError, ValueError):
+                    dur = None
+                artists = [a.get('name') for a in (m.get('artists') or []) if a.get('name')]
+                items.append({'id': str(m['id']), 'source': self.source_key, 'title': m.get('name'),
+                              'artist': m.get('artistName') or '/'.join(artists) or None,
+                              'cover': m.get('cover'), 'duration_s': dur, 'quality': None, 'url': None})
+            return {'items': items, 'total': res.get('mvCount') or len(items)}
         return await self.run(_fetch)
 
     '''P6 专辑检索（netease 先行实现）：ncm-api /cloudsearch?type=10（专辑候选）

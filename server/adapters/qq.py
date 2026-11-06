@@ -175,6 +175,25 @@ class QQAdapter(SourceAdapter):
             lx = ''
         return {'lyric': lrc, 'lxlyric': lx or None}
 
+    '''MV 搜索（qq）：歌曲搜索行自带 mv{id,vid}，只保留带 vid 的行。
+       id = 歌曲 mid（与 mv() 的 mid 口径衔接，点击后带 title 现取直链）；url 恒为 None。'''
+    async def search_mv(self, keywords: str, page: int = 1, limit: int = 20) -> dict:
+        def _fetch():
+            rows = self._search_raw(keywords, limit, page)
+            items = []
+            for r in rows:
+                m = r.get('mv') if isinstance(r.get('mv'), dict) else {}
+                if not m.get('vid'):
+                    continue
+                it = self.item_from_raw(r)
+                if not it.get('id'):
+                    continue
+                items.append({'id': it['id'], 'source': self.source_key, 'title': it.get('name'),
+                              'artist': it.get('singer'), 'cover': it.get('cover'),
+                              'duration_s': it.get('duration_s'), 'quality': None, 'url': None})
+            return {'items': items, 'total': len(items)}
+        return await self.run(_fetch)
+
     '''MV 契约（2026-11-06 实测）：搜索行自带 mv{id,vid}（vt=1 的剪辑版 id=0 但有 vid）；
        播放走 vv.video.qq.com/getinfo（XML：td 秒 / vh 高度 / fn 文件名 / fvkey / ul 首 host），
        URL = host + fn + "?vkey=" + fvkey（Range GET 实测 206 video/mp4；HEAD 403 属正常）。
