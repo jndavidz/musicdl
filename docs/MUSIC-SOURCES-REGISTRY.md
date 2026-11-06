@@ -399,6 +399,8 @@
 | migu | `search_all.do` 带 `searchSwitch={"mvSong":1}` 有 MV 条目，但播放路由矩阵全部「路由请求不支持」 | 匿名搜索可，取链不可 | — | — | ❌ | `url:null` |
 | qianqian | 签名 API `/v1/search` 各 `type`（4~12/1004）均「不被支持的搜索类型」 | 匿名 | — | — | ❌ 无 MV 搜索类型 | `url:null` |
 
+**上游更迭复核（2026-11-06 20:31 NAS `kugou-api` 容器随 KuGouMusicApi 上游合并重建）**：`/search?type=mv` 行字段未变（`FileHash`/`MvID`/`MvHash`/`MvName`/`SingerName`/`Duration`/`Pic`）；`video_url.js` 参数仍为 `hash`（内部 `/v2/interface/index` + `x-router: trackermv.kugou.com`），`video_detail.js` 仍 `/v1/video`；门面 `/kugou/mv` 复测江南 269s/fhd、七里香 303s/fhd，NAS `curl -r 0-1023` 均 **206 video/mp4**；`MvHash` 直取仍返回 **.mkv**（复核后结论不变）。
+
 **弃用条目（避免复活）**：
 - kugou `/video/url?hash=<MvHash>` 返回 **mkv**（`application/octet-stream`），非 mp4 → 只用 `/video/detail` 的逐档 `ld/sd/hd/qhd/fhd_hash`。
 - kugou `/kmr/audio/mv?album_audio_id=`（文档有载，2026-11-06 实测返回**推荐 MV**：七里香 → 薛之谦「天份」，`is_recommend:1`）→ 不采用。

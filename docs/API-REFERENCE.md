@@ -372,7 +372,7 @@ GET /{source}/mv?id=<song id>&title=<可选>&artist=<可选>
 - `quality` 统一为 `ld` / `sd` / `hd` / `fhd`（按源实际清晰度归一，不照抄平台档位名）：
   `<=300` → `ld`，`<=480` → `sd`，`<=720` → `hd`，`>720` → `fhd`（netease 按实际 `r`，QQ 按 `vh`，kugou 按 `*_height`）。
 - 三源实测返回的均为 **mp4 直链**（`Range` 请求 206 + `video/mp4`），**没有 m3u8 通道**；契约不区分形态，`url` 原样透出，客户端按 URL/`Content-Type` 自行选播放器。
-- kugou `MvHash` 直接取 `/video/url` 会返回 **mkv（application/octet-stream）**，因此实现只使用 `/video/detail` 的逐档 mp4 hash。
+- kugou `MvHash` 直接取 `/video/url` 会返回 **mkv（application/octet-stream）**，因此实现只使用 `/video/detail` 的逐档 mp4 hash（2026-11-06 20:31 上游合并重建容器后复核，行为不变）。
 - **客户端播发时须带浏览器类 User-Agent**：netease 的 `vodkgeyttp8.vod.126.net` 对非浏览器 UA（如 `Python-urllib/3.x` 默认值）直接 403，带任意 `Mozilla/5.0` UA 即 206。media_kit / Web `video` / hls.js 均自带 UA，正常场景无需额外处理；仅脚本化探测要注意。
 
 **有效期策略（客户端每次点击现取，不做长期缓存）**
