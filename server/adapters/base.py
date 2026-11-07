@@ -16,6 +16,7 @@ import re
 import time
 import asyncio
 import threading
+from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 from musicdl.modules.sources.base import BaseMusicClient
 from musicdl.modules.utils import AudioLinkTester
@@ -78,6 +79,95 @@ def parse_credits(lyric: str, head_lines: int = 25) -> dict:
                 if name not in out[field]:
                     out[field].append(name)
     return out
+
+
+'''评论统一契约 helper（2026-11-07）：四源 adapter 各自实现 music_comments，
+   但 id 归一、时间换算、分页语义与 replies 缺省只在这里写一份，避免四份复制。
+   契约字段：id / nick_name / avatar / content / like / created_at（毫秒，历史兼容）/
+   create_time（Unix 秒）/ create_time_text / replies（恒为数组，能力不支持时为空，不省略）。'''
+def to_int(value):
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def comment_time(value, unit='s'):
+    '''上游评论时间 → (Unix 秒, 原文文本)。支持数字秒/毫秒与东八区
+       "YYYY-MM-DD HH:MM:SS" 文本（酷狗 addtime）；解析不了时返回 (None, 原文本)
+       供 create_time_text 透出，不伪造时间。'''
+    if value is None or value == '':
+        return None, None
+    if isinstance(value, (int, float)):
+        n = int(value)
+    else:
+        s = str(value).strip()
+        if not s:
+            return None, None
+        try:
+            n = int(float(s))
+        except ValueError:
+            for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M'):
+                try:
+                    dt = datetime.strptime(s, fmt)
+                except ValueError:
+                    continue
+                return int(dt.replace(tzinfo=timezone(timedelta(hours=8))).timestamp()), None
+            return None, s
+    if n <= 0:
+        return None, None
+    if unit == 'ms' or n > 10 ** 11:
+        n //= 1000
+    return n, None
+
+
+def normalize_comment(cid, nick_name=None, avatar=None, content='', like=None,
+                      create_time=None, create_time_text=None, replies=None):
+    '''统一 CommentEntry 形状。create_time 是 Unix 秒；created_at 保留毫秒兼容旧客户端。
+       replies 恒为数组（能力不支持时为空数组，不省略），回复项同样走本函数。'''
+    return {'id': str(cid or ''), 'nick_name': nick_name or '匿名用户',
+            'avatar': avatar or None, 'content': content or '',
+            'like': to_int(like),
+            'created_at': (create_time * 1000) if create_time else None,
+            'create_time': create_time,
+            'create_time_text': create_time_text or None,
+            'replies': [r for r in (replies or []) if r]}
+
+
+def comments_result(song_id, page, items, hot=None, total=None, has_more=None, page_size=None):
+    '''统一 /{source}/comments 响应体：hot 只给第一页；has_more 缺省按 total 推导。'''
+    items = [c for c in (items or []) if c]
+    if has_more is None:
+        has_more = bool(total) and bool(page_size) and page * page_size < total
+    return {'id': str(song_id or ''), 'page': page, 'total': total,
+            'has_more': bool(has_more),
+            'hot': ([c for c in hot or [] if c] if page == 1 else []),
+            'items': items}
+
+
+def match_title_artist(rows, title, artist, name_of, artist_of):
+    '''按标题（精确优先、包含次之）+ 歌手名归一匹配一行；找不到返回 None。
+       四源用 title+artist 回搜 id 时的共用选择逻辑，避免各写一份。'''
+    def _norm(v):
+        return ''.join(str(v or '').lower().split())
+
+    nt, na = _norm(title), _norm(artist)
+    best, best_score = None, 0
+    for row in rows or []:
+        n, a = _norm(name_of(row)), _norm(artist_of(row))
+        if not n or not nt:
+            continue
+        if n == nt:
+            score = 3
+        elif nt in n:
+            score = 1
+        else:
+            continue
+        if na and (na in a or a in na):
+            score += 2
+        if score > best_score:
+            best, best_score = row, score
+    return best
 
 
 class _Job:

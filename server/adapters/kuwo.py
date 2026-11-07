@@ -4,7 +4,8 @@ Function:
 '''
 import re
 import time
-from .base import SourceAdapter, AdapterError
+from .base import (SourceAdapter, AdapterError, comment_time, comments_result,
+                   match_title_artist, normalize_comment, to_int)
 from ..quality import resolve as resolve_quality, lossless_allowed, LOSSLESS_MSG, LOSSLESS_EXTS
 from musicdl.modules.sources.kuwo import KuwoMusicClient
 from musicdl.modules.utils import AudioLinkTester
@@ -235,6 +236,57 @@ class KuwoAdapter(SourceAdapter):
                 'duration_s': int(float(meta['duration'])) if meta.get('duration') else None,
                 'cover': meta.get('pic') or meta.get('albumpic'),
                 'raw': {'kw_meta': {k: meta.get(k) for k in list(meta)[:12]}}}
+
+    '''评论（2026-11-07 实测官方匿名通道 ncomment.kuwo.cn/com.s）：
+       sid 是数字 rid；缺 id 或非数字时经匿名搜索行按标题+歌手反查。
+       time 是 Unix 秒；该接口只回顶层评论（be_replied_commentId/parent_comment_id
+       只是引用关系，不是回复列表）→ replies 留空数组，不冒充。'''
+    _KW_COMMENT_URL = 'http://ncomment.kuwo.cn/com.s'
+
+    def _kw_comment_get(self, rid: str, page: int, limit: int) -> dict:
+        return self.client.get(self._KW_COMMENT_URL,
+                               params={'f': 'web', 'type': 'get_comment', 'aapiver': '1',
+                                       'prod': 'kwplayer_ar_10.5.2.0', 'digest': '15',
+                                       'sid': rid, 'start': (page - 1) * limit,
+                                       'msgflag': '1', 'count': limit, 'newver': '3', 'uid': '0'},
+                               headers={'User-Agent': 'kwplayer_pc_9.0.5.0',
+                                        'Referer': 'https://www.kuwo.cn/'},
+                               timeout=self.io_timeout).json()
+
+    def _kw_rid(self, song_id: str = None, title: str = '', artist: str = '') -> str:
+        sid = str(song_id or '').strip().removeprefix('MUSIC_')
+        if sid.isdigit():
+            return sid
+        rows = self._search_raw((title + ' ' + artist).strip() or title, 20, 1)
+        hit = None
+        if sid:
+            hit = next((r for r in rows if
+                        str(r.get('MUSICRID') or r.get('musicrid') or '').removeprefix('MUSIC_') == sid), None)
+        hit = hit or match_title_artist(rows, title, artist,
+                                        lambda r: r.get('SONGNAME') or r.get('name'),
+                                        lambda r: r.get('ARTIST') or r.get('artist'))
+        return str((hit or {}).get('MUSICRID') or (hit or {}).get('musicrid') or '').removeprefix('MUSIC_')
+
+    async def music_comments(self, song_id: str = None, title: str = '', artist: str = '',
+                             page: int = 1, limit: int = 20) -> dict:
+        rid = await self.run(self._kw_rid, song_id, title, artist)
+        if not rid:
+            return comments_result(song_id or '', page, [], page_size=limit)
+        data = await self.run(self._kw_comment_get, rid, page, limit)
+        rows = ((data or {}).get('comments') or []) if (data or {}).get('result') == 'ok' else []
+
+        def _comment(c):
+            if not c:
+                return None
+            ts, ts_text = comment_time(c.get('time'))
+            return normalize_comment(c.get('id'), c.get('u_name'), c.get('u_pic'),
+                                     c.get('msg'), c.get('like_num'), ts, ts_text)
+
+        items = [_comment(x) for x in rows]
+        total = to_int((data or {}).get('comments_counts'))
+        return comments_result(rid, page, items, total=total,
+                               has_more=(page * limit < total) if total else None,
+                               page_size=limit)
 
     '''lyric: newlyric.kuwo.cn (des-encoded, verified in musicdl) first; h5 lrclist as fallback'''
     async def lyric(self, song_id: str) -> str:

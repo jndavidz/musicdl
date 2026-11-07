@@ -1,6 +1,6 @@
 # kw-qq-music-api 接口开发文档
 
-> 版本：1.21 · 更新：2026-11-07 · 源码分支：`api-server`（musicdl 仓库）
+> 版本：1.22 · 更新：2026-11-07 · 源码分支：`api-server`（musicdl 仓库）
 > 服务定位：自托管多源音乐 API —— **六源解析**（酷我/QQ/千千/咪咕/网易云/酷狗）+ **两容器全量曲库透传**（网易云/酷狗生态全覆盖）
 > 计划与决策：见 `docs/KUWO-QQ-API-SERVER-PLAN.md`；快速上手见 `server/README.md`
 
@@ -492,7 +492,7 @@ GET /{source}/playlist/songs?id=&page=&limit= → 歌单曲目（by id 分页；
 ```
 GET /{source}/artist                → 歌手详情（alias/描述/作品数）
 GET /{source}/artist/works?type=music|album&page=  → 歌手作品（music=SearchItem / album=AlbumEntry）
-GET /{source}/comments?id=|title=&artist=          → 歌曲评论（netease 支持回搜；kugou 需数字 mixsongid）
+GET /{source}/comments?id=|title=&artist=&page=&limit= → 歌曲评论（四源统一入口；id 口径见 §5.1c）
 GET /{source}/album/detail?id=      → 专辑 by-id 详情（官方曲序 track_no；netease /album、kugou /album/songs；track_count 同 /album 规则）
 GET /{source}/import/item?url=      → 导入单曲（urlLike 提取 id；MusicFree importMusicItem）
 GET /{source}/import/sheet?url=&cap= → 导入歌单（自动翻页全量；cap 截断保护默认 1000）
@@ -503,14 +503,16 @@ GET /{source}/toplists|toplist/songs|playlist/tags|sheets|songs  → netease/kug
 - 全部走统一 Envelope + schema；501 缺省（base）；kugou 曲目 id=hash（rank/audio hash_320 优先降档）、歌单 id=gid、import item id=mixsongid（media 链实测可解析）。
 - kugou specialid→gid 换算（/playlist/detail）现网稳定返回空 data（疑似需登录态）→ import/sheet 对纯数字 specialid 报 404 引导 collection_… 形态。
 - netease 评论 IComment 归一（nick_name/content/created_at snake_case → 消费方转 camelCase）。
-- **评论发布时间（2026-11-07）**：`CommentEntry` 新增 `create_time`（**Unix 秒**）与 `create_time_text`（仅当上游只有格式化文本、解析不出秒时才有）。
+- **评论四源统一契约（2026-11-07 v1.22）**：`/{source}/comments` 由各 adapter 实现**同名** `music_comments`，路由层单处分派（无 per-source 分支）；同一请求参数（`id` 或 `title`+`artist`、`page`、`limit`）与同一 `CommentsData{source,id,page,total,has_more,hot,items:[CommentEntry]}` 响应。`CommentEntry` 统一 `create_time`（**Unix 秒**）+ `create_time_text`（仅上游只有格式化文本、解析不出秒时），`replies` **恒为数组**（能力不支持时为空数组，不省略）。参数拼装、时间换算（秒/毫秒/东八区文本）、`has_more` 推导与 title+artist 回搜匹配收敛在 `adapters/base.py` 公共 helper。
 
-  | 源 | 上游字段 | 量级/处理 | 覆盖 |
-  |---|---|---|---|
-  | `netease` | `comments[].time` | **毫秒** → `create_time = time//1000`（`created_at` 保留毫秒） | ✅ |
-  | `kugou` | `list[].addtime` | **格式化文本** `YYYY-MM-DD HH:MM:SS`（东八区）→ 转 Unix 秒；数字秒/毫秒也兼容 | ✅ |
+  | 源 | 上游通道 | 条数/分页（季候风实测） | 回复/楼层 | 时间字段 |
+  |---|---|---|---|---|
+  | `netease` | 容器 `/comment/music` | `total=7842`；`more` 分页 | ❌（`beReplied` 只是被引用楼，非回复列表） | `comments[].time` **毫秒** → 秒 |
+  | `qq` | `musicu.fcg GetHotCommentList`（`BizId` 必须是**字符串**数字 songid，传 int 上游回 10006） | `Total=404`；`HasMore` 分页 | ✅ `SubComments`（`PubTime` 可能为 0，如实留空） | `PubTime` 秒 |
+  | `kugou` | 容器 `/comment/music?mixsongid=` | `count=565`；`maxPage` 分页 | ❌（行内仅 `reply_num`，楼中楼需二级接口） | `addtime` **东八区文本** `YYYY-MM-DD HH:MM:SS` → 秒 |
+  | `kuwo` | `ncomment.kuwo.cn/com.s` | `comments_counts=55`；按 `start` 分页 | ❌（`be_replied_commentId` 只是引用关系） | `comments[].time` 秒 |
 
-  qq / kuwo / migu / qianqian 的门面 `/comments` 尚未实现（base 501），不返回该字段（不伪造）。
+  id 口径：`netease`=数字 id、`qq`=mid（adapter 用搜索行回查数字 songid）、`kugou`=FileHash（adapter 用匿名搜索行按 FileHash/标题回查 MixSongID）、`kuwo`=数字 rid；只给 `title`+`artist` 时四源均回搜。migu/qianqian/bilibili 仍 501（无匿名评论通道，如实标注，不冒充）。
 - **透传族收缩后仅剩**：云盘 user/cloud、登录态端点、VIP（/kugou/vip/*）、排错转发。
 - 2026-11-04 扩源：`artist` / `artist/works` 已实现 **qq（fcg `get_singer_detail_info` / `get_singer_album`，id=singerMID）与 kuwo（`search.kuwo.cn/r.s` 的 `artistinfo` / `artist2music` / `albumlist`，id=数字 artistid）**；qq 的 `search/multi?type=artist` 返回 `id=singerMID`（数字 singerID 无对应作品端点）。**qianqian** 补 `artist/works?type=music`（官方签名 `/v1/artist/song`，id=artistCode；与 MusicFree 同口径）——上游无「歌手专辑列表」通道，`type=album` 返回空集合（`total=0/is_end=true`，**不是 501**）。**migu 保持 501**：MusicFree 未实现 `getArtistWorks`，migu 亦无歌手作品聚合端点（能力缺省按 501 如实标注，不造假数据）。QQ `playlist/tags` 的分组标题取 `categoryGroupName`（`categoryName` 在分组层为空），pinned 取各组前 6 个标签。
 
@@ -640,6 +642,7 @@ server/tests/test_smoke.py <url> [--auth K:] # 冒烟默认档（含 netease 与
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-11-07 | 1.22 | 评论四源补齐（qq/kuwo 新实现，netease/kugou 收敛）：`/{source}/comments` 同一入口、同一参数、同一 `CommentsData`；四源 adapter 同名 `music_comments`，参数拼装/时间换算/分页/回搜匹配抽到 `base.py` 公共 helper。`CommentEntry` 增加 `replies`（恒为数组，能力不支持时为空）。QQ 走 `musicu.fcg GetHotCommentList`（`BizId` 必须字符串；mid/标题回查数字 songid，`SubComments` 出回复）；酷我走 `ncomment.kuwo.cn/com.s`；酷狗支持 FileHash→MixSongID 回查（此前要求数字 id）；migu/qianqian/bilibili 仍 501。 |
 | 2026-11-07 | 1.21 | 数据侧两项：①`CommentEntry` 新增 `create_time`（Unix 秒）+ `create_time_text`（netease `time` 毫秒换算；kugou `addtime` 文本按东八区解析、解析不出才落 text）；②`/{source}/song/info` 新增 `credits:{lyricist[],composer[],arranger[]}`（六源均无独立 credits 接口 → 统一从歌词头部署名行解析；netease/qq/kugou/kuwo/migu 常规可用，qianqian 仅限搜索行内带歌词 URL 的曲目；支持一行双位、全角/半角冒号、多值切分去重、剔除佚名/未知占位；空字段返回空数组、不写 null，无署名行时键缺省，空结果不占 24h 缓存）。既有字段名与形状均未改动 |
 | 2026-11-06 | 1.20 | +`/{source}/search?type=mv`（MV/视频搜索：`data={source,type,keywords,page,total,items}`，item 与 §4.11 MvItem 同构、`url` 恒 null，点击后按 `id` 走 `/mv` 现取；`type=music` 默认行为与歌曲搜索字段完全不变；migu/qianqian/bilibili 501）。`id` 口径对齐 `/mv?id=`：netease=mvid、qq=mid、kugou=FileHash、kuwo=在架 MV id。**酷我 MV 更正**：上一版判"无匿名通道"不成立——匿名通道在 `m.kuwo.cn/newh5app/wapi/**`（`www.kuwo.cn/api/**` 被 WAF 恒回 `The request is illegal!`，前端 Secret 算法复刻无效）；但酷我已把**歌曲关联 MV 全量下线**（`mvpayinfo.vid` 走 `playUrl` 恒 `code:-1001`），故 `/{source}/mv` 改从**在架 MV 目录**（9 分类 `mvList` ≈2400 条，直链全可播）取址；MV 搜索按目录本地检索，从源头保证"搜到的都能点开" |
 | 2026-11-06 | 1.19 | +`/{source}/mv`（歌曲 MV：顶层恒为首个可直接播放项 `{id,source,url,cover,duration_s,quality}`，可选 `items`；无 MV 走 HTTP 200 + `url:null`，不做 404/空对象）。实测可用源：netease（`/mv/detail`+`/mv/url`，r 为上限）、qq（`vv.video.qq.com/getinfo` 的 `<fvkey>` 拼链）、kugou（容器 `/search?type=mv` 按 FileHash 精确对齐 + `/video/detail`+`/video/url` 逐档 mp4）；kuwo/migu/qianqian 无匿名 MV 通道 → `url:null`。全部为 mp4 直链（三源均无 m3u8）；签名短链不缓存、客户端每次现取 |

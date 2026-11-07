@@ -10,32 +10,10 @@ import urllib.request
 import urllib.parse
 import gzip
 import io as _io
-from datetime import datetime, timedelta, timezone
-from .base import SourceAdapter, AdapterError
+from .base import (SourceAdapter, AdapterError, comment_time, comments_result,
+                   match_title_artist, normalize_comment)
 from ..cache import TTLCache
 from ..quality import resolve as resolve_quality
-
-
-def _kugou_comment_time(v):
-    '''kugou 评论时间：新接口给格式化文本 "YYYY-MM-DD HH:MM:SS"（按东八区），
-       老数据可能是秒/毫秒数字。统一换算成 Unix 秒；文本解析不了时原样保留给 create_time_text。'''
-    if v is None or v == '':
-        return None, None
-    if isinstance(v, (int, float)):
-        n = int(v)
-    else:
-        s = str(v).strip()
-        try:
-            n = int(float(s))
-        except ValueError:
-            try:
-                dt = datetime.strptime(s, '%Y-%m-%d %H:%M:%S')
-            except ValueError:
-                return None, s
-            return int(dt.replace(tzinfo=timezone(timedelta(hours=8))).timestamp()), None
-    if n <= 0:
-        return None, None
-    return (n // 1000 if n > 10 ** 11 else n), None
 
 
 def raw_get(url: str, timeout: int = 15) -> str:
@@ -640,32 +618,51 @@ class KugouAdapter(SourceAdapter):
         return {'type': work_type, 'page': page, 'is_end': page * limit >= total,
                 'total': total, 'items': items}
 
+    def _resolve_mixsongid(self, song_id: str = None, title: str = '', artist: str = '') -> str:
+        '''评论按 MixSongID（数字）取。调用方口径可能是 hash（kwqq search 的 id）或纯数字；
+           hash / 仅 title+artist 时经匿名搜索行按 FileHash 或标题+歌手匹配取 MixSongID。'''
+        sid = str(song_id or '').strip()
+        if sid.isdigit() and len(sid) <= 12:
+            return sid
+        rows = self._search_raw((title + ' ' + artist).strip() or title, 20, 1)
+        hit = None
+        if sid:
+            hit = next((r for r in rows if str(r.get('FileHash') or '') == sid), None)
+        hit = hit or match_title_artist(rows, title, artist,
+                                        lambda r: r.get('SongName'),
+                                        lambda r: r.get('SingerName'))
+        return str((hit or {}).get('MixSongID') or '') or None
+
     async def music_comments(self, song_id: str = None, title: str = '', artist: str = '',
                              page: int = 1, limit: int = 20) -> dict:
-        # kugou 评论按 mixsongid（数字 id）取——hash 口径的调用方须先经 song_info 换 id；
-        # kwqq 插件消费时从已入库歌曲的 dedup_key 取 mixsongid 传入
-        if not song_id:
-            raise AdapterError(400, 'kugou comments require numeric mixsongid')
+        sid = await self.run(self._resolve_mixsongid, song_id, title, artist)
+        if not sid:
+            return comments_result(song_id or '', page, [], page_size=limit)
         data = await self.run(self._api_get, '/comment/music',
-                              {'mixsongid': song_id, 'page': page, 'pagesize': limit, 'folder': 0})
-        if (data or {}).get('status') != 1:
-            return {'id': str(song_id), 'page': page, 'total': 0, 'has_more': False, 'hot': [], 'items': []}
+                              {'mixsongid': sid, 'page': page, 'pagesize': limit, 'folder': 0})
+        d = data or {}
+        if d.get('status') != 1:
+            return comments_result(sid, page, [], page_size=limit)
 
         def _comment(c):
             if not c:
                 return None
-            ts_s, ts_text = _kugou_comment_time(c.get('addtime'))
-            return {'id': str(c.get('id') or ''), 'nick_name': c.get('user_name') or '匿名用户',
-                    'avatar': c.get('avatar'), 'content': c.get('content') or '',
-                    'like': c.get('like') if isinstance(c.get('like'), int) else self._kg_int(c.get('like')),
-                    'created_at': (ts_s * 1000) if ts_s else None,
-                    'create_time': ts_s, 'create_time_text': ts_text, 'replies': []}
+            like = c.get('like')
+            if isinstance(like, dict):
+                like = like.get('count') or like.get('likenum')
+            # addtime 是东八区文本 "YYYY-MM-DD HH:MM:SS"（公共 helper 换 Unix 秒）；
+            # 列表行只有 reply_num，楼中楼需 /comment/floor 二级请求 → replies 留空数组。
+            ts, ts_text = comment_time(c.get('addtime'))
+            return normalize_comment(c.get('id'), c.get('user_name'),
+                                     c.get('user_pic') or c.get('avatar'), c.get('content'),
+                                     like, ts, ts_text)
 
-        lst = [c for c in (_comment(x) for x in (data or {}).get('list') or []) if c]
-        total = self._kg_int((data or {}).get('total'))
-        return {'id': str(song_id), 'page': page, 'total': total,
-                'has_more': bool(total) and page * limit < total,
-                'hot': [], 'items': lst}
+        items = [_comment(x) for x in d.get('list') or []]
+        max_page = self._kg_int(d.get('maxPage'))
+        return comments_result(sid, page, items,
+                               total=self._kg_int(d.get('count')),
+                               has_more=(page < max_page) if max_page else None,
+                               page_size=limit)
 
     '''P9b（2026-11-04）：专辑 by-id 详情（曲目官方曲序 + album_info 元数据）。'''
     async def album_detail(self, album_id: str) -> dict:

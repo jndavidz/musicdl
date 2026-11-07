@@ -5,7 +5,8 @@ Function:
 '''
 import time
 import base64
-from .base import SourceAdapter, AdapterError
+from .base import (SourceAdapter, AdapterError, comment_time, comments_result,
+                   match_title_artist, normalize_comment, to_int)
 from ..quality import resolve as resolve_quality, lossless_allowed, LOSSLESS_MSG, LOSSLESS_EXTS
 from musicdl.modules.sources.qq import QQMusicClient
 from musicdl.modules.utils import AudioLinkTester
@@ -133,6 +134,53 @@ class QQAdapter(SourceAdapter):
                 'duration_s': int(float(meta.get('interval') or 0)) or None,
                 'cover': f"https://y.gtimg.cn/music/photo_new/T002R800x800M000{(meta.get('album') or {}).get('mid', '')}.jpg",
                 'raw': {'qq_meta': {k: meta.get(k) for k in ('title', 'interval', 'songmid') if k in meta}}}
+
+    '''评论（2026-11-07 实测官方匿名通道，musicu.fcg GetHotCommentList）：
+       BizId 必须是数字 songid（不是 mid）；调用方给 mid 或 title+artist 时经匿名搜索行反查。
+       PubTime 是 Unix 秒；SubComments 是楼中楼回复（PubTime 可能为 0，如实留空）。'''
+    def _qq_numeric_songid(self, song_id: str = None, title: str = '', artist: str = '') -> int:
+        sid = to_int(song_id)
+        if sid:
+            return sid
+        rows = self._search_raw((title + ' ' + artist).strip() or title, 20, 1)
+        hit = None
+        if song_id:
+            hit = next((r for r in rows if str(r.get('mid') or r.get('songmid') or '') == str(song_id)), None)
+        hit = hit or match_title_artist(
+            rows, title, artist,
+            lambda r: r.get('title') or r.get('songname'),
+            lambda r: ', '.join(s.get('name') for s in (r.get('singer') or [])
+                                if isinstance(s, dict) and s.get('name')))
+        return to_int((hit or {}).get('id'))
+
+    async def music_comments(self, song_id: str = None, title: str = '', artist: str = '',
+                             page: int = 1, limit: int = 20) -> dict:
+        biz_id = await self.run(self._qq_numeric_songid, song_id, title, artist)
+        if not biz_id:
+            return comments_result(song_id or '', page, [], page_size=limit)
+        data = await self.run(self._qq_post_fcg, {
+            'comm': {'ct': 24, 'cv': 0},
+            'req_1': {'module': 'music.globalComment.CommentRead', 'method': 'GetHotCommentList',
+                      # BizId 必须是**字符串**（传 int 上游回 code 10006）
+                      'param': {'BizType': 1, 'BizId': str(biz_id), 'HotType': 1, 'LastCommentSeqNo': '',
+                                'PageNum': page - 1, 'PageSize': limit, 'PicEnable': 1,
+                                'WithAirborne': 0}},
+        })
+        node = ((data or {}).get('req_1') or {}).get('data') or {}
+        cl = node.get('CommentList') or {}
+
+        def _comment(c, sub=False):
+            if not c:
+                return None
+            ts, ts_text = comment_time(c.get('PubTime'))
+            replies = [] if sub else [_comment(x, True) for x in c.get('SubComments') or []]
+            return normalize_comment(c.get('CmId'), c.get('Nick'), c.get('Avatar'),
+                                     c.get('Content'), c.get('PraiseNum'), ts, ts_text, replies)
+
+        items = [_comment(x) for x in cl.get('Comments') or []]
+        total = to_int(cl.get('Total')) or to_int(node.get('TotalCmNum'))
+        return comments_result(biz_id, page, items, total=total,
+                               has_more=bool(cl.get('HasMore')), page_size=limit)
 
     '''lyric via official fcg endpoint (base64 json)'''
     async def lyric(self, song_id: str) -> str:

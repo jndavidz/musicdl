@@ -435,13 +435,15 @@
 
 门面契约见 `docs/API-REFERENCE.md` §4.3（`credits`）与 §5.1c（`create_time`）。探测脚本在 `.state/probe_times.py` / `probe_kugou.py` / `probe_credits*.py`。
 
-**评论发布时间**（有 `/comments` 通道的源才探测）
+**评论时段（2026-11-07 v1.22 四源全量实测，王菲《季候风》同一首歌）**
 
 | 源 | 通道 | 时间字段 | 量级/形态 | 结论 |
 |---|---|---|---|---|
-| netease | ncm 容器 `/comment/music?id=&limit=` | `comments[].time` | **毫秒**整数 | ✅ → `create_time = time//1000` |
-| kugou | 容器 `/comment/music?mixsongid=&page=&pagesize=&folder=0` | `list[].addtime` | **格式化文本** `YYYY-MM-DD HH:MM:SS`（东八区），非数字 | ✅ → 按 +08:00 解析成 Unix 秒；解析失败才落 `create_time_text` |
-| qq / kuwo / migu / qianqian | 门面 `/comments` 未实现（base 501） | — | — | 本期不接，不伪造 |
+| netease | ncm 容器 `/comment/music?id=&limit=&offset=` | `comments[].time` | **毫秒**整数 | ✅ → `time//1000` |
+| kugou | 容器 `/comment/music?mixsongid=&page=&pagesize=&folder=0`（mixsongid 由 FileHash 经匿名搜索行回查） | `list[].addtime` | **东八区文本** `YYYY-MM-DD HH:MM:SS` | ✅ → +08:00 解析成 Unix 秒；解析失败才落 `create_time_text` |
+| qq | `https://u.y.qq.com/cgi-bin/musicu.fcg`，module `music.globalComment.CommentRead` / method `GetHotCommentList`；`param={BizType:1, BizId:"<数字songid>", HotType:1, PageNum: page-1, PageSize, PicEnable:1, WithAirborne:0}`（**BizId 必须字符串**，int → code 10006）；返回 `req_1.data.CommentList{Comments[],Total,HasMore}` | `Comments[].PubTime` | **Unix 秒** | ✅ → 原样透出；`SubComments[]` 作 replies（`PubTime` 可能 0，如实留空） |
+| kuwo | `http://ncomment.kuwo.cn/com.s?f=web&type=get_comment&aapiver=1&prod=kwplayer_ar_10.5.2.0&digest=15&sid=<rid>&start=(page-1)*count&msgflag=1&count=&newver=3&uid=0`（匿名免 cookie） | `comments[].time` | **Unix 秒** | ✅ → 原样透出；总数 `comments_counts`，无回复列表 |
+| migu / qianqian / bilibili | 门面 `/comments` 未实现（base 501） | — | — | 不接，不伪造 |
 
 **词曲编曲（credits）**：六源全部**没有独立 credits 接口**（netease `music.163.com/api/song/credit` 与容器 `/song/credit` 均 404；QQ `pf_song_detail_svr` track_info 无作词/作曲字段；kugou `/audio/related` 只有 `authors`(歌手) 与 `works`；酷我 `songinfoandlrc` 的 `songinfo` 无署名；migu/qianqian 也无结构化署名接口）。**但各源歌词头部都内嵌署名行**，故统一从歌词解析（`base.parse_credits`）：
 

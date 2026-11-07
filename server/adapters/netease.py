@@ -5,7 +5,8 @@ Function:
     VIP-quality links. Requires the container to be logged in (/login/status).
 '''
 import time
-from .base import SourceAdapter, AdapterError
+from .base import (SourceAdapter, AdapterError, comment_time, comments_result,
+                   match_title_artist, normalize_comment)
 from ..quality import resolve as resolve_quality
 from .kugou import requests_get
 
@@ -625,11 +626,15 @@ class NeteaseAdapter(SourceAdapter):
         if not song_id and title:
             found = await self.run(self._api_get, '/cloudsearch',
                                    {'keywords': (title + ' ' + artist).strip(),
-                                    'type': 1, 'limit': 1, 'offset': 0})
+                                    'type': 1, 'limit': 10, 'offset': 0})
             songs = ((found or {}).get('result') or {}).get('songs') or []
-            if not songs:
-                return {'id': '', 'page': page, 'total': 0, 'has_more': False, 'hot': [], 'items': []}
-            song_id = str(songs[0].get('id'))
+            hit = match_title_artist(songs, title, artist,
+                                     lambda s: s.get('name'),
+                                     lambda s: ', '.join(a.get('name') for a in (s.get('ar') or [])
+                                                         if isinstance(a, dict) and a.get('name')))
+            if not hit:
+                return comments_result('', page, [], page_size=limit)
+            song_id = str(hit.get('id'))
         if not song_id:
             raise AdapterError(400, 'id or title required')
 
@@ -637,24 +642,21 @@ class NeteaseAdapter(SourceAdapter):
             if not c:
                 return None
             user = c.get('user') or {}
-            # netease 的 time 是毫秒；契约统一出 Unix 秒 create_time，created_at 保留毫秒兼容旧客户端。
-            try:
-                ts_ms = int(c.get('time'))
-            except (TypeError, ValueError):
-                ts_ms = None
-            return {'id': str(c.get('commentId') or ''), 'nick_name': user.get('nickname') or '匿名用户',
-                    'avatar': user.get('avatarUrl'), 'content': c.get('content') or '',
-                    'like': c.get('likedCount'), 'created_at': ts_ms,
-                    'create_time': (ts_ms // 1000) if ts_ms else None, 'replies': []}
+            # netease 的 time 是毫秒 → 公共 helper 换算成 Unix 秒。
+            # /comment/music 只回顶层评论 + beReplied（被引用楼），楼层回复需二级接口
+            # → replies 留空数组，不冒充。
+            ts, ts_text = comment_time(c.get('time'), unit='ms')
+            return normalize_comment(c.get('commentId'), user.get('nickname'),
+                                     user.get('avatarUrl'), c.get('content'),
+                                     c.get('likedCount'), ts, ts_text)
 
         data = await self.run(self._api_get, '/comment/music',
                               {'id': song_id, 'limit': limit, 'offset': (page - 1) * limit})
-        total = (data or {}).get('total')
-        has_more = bool((data or {}).get('more'))
-        hot = [c for c in (_comment(x) for x in (data or {}).get('hotComments') or []) if c]
-        items = [c for c in (_comment(x) for x in (data or {}).get('comments') or []) if c]
-        return {'id': song_id, 'page': page, 'total': total, 'has_more': has_more,
-                'hot': hot if page == 1 else [], 'items': items}
+        hot = [_comment(x) for x in (data or {}).get('hotComments') or []]
+        items = [_comment(x) for x in (data or {}).get('comments') or []]
+        return comments_result(song_id, page, items, hot=hot,
+                               total=(data or {}).get('total'),
+                               has_more=bool((data or {}).get('more')))
 
     '''P9b（2026-11-04）：专辑 by-id 详情（kwqq 插件 album/info 的 netease id 精确分支收编）。'''
     async def album_detail(self, album_id: str) -> dict:
