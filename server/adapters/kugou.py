@@ -10,9 +10,32 @@ import urllib.request
 import urllib.parse
 import gzip
 import io as _io
+from datetime import datetime, timedelta, timezone
 from .base import SourceAdapter, AdapterError
 from ..cache import TTLCache
 from ..quality import resolve as resolve_quality
+
+
+def _kugou_comment_time(v):
+    '''kugou 评论时间：新接口给格式化文本 "YYYY-MM-DD HH:MM:SS"（按东八区），
+       老数据可能是秒/毫秒数字。统一换算成 Unix 秒；文本解析不了时原样保留给 create_time_text。'''
+    if v is None or v == '':
+        return None, None
+    if isinstance(v, (int, float)):
+        n = int(v)
+    else:
+        s = str(v).strip()
+        try:
+            n = int(float(s))
+        except ValueError:
+            try:
+                dt = datetime.strptime(s, '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                return None, s
+            return int(dt.replace(tzinfo=timezone(timedelta(hours=8))).timestamp()), None
+    if n <= 0:
+        return None, None
+    return (n // 1000 if n > 10 ** 11 else n), None
 
 
 def raw_get(url: str, timeout: int = 15) -> str:
@@ -631,10 +654,12 @@ class KugouAdapter(SourceAdapter):
         def _comment(c):
             if not c:
                 return None
+            ts_s, ts_text = _kugou_comment_time(c.get('addtime'))
             return {'id': str(c.get('id') or ''), 'nick_name': c.get('user_name') or '匿名用户',
                     'avatar': c.get('avatar'), 'content': c.get('content') or '',
                     'like': c.get('like') if isinstance(c.get('like'), int) else self._kg_int(c.get('like')),
-                    'created_at': self._kg_int(c.get('addtime')), 'replies': []}
+                    'created_at': (ts_s * 1000) if ts_s else None,
+                    'create_time': ts_s, 'create_time_text': ts_text, 'replies': []}
 
         lst = [c for c in (_comment(x) for x in (data or {}).get('list') or []) if c]
         total = self._kg_int((data or {}).get('total'))

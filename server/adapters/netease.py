@@ -637,9 +637,15 @@ class NeteaseAdapter(SourceAdapter):
             if not c:
                 return None
             user = c.get('user') or {}
+            # netease 的 time 是毫秒；契约统一出 Unix 秒 create_time，created_at 保留毫秒兼容旧客户端。
+            try:
+                ts_ms = int(c.get('time'))
+            except (TypeError, ValueError):
+                ts_ms = None
             return {'id': str(c.get('commentId') or ''), 'nick_name': user.get('nickname') or '匿名用户',
                     'avatar': user.get('avatarUrl'), 'content': c.get('content') or '',
-                    'like': c.get('likedCount'), 'created_at': c.get('time'), 'replies': []}
+                    'like': c.get('likedCount'), 'created_at': ts_ms,
+                    'create_time': (ts_ms // 1000) if ts_ms else None, 'replies': []}
 
         data = await self.run(self._api_get, '/comment/music',
                               {'id': song_id, 'limit': limit, 'offset': (page - 1) * limit})

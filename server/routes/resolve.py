@@ -89,7 +89,24 @@ async def song_info(request: Request, source: str, id: str = Query(..., min_leng
     result, _ = await cached(s.meta_cache, (source, 'info', id),
                              lambda: asyncio.wait_for(adapter.song_info(id, **kwargs),
                                                       timeout=s.settings.hard_timeout_s))
-    return ok(SongInfoData(**result).model_dump())
+    # 词曲编曲：从歌词头部署名行解析（各源独立缓存，失败不影响基本信息）。
+    credits_fn = getattr(adapter, 'credits', None)
+    credits = None
+    if credits_fn is not None:
+        credit_key = ':'.join(str(p) for p in (source, 'credits', id))
+        credits, hit = await cached(s.meta_cache, (source, 'credits', id),
+                                    lambda: asyncio.wait_for(credits_fn(id, **kwargs),
+                                                             timeout=s.settings.hard_timeout_s))
+        if not hit and not (credits and any(credits.values())):
+            # 空结果不占缓存：qianqian 歌词要同进程先搜索、migu 要 copyright，
+            # 瞬时取不到时若按 meta_cache 的 24h TTL 钉死，后续就永远补不上。
+            s.meta_cache.delete(credit_key)
+    if credits and any(credits.values()):
+        result['credits'] = credits
+    data = SongInfoData(**result).model_dump()
+    if not data.get('credits'):
+        data.pop('credits', None)   # 整源不支持时键缺省，不写 null
+    return ok(data)
 
 
 async def lyric(request: Request, source: str, id: str = Query(..., min_length=1),

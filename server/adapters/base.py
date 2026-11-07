@@ -12,6 +12,7 @@ Notes on the execution boundary (K-03):
     - results that finish after their caller gave up are dropped, never delivered
       and never written to a cache.
 '''
+import re
 import time
 import asyncio
 import threading
@@ -25,6 +26,58 @@ class AdapterError(Exception):
     def __init__(self, code: int, msg: str, retry_after: int = None):
         super().__init__(msg)
         self.code, self.msg, self.retry_after = code, msg, retry_after
+
+
+'''词曲编曲统一契约：{lyricist: [], composer: [], arranger: []}（不写 null）。
+   现网实测（2026-11）：六源都没有独立的 credits 接口（netease /api/song/credit、
+   容器 /song/credit 均 404；QQ track_info、酷狗 /audio/related、酷我 songinfo 都无署名），
+   但歌词正文头部普遍带署名行（`作词：周杰伦` / `词 : 唐恬` / `编曲：...`），
+   甚至一行内写多个位（`作词：李瑞洵 作曲：林俊杰`）——故统一从歌词头解析。
+   歌词里没有署名行的曲目返回全空 → routes 层把 credits 键整个缺省。'''
+_CREDIT_TS_PREFIX = re.compile(r'^\s*(?:\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]\s*)+')
+_CREDIT_MARK = re.compile(r'(作词|作曲|编曲|词|曲)\s*[：:]')
+_CREDIT_STOP = re.compile(
+    r'[ \t]*(?:演唱|制作人|监制|出品|发行|录音|混音|母带|和声|配唱|'
+    r'吉他|贝斯|鼓手|键盘|弦乐|作词|作曲|编曲|词|曲)\s*[：:]')
+_CREDIT_FIELDS = {'作词': 'lyricist', '词': 'lyricist',
+                  '作曲': 'composer', '曲': 'composer', '编曲': 'arranger'}
+_CREDIT_SPLIT = re.compile(r'[、,，/;；|｜]+')
+_CREDIT_PLACEHOLDERS = {'佚名', '未知', '不详', '无', '暂无', '-', '—', 'n/a', 'none'}
+
+
+def parse_credits(lyric: str, head_lines: int = 25) -> dict:
+    '''从歌词头部的署名行解析词/曲/编曲；只看前 head_lines 个非空行，避免把
+       正文里偶然出现的「词：」当成署名。支持一行内多个位（`作词：A 作曲：B`）、
+       多值切分、去重、去空白、剔除「佚名/未知」类占位。'''
+    out = {'lyricist': [], 'composer': [], 'arranger': []}
+    if not lyric:
+        return out
+    seen = 0
+    for raw in str(lyric).splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        seen += 1
+        if seen > head_lines:
+            break
+        line = _CREDIT_TS_PREFIX.sub('', line).strip()
+        marks = list(_CREDIT_MARK.finditer(line))
+        if not marks:
+            continue
+        for i, m in enumerate(marks):
+            end = marks[i + 1].start() if i + 1 < len(marks) else len(line)
+            stop = _CREDIT_STOP.search(line, m.end(), end)
+            value = line[m.end():stop.start() if stop else end].strip()
+            field = _CREDIT_FIELDS[m.group(1)]
+            for name in _CREDIT_SPLIT.split(value):
+                name = name.strip().strip('"“”\'')
+                if not name or name.lower() in _CREDIT_PLACEHOLDERS:
+                    continue
+                if len(name) > 40:
+                    continue
+                if name not in out[field]:
+                    out[field].append(name)
+    return out
 
 
 class _Job:
@@ -214,6 +267,15 @@ class SourceAdapter:
        默认无逐字能力；有逐字通道的源（目前 kugou）覆写本方法。'''
     async def lyric_data(self, song_id: str, **kwargs) -> dict:
         return {'lyric': await self.lyric(song_id, **kwargs) or '', 'lxlyric': None}
+
+    '''词曲编曲（2026-11）：契约 {lyricist: [], composer: [], arranger: []}，来源是歌词头部署名行
+       （各源歌词里都有，无需额外接口）。无歌词能力或歌词里没有署名行的源返回全空 →
+       routes 层把 credits 键整个缺省，前端据此隐藏该区块。'''
+    async def credits(self, song_id: str, **kwargs) -> dict:
+        try:
+            return parse_credits(await self.lyric(song_id, **kwargs) or '')
+        except Exception:
+            return parse_credits('')
 
     '''MV 契约：{id, source, url, cover, duration_s, quality}，顶层永远是首个可直接播放的 MV。
        默认无 MV 能力 → url=None（契约要求业务未命中走 url:null，而不是 404/501）。

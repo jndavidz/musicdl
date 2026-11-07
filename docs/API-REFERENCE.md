@@ -1,6 +1,6 @@
 # kw-qq-music-api 接口开发文档
 
-> 版本：1.20 · 更新：2026-11-06 · 源码分支：`api-server`（musicdl 仓库）
+> 版本：1.21 · 更新：2026-11-07 · 源码分支：`api-server`（musicdl 仓库）
 > 服务定位：自托管多源音乐 API —— **六源解析**（酷我/QQ/千千/咪咕/网易云/酷狗）+ **两容器全量曲库透传**（网易云/酷狗生态全覆盖）
 > 计划与决策：见 `docs/KUWO-QQ-API-SERVER-PLAN.md`；快速上手见 `server/README.md`
 
@@ -116,6 +116,22 @@ item 结构：`{id, name, singer, album, ext, size_bytes, duration_s, cover, sou
 | copyright | — | 仅 migu：搜索条目 `extra.copyrightId`（歌词按版权下发，缺省直接返回空歌词） |
 
 成功 `data`：`{id, source, lyric, lxlyric, cached}`。
+
+**song/info 的 `credits`（2026-11-07）**：成功 `data` 额外可带 `credits: {lyricist: string[], composer: string[], arranger: string[]}`。
+
+| 源 | 取数位置（现网实测） | 覆盖 |
+|---|---|---|
+| `netease` | 歌词头部 `作词：… / 作曲：… / 编曲：…` 行 | ✅ |
+| `qq` | 歌词头部 `词：… / 曲：… / 编曲：…` 行 | ✅ |
+| `kugou` | 歌词头部（经容器 `/lyric` 或官方 fallback）同 `词/曲/编曲` 行 | ✅ |
+| `kuwo` | 歌词头部（LRCX/LRC 同源，第 8 行起）`作词：… / 作曲：… / 编曲：…` | ✅ |
+| `migu` | 歌词头部同 `作词/作曲/编曲` 行（`?copyright=` 照常回传） | ✅ |
+| `qianqian` | 歌词头部单行双位 `作词：李瑞洵 作曲：林俊杰`；**仅搜索结果行内带 `lyric` URL 的曲目可解析**（千千无 by-id 歌词通道） | ✅ 有条件 |
+
+- 六源均**无独立 credits 接口**（netease `/api/song/credit`、容器 `/song/credit` 均 404；QQ track_info 无署名；酷狗 `/audio/related` 只有 authors/works；酷我 songinfo 无署名），故统一在歌词解析阶段抽取（**歌词正文本身不改**）。将来若某源出现结构化接口，按「接口优先、歌词头补空位」合并。
+- 取不到的字段返回**空数组**（不写 `null`）；歌词前 25 个非空行里没有任何署名行时 **`credits` 键整个缺省**。
+- 支持一行内多个位（`作词：A 作曲：B 编曲：C`，全角/半角/英文冒号均可）；多值按 `/、，,;；|｜` 切分，去空白去重；剔除 `佚名/未知/不详/无/暂无/-/—/N/A/none` 类占位。
+- 该字段来自歌词解析，因此 `/{source}/song/info` 与 `/{source}/lyric` 的可用性绑定（`?copyright=` 等参数同样适用）。
 
 - `lxlyric`：**逐字歌词**，字符串，可为 `null`。格式为洛雪逐字格式——每行 `[mm:ss.mmm]` 行时间戳 + 逐字 `<偏移ms,时长ms>文本`，偏移**相对行首**（与 songloft 播放器/TV 解析器、LX Music 一致）。字段名固定，客户端按此消费。
 - **逐字源与实测覆盖率（2026-11-06 现网抽样，仅记条数/长度，不记歌词正文）**：
@@ -487,6 +503,14 @@ GET /{source}/toplists|toplist/songs|playlist/tags|sheets|songs  → netease/kug
 - 全部走统一 Envelope + schema；501 缺省（base）；kugou 曲目 id=hash（rank/audio hash_320 优先降档）、歌单 id=gid、import item id=mixsongid（media 链实测可解析）。
 - kugou specialid→gid 换算（/playlist/detail）现网稳定返回空 data（疑似需登录态）→ import/sheet 对纯数字 specialid 报 404 引导 collection_… 形态。
 - netease 评论 IComment 归一（nick_name/content/created_at snake_case → 消费方转 camelCase）。
+- **评论发布时间（2026-11-07）**：`CommentEntry` 新增 `create_time`（**Unix 秒**）与 `create_time_text`（仅当上游只有格式化文本、解析不出秒时才有）。
+
+  | 源 | 上游字段 | 量级/处理 | 覆盖 |
+  |---|---|---|---|
+  | `netease` | `comments[].time` | **毫秒** → `create_time = time//1000`（`created_at` 保留毫秒） | ✅ |
+  | `kugou` | `list[].addtime` | **格式化文本** `YYYY-MM-DD HH:MM:SS`（东八区）→ 转 Unix 秒；数字秒/毫秒也兼容 | ✅ |
+
+  qq / kuwo / migu / qianqian 的门面 `/comments` 尚未实现（base 501），不返回该字段（不伪造）。
 - **透传族收缩后仅剩**：云盘 user/cloud、登录态端点、VIP（/kugou/vip/*）、排错转发。
 - 2026-11-04 扩源：`artist` / `artist/works` 已实现 **qq（fcg `get_singer_detail_info` / `get_singer_album`，id=singerMID）与 kuwo（`search.kuwo.cn/r.s` 的 `artistinfo` / `artist2music` / `albumlist`，id=数字 artistid）**；qq 的 `search/multi?type=artist` 返回 `id=singerMID`（数字 singerID 无对应作品端点）。**qianqian** 补 `artist/works?type=music`（官方签名 `/v1/artist/song`，id=artistCode；与 MusicFree 同口径）——上游无「歌手专辑列表」通道，`type=album` 返回空集合（`total=0/is_end=true`，**不是 501**）。**migu 保持 501**：MusicFree 未实现 `getArtistWorks`，migu 亦无歌手作品聚合端点（能力缺省按 501 如实标注，不造假数据）。QQ `playlist/tags` 的分组标题取 `categoryGroupName`（`categoryName` 在分组层为空），pinned 取各组前 6 个标签。
 
@@ -616,6 +640,7 @@ server/tests/test_smoke.py <url> [--auth K:] # 冒烟默认档（含 netease 与
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-11-07 | 1.21 | 数据侧两项：①`CommentEntry` 新增 `create_time`（Unix 秒）+ `create_time_text`（netease `time` 毫秒换算；kugou `addtime` 文本按东八区解析、解析不出才落 text）；②`/{source}/song/info` 新增 `credits:{lyricist[],composer[],arranger[]}`（六源均无独立 credits 接口 → 统一从歌词头部署名行解析；netease/qq/kugou/kuwo/migu 常规可用，qianqian 仅限搜索行内带歌词 URL 的曲目；支持一行双位、全角/半角冒号、多值切分去重、剔除佚名/未知占位；空字段返回空数组、不写 null，无署名行时键缺省，空结果不占 24h 缓存）。既有字段名与形状均未改动 |
 | 2026-11-06 | 1.20 | +`/{source}/search?type=mv`（MV/视频搜索：`data={source,type,keywords,page,total,items}`，item 与 §4.11 MvItem 同构、`url` 恒 null，点击后按 `id` 走 `/mv` 现取；`type=music` 默认行为与歌曲搜索字段完全不变；migu/qianqian/bilibili 501）。`id` 口径对齐 `/mv?id=`：netease=mvid、qq=mid、kugou=FileHash、kuwo=在架 MV id。**酷我 MV 更正**：上一版判"无匿名通道"不成立——匿名通道在 `m.kuwo.cn/newh5app/wapi/**`（`www.kuwo.cn/api/**` 被 WAF 恒回 `The request is illegal!`，前端 Secret 算法复刻无效）；但酷我已把**歌曲关联 MV 全量下线**（`mvpayinfo.vid` 走 `playUrl` 恒 `code:-1001`），故 `/{source}/mv` 改从**在架 MV 目录**（9 分类 `mvList` ≈2400 条，直链全可播）取址；MV 搜索按目录本地检索，从源头保证"搜到的都能点开" |
 | 2026-11-06 | 1.19 | +`/{source}/mv`（歌曲 MV：顶层恒为首个可直接播放项 `{id,source,url,cover,duration_s,quality}`，可选 `items`；无 MV 走 HTTP 200 + `url:null`，不做 404/空对象）。实测可用源：netease（`/mv/detail`+`/mv/url`，r 为上限）、qq（`vv.video.qq.com/getinfo` 的 `<fvkey>` 拼链）、kugou（容器 `/search?type=mv` 按 FileHash 精确对齐 + `/video/detail`+`/video/url` 逐档 mp4）；kuwo/migu/qianqian 无匿名 MV 通道 → `url:null`。全部为 mp4 直链（三源均无 m3u8）；签名短链不缓存、客户端每次现取 |
 | 2026-10-29 | 1.9 | +`POST /v2/playback/resolve`（K-01：TrackRef 身份契约、`X-Service-Token` scoped 服务凭证、结构化缓存键含身份/策略/凭据代次）；bilibili v2 支持受验证 cid/page（不再固定 pages[0]），`/song/info` 回传 `extra.cid/page` + `raw.pages`；migu 保留 contentId+copyrightId；v1 全部端点与 ekey 下载契约不变 |

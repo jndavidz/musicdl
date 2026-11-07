@@ -430,3 +430,28 @@
 - netease `/search?type=1004` 只接受**同名**命中（否则命中访谈/翻唱），仅作 `/song/detail` 无 mvid 时的退路，且须 title 归一相等 + artist 包含。
 
 **有效期策略**：三源链接均为短时效签名（netease `wsTime` ≈ 请求时刻、QQ `fvkey` 现取、kugou CDN 路径）→ **服务端不做缓存，客户端每次点击现取**（门面路由不写 TTL 缓存）。
+
+## 13. 元数据通道 —— 评论发布时间 / 词曲编曲（2026-11-07 全量只读实测）
+
+门面契约见 `docs/API-REFERENCE.md` §4.3（`credits`）与 §5.1c（`create_time`）。探测脚本在 `.state/probe_times.py` / `probe_kugou.py` / `probe_credits*.py`。
+
+**评论发布时间**（有 `/comments` 通道的源才探测）
+
+| 源 | 通道 | 时间字段 | 量级/形态 | 结论 |
+|---|---|---|---|---|
+| netease | ncm 容器 `/comment/music?id=&limit=` | `comments[].time` | **毫秒**整数 | ✅ → `create_time = time//1000` |
+| kugou | 容器 `/comment/music?mixsongid=&page=&pagesize=&folder=0` | `list[].addtime` | **格式化文本** `YYYY-MM-DD HH:MM:SS`（东八区），非数字 | ✅ → 按 +08:00 解析成 Unix 秒；解析失败才落 `create_time_text` |
+| qq / kuwo / migu / qianqian | 门面 `/comments` 未实现（base 501） | — | — | 本期不接，不伪造 |
+
+**词曲编曲（credits）**：六源全部**没有独立 credits 接口**（netease `music.163.com/api/song/credit` 与容器 `/song/credit` 均 404；QQ `pf_song_detail_svr` track_info 无作词/作曲字段；kugou `/audio/related` 只有 `authors`(歌手) 与 `works`；酷我 `songinfoandlrc` 的 `songinfo` 无署名；migu/qianqian 也无结构化署名接口）。**但各源歌词头部都内嵌署名行**，故统一从歌词解析（`base.parse_credits`）：
+
+| 源 | 实测样例文本（头部） | 字段 | 覆盖 |
+|---|---|---|---|
+| netease | `作词 : 方文山` / `作曲 : 周杰伦` / `编曲 : 洪敬尧`（ASCII 空格+半角冒号） | 作词/作曲/编曲 | ✅ |
+| qq | `词：唐恬` / `曲：…` / `编曲：…`（全角冒号） | 词/曲/编曲 | ✅ |
+| kugou | 同上（容器 `/lyric` 或官方 fallback 的 LRC 头） | 词/曲/编曲 | ✅ |
+| kuwo | `作词：…` / `作曲：…` / `编曲：…`（h5 `songinfoandlrc` 的 `lrclist`，第 8 行起） | 作词/作曲/编曲 | ✅ |
+| migu | `作词 : …`（歌词通道同款署名行，`?copyright=` 照常回传） | 作词/作曲（编曲常缺） | ✅ |
+| qianqian | **单行双位** `作词：李瑞洵 作曲：林俊杰`（江南 T10063528778 实抓）；晴天 `T10065400429` 等结果行不带歌词 URL → 无署名 | 作词/作曲 | ✅ 有条件 |
+
+> 探测证据：netease/kuwo 的歌词头署名行已实抓到（`作词 : ` / `作词：`）；qq/kugou 的 `词：`/`曲：`/`编曲：` 行同样实抓；migu 走容器解密后的歌词内容同样命中；qianqian 是单行内「作词… 作曲…」两段，解析器按位切段。**只在歌词前 25 个非空行内识别**，避免正文误命中；支持全角/半角/英文冒号、一行多位、`/、，,;；|｜` 多值与「佚名/未知」占位剔除。

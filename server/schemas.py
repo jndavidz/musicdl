@@ -125,6 +125,9 @@ class SongInfoData(BaseModel):
     album: Optional[str] = None
     duration_s: Optional[int] = None
     cover: Optional[str] = None
+    # 词曲编曲：{lyricist: [], composer: [], arranger: []}（每项都是数组，取不到的留空数组，
+    # 不写 null；整源无此能力时 routes 层整个键缺省）。来源是歌词头部的署名行（见 base.parse_credits）。
+    credits: Optional[dict] = None
     # identity fields the client should pass back to the v2 playback contract
     # (e.g. bilibili verified cid/page for the selected part)
     extra: dict = {}
@@ -358,7 +361,11 @@ class CommentEntry(BaseModel):
     avatar: Optional[str] = None
     content: Optional[str] = None
     like: Optional[int] = None
-    created_at: Optional[int] = None   # 毫秒时间戳
+    created_at: Optional[int] = None   # 毫秒时间戳（历史字段，保留兼容）
+    # 统一发布时间契约（2026-11）：Unix 秒。上游是毫秒的来源由 adapter 换算，
+    # 只给格式化文本的来源（酷狗 addtime）尽力解析成秒，解析不了才落到 create_time_text。
+    create_time: Optional[int] = None
+    create_time_text: Optional[str] = None
     replies: List[dict] = []
 
 
