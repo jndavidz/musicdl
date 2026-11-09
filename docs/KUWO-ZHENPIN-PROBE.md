@@ -1,6 +1,6 @@
 # 酷我臻品（ZhenPin）匿名直出探测报告
 
-> 探测日期：2026-09-07
+> 探测日期：2026-09-07（§2/§5.5 已按 2026-11-10 复测更新，复测方法=匿名 curl，无凭据）
 > 触发物：D:\temp\kuwo 下的 MITM 重写脚本 + 4 个"会员版" APK
 > 结论一句话：**酷我臻品音质（mflac/kmgg）可匿名直连 nmobi 获取，无需会员、无需 Cookie、无需 APK。**
 > 仓库改动：无（本文档为唯一产出，其余全部为探测性临时文件，已清理）
@@ -80,30 +80,41 @@ http://musicpay.kuwo.cn/music.pay?newver=3&op=query&action=play&ids={rid}
 
 - **`op=query`** 是有效命名空间（`op=play/download/url/getinfo` 全部返回 `Invalid op`）
 - **`ids=`** 才是 id 参数（`rid=` 返回空 songs）
+- **批量预检（2026-11-10 实测）**：`ids=228908,3209103,94237` 逗号分隔一次返回多首 —— 歌单级预检只需一次请求
 - `op=bought&ptype=vip&signver=new` 也有效（返回 user 数组）
 - `op=check` 报 `require data`，data 格式未破解，不影响主链路
 
-响应关键字段（以 228908 为例）：
+响应关键字段（2026-11-10 实测，以 228908 为例）：
 
 ```json
 {
   "songs": [{
     "MINFO":  "level:ff,bitrate:2000,format:flac,size:52.83Mb;...",      // 明文档位
-    "N_MINFO":"level:bcms,bitrate:22000,format:mgg;level:zply,bitrate:20900,format:mflac;
-               level:zpga501,bitrate:20501;level:zpga201,bitrate:20201;
+    "N_MINFO":"level:bcms,bitrate:22000,format:mgg;level:zply,bitrate:20900,format:mflac,size:178.32Mb;
+               level:zpga501,bitrate:20501,format:mflac;level:zpga201,bitrate:20201,format:mflac;
                level:zpga714,bitrate:24000,format:mgg;level:dtsx,bitrate:25000,format:mmp4",  // 臻品档位
     "audio": [{"policy":"vip","st":102,"avaliable":1, "token":...}],
-    "token": {"AR501":..,"BCMS":..,"DB":..,"DTSX":..,"F":..,"H":..,"HR":..},
+    "token": {"AR501":..,"BCMS":..,"DB":..,"DTSX":..,"F":..,"H":..,"HR":..,
+              "L":..,"S":..,"VINYL":..,"ZP":..,"ZPGA201":..,"ZPGA501":..,"ZPGA714":..,"ZPLY":..},
     "payInfo":{"cannotDownload":0,"cannotOnlinePlay":0,"feeType":{"song":"1","vip":"1"},
-               "local_encrypt":"1","nplay":"111111111111"},
+               "local_encrypt":"1","nplay":"111111111111",
+               "paytagindex":{"L":0,"H":1,"S":2,"F":3,"HR":4,"DB":7,"ZP":6,
+                              "AR501":8,"ZPGA201":9,"ZPGA501":10,"ZPLY":11}},
     "pay":16711935, "tpay":1, "fpay":1, "paytype":3
   }],
   "user": []
 }
 ```
 
-**N_MINFO 的价值**：它是"这首歌有哪些臻品档"的权威清单（`zply`/`zpga201`/`zpga501`/`zpga714`/`bcms`/`dtsx`），
-可用来在请求前判断某首是否值得发起 20900kmflac 请求，避免无效调用。
+- **token 键 2026-11-10 实测 15 个**（2026-09-07 时为 7 个，新增 L/S/VINYL/ZP/ZPGA201/ZPGA501/ZPGA714/ZPLY）
+- **`payInfo.paytagindex` 为 2026-11-10 新观察字段**：档位名 → `audio[]` 下标映射（ZPLY:11）
+- **`audio[]` 的 `st` 出现 502 值**（2026-09-07 只记录到 102）
+- **解析陷阱**：N_MINFO 末尾恒有占位条目 `level:zp,bitrate:20000,format:zp,size:zpMb` —— 非真实档位，
+  解析必须按 `format:mflac/mgg` 过滤，不能只看 level 名
+
+**N_MINFO 的价值（2026-11-10 实测定案）**：`N_MINFO 含 level:zply ⇔ 20900kmflac 可匿名直出母带`，
+不含 zply 的曲（如 389445991）请求 20900kmflac 必降档（实测降 100k ogg）。判据在响应层与真实下发
+之间强相关（4 首对照全命中），可用于请求前拦截必败调用；`size` 字段（如 178.32Mb）可提前给体积预期。
 
 **鉴权语义（见 §4）**：`policy=vip, st=102, tpay=1` 全部来自匿名请求 —— 说明 music.pay 也不做身份校验，
 它只是"报价单"，不是"通行证"。
@@ -239,19 +250,21 @@ webgui 按 MB/min 分级（`examples/musicdlwebgui/app.py`）：
 2. webgui 的"hires=24bit/96kHz"理想规格（20-35 MB/min）在酷我**没有对应档位**——
    酷我从 44.1k/16bit 直接跳到 192k/24bit，无 96k 中间档（已穷举 dex 档位表 + 实测确认）
 
-### 5.5 关于"至臻音质2.0 = 96kHz"的澄清（2026-09-07 联网核实 + 实测）
+### 5.5 关于"至臻音质2.0 = 96kHz"的澄清（2026-09-07 联网核实 + 实测；降档结论已按 2026-11-10 复测更新）
 
 官方宣传确有"至臻音质2.0，采样率从 44.1kHz 提升至 96kHz"（凤凰网/今日头条等多源），且 `kmflac` 是其中的音质档位名。
 但**服务端不存在独立可请求的 96kHz `br` 参数**，实测证据：
 
-- 对 `rid=228908/3209103/93157` 等试 `9600kmflac` `9600kflac` `96000kmflac` `96kmflac` `96khmflac` `19200kmflac` `192khmflac` `10000kflac` 等共 9 个候选 —— **全部被服务端忽略，回退到该曲"默认臻品最高档"**：
-  - 228908（晴天，无臻品源）→ 回退 `br=128` mp3
-  - 3209103（江南）→ 回退 `br=20201`（即 `20201kmflac` 2ch/44.1k）
-  - 93157（江南另一版）→ 回退 `br=20900`（即 `20900kmflac`）
+- 对 `rid=228908/3209103/93157` 等试 `9600kmflac` `9600kflac` `96000kmflac` `96kmflac` `96khmflac` `19200kmflac` `192khmflac` `10000kflac` 等共 9 个候选 —— **全部被服务端忽略，回退到该曲"默认臻品最高档"**
 - 下载《晴天》`20900kmflac` 完整文件 → QMC 解密 → 真实 `fLaC 192000Hz/24bit/2ch`（**192kHz，非 96kHz**）
-- 部分歌曲（七里香/稻香/告白气球/夜曲）走 `20900kmflac` 时服务端**直接降回低码率**（48 aac / 99 mp3 / 192 mp3）—— 这些曲库无臻品母带源
 
-**结论**："至臻音质2.0"是官方产品概念，技术实现上复用 `20900kmflac` 通道，**实际采样率由服务端按曲库母带源下发**（有的 192k、有的更低、有的根本无源降档）。
+**无源降档是逐曲的，不是常态（2026-11-10 复测）**：
+
+- 2026-09-07 时晴天/江南/七里香等热门曲走 `20900kmflac` 曾降档（128 mp3 / 20201 / 低码率），当时判"热门曲无源"。
+- 2026-11-10 复测：228908（晴天）/3209103（江南）/94237（七里香）N_MINFO 均含 `zply` 且 `20900kmflac` 真实下发 20900 mflac+ekey —— **臻品曲库已扩容，热门曲无源降档不再是常态**。
+- 仍存在无源曲：389445991（七里香 2023 演唱会天津站）N_MINFO 无 zply，`20900kmflac` 实测降 100k ogg —— 逐曲预检（见 §2 zply 判据）仍必要。
+
+**结论**："至臻音质2.0"是官方产品概念，技术实现上复用 `20900kmflac` 通道，**实际采样率由服务端按曲库母带源下发**（有源 192k、无源降档，逐曲不同）。
 不存在 `br=96kxxx` 这一独立请求档；文档"无 96k 中间档"的结论成立，修正其原因为"非独立参数，按曲源下发"。
 
 ### 5.4 用户已定的命名方案（已落地）

@@ -80,7 +80,7 @@
 |------|------|------|------|------|
 | **`nmobi.kuwo.cn/mobi.s?f=web&type=convert_url_with_sign&rid=&br=`** | 精确档位（320kmp3→真320；2000kflac→无损；**20900kmflac→192k/24bit母带+ekey**；**20501kmflac→44.1k/16bit/6ch全景声+ekey**） | 无 | ✅ 主力直出 ~120ms 不降档；臻品档 2026-09-07 探明（详见 `KUWO-ZHENPIN-PROBE.md`） | 🟢 |
 | `mobi.kuwo.cn/mobi.s?f=kuwo&q=<des加密>`（convert_url2） | 会静默降档 | 无（内置密钥 ylzsxkwm） | ✅ 备胎 | 🟢 |
-| `musicpay.kuwo.cn/music.pay?newver=3&op=query&action=play&ids=` | 臻品档位元数据（N_MINFO/audio[]/token） | 无 | ✅ 2026-09-07 探明：匿名报价单，op 必须 `query`、id 参数必须 `ids` | 🟢 |
+| `musicpay.kuwo.cn/music.pay?newver=3&op=query&action=play&ids=` | 臻品档位元数据（N_MINFO/audio[]/token） | 无 | ✅ 2026-09-07 探明：匿名报价单，op 必须 `query`、id 参数必须 `ids`；**2026-11-10 复测存活且支持批量 ids（逗号分隔一次多首）**，`N_MINFO 含 zply ⇔ 20900kmflac 可直出`判据 4 首对照全命中（含反向：无 zply 实降 100k ogg），详见 `KUWO-ZHENPIN-PROBE.md` §2 | 🟢 |
 | `music.nxinxz.com/kw.php?id=&level=` | lossless/exhigh/standard | 无 | ✅ 稳定 | 🟢 第三方链 |
 | **`music.haitangw.cc/music/kw.php?id=&level=`**（⚠️ 插件内置 /music1/ 为死路径） | lossless=FLAC / exhigh=320k | 无 | ✅ 2026-08-23 修正路径后可用 | 🟢 兜底 |
 | `kw-api.cenguigui.cn/?id=&level=` | lossless | 无 | ⚠️ 连接失败（间歇） | 🟢 musicdl l2 |
@@ -106,6 +106,8 @@
 
 - **鉴权三层结论**：①客户端 UI 闸门（LSPosed hook 的打击面）②music.pay 报价接口（匿名可查，`policy=vip/st=102` 只是标记）③**nmobi 直链下发不做身份校验** —— musicdl 直打第③层，`user=0` 全档通过，无需会员/Cookie/APK
 - **命名陷阱**：臻品档必须带 `m` 前缀（`20900kflac` 漏 m 会静默降 128k）
+- **N_MINFO 解析陷阱（2026-11-10）**：末尾恒有占位条目 `level:zp,bitrate:20000,format:zp,size:zpMb`，非真实档位——解析须按 `format:mflac/mgg` 过滤，不能只看 level 名
+- **zply 预检判据（2026-11-10 复测）**：`N_MINFO 含 level:zply ⇔ 20900kmflac 可匿名直出母带`，4 首对照全命中（含反向：389445991 无 zply → 实降 100k ogg）；批量 `ids=` 一次可查多首；token 键 15 个、`payInfo.paytagindex` 为新观察字段。臻品曲库较 09-07 已扩容（晴天/江南/七里香现均有源），无源降档是逐曲的、非常态
 - **URL 时效**：数分钟级，必须现取现下（二段式天然契合）
 - 落地：`server/adapters/kuwo.py` `ZHENPIN_BR` + `parser=nmobi.zhenpin`；响应新增 `ekey` 字段，下载侧 `KuwoQmcDecryptor` 解密为 flac
 
