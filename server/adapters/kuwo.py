@@ -2,7 +2,9 @@
 Function:
     Kuwo adapter: mobi.s official direct (fast) with bitrate guard -> third-party chain fallback.
 '''
+import asyncio
 import re
+import threading
 import time
 from .base import (SourceAdapter, AdapterError, comment_time, comments_result,
                    match_title_artist, normalize_comment, to_int)
@@ -66,6 +68,85 @@ class KuwoAdapter(SourceAdapter):
         'flac': '2000kflac',           # flac 44.1kHz/16bit/2ch plaintext (~1647kbps real)
     }
     ZHENPIN_EXTS = {'mflac': 'flac', 'mgg': 'ogg'}  # post-decrypt container per native format
+
+    '''music.pay 臻品预检（2026-11-10 探测定案，docs/KUWO-ZHENPIN-PROBE.md §2）：
+       N_MINFO 含 level:zply ⇔ 20900kmflac 可匿名直出母带（4 首对照含反向全命中），
+       zpga501 同理对应 20501kmflac。端点匿名零 Cookie、批量 ids 一次多首、
+       ~10KB/首 ~60ms——与 nmobi 并行双发时被主路径（~120ms）完全遮蔽。'''
+    MUSICPAY_URL = 'http://musicpay.kuwo.cn/music.pay'
+    '''br 参数 → N_MINFO level 判据（仅带 ekey 的臻品档；flac 明文档无独立判据，不预检）'''
+    ZHENPIN_PROBE_LEVEL = {'20900kmflac': 'zply', '20501kmflac': 'zpga501'}
+    MUSICPAY_TTL_S = 6 * 3600     # 曲库扩容是慢变量，与 _kw_mv_catalog 同节奏
+    _musicpay_cache = {}          # rid -> (time.monotonic(), frozenset(levels))，类级进程内（workers=1）
+    _musicpay_lock = threading.Lock()
+
+    @staticmethod
+    def _parse_nminfo(minfo) -> frozenset:
+        '''N_MINFO 文本 → 真实档位 level 集合。段间 ';'、段内 k:v 用 ',' 分隔；
+           末尾恒有占位条目 level:zp,format:zp（非真实档位），按 format!='zp' 剔除。'''
+        levels = set()
+        for seg in str(minfo or '').split(';'):
+            fields = {}
+            for kv in seg.split(','):
+                k, _, v = kv.partition(':')
+                if k.strip() and v.strip():
+                    fields[k.strip()] = v.strip()
+            level, fmt = fields.get('level'), fields.get('format')
+            if level and fmt and fmt != 'zp':
+                levels.add(level)
+        return frozenset(levels)
+
+    def _musicpay_fetch(self, rids: list) -> dict:
+        '''一次匿名批量 music.pay 请求 → {rid: frozenset(levels)}（op 必须 query、参数必须 ids）'''
+        rids = [str(r) for r in rids][:50]   # URL 长度防御；单曲调用恒为 1 个
+        url = f'{self.MUSICPAY_URL}?newver=3&op=query&action=play&ids={",".join(rids)}'
+        resp = self.client.get(url, headers={'user-agent': 'okhttp/4.10.0'}, timeout=self.io_timeout)
+        payload = resp.json() if resp and hasattr(resp, 'json') else {}
+        return {str(s['id']): self._parse_nminfo(s.get('N_MINFO'))
+                for s in (payload.get('songs') or []) if s.get('id')}
+
+    @classmethod
+    def _musicpay_cached(cls, rid) -> frozenset | None:
+        '''TTL 内的缓存读（event-loop 线程；dict.get 原子，写侧持锁即可）'''
+        hit = cls._musicpay_cache.get(str(rid))
+        return hit[1] if hit and time.monotonic() - hit[0] < cls.MUSICPAY_TTL_S else None
+
+    async def _musicpay_levels(self, rids: list) -> dict:
+        '''带缓存的批量预检。缺缓存项走 run_guarded（429 冷却按逻辑名 kuwo:musicpay.probe 记）；
+           上游/解析异常向上抛——调用方负责降级，预检绝不阻塞主解析路径。'''
+        missing = [r for r in map(str, rids) if self._musicpay_cached(r) is None]
+        if missing:
+            fetched = await self.run_guarded('kuwo:musicpay.probe', self._musicpay_fetch, missing)
+            ts = time.monotonic()
+            with self._musicpay_lock:
+                for rid, levels in fetched.items():
+                    type(self)._musicpay_cache[rid] = (ts, levels)
+        return {str(r): (self._musicpay_cached(r) or frozenset()) for r in rids}
+
+    async def _zhenpin_direct_with_probe(self, song_id: str, br: str, need_level: str):
+        '''臻品档取链：判据已在缓存时单发 nmobi（无 level 的拦截在 song_url 提前完成）；
+           未命中则 nmobi 与 music.pay 预检并行双发，预检失败静默降级为 None——
+           降级后按 nmobi 实测判断，与历史行为一致。返回 (direct, levels|None)。'''
+        cached = self._musicpay_cached(song_id) if need_level else None
+        if cached is not None or not need_level:
+            return await self.run(self._nmobi_direct, song_id, br), cached
+
+        async def _probe():
+            try:
+                return (await self._musicpay_levels([song_id])).get(str(song_id))
+            except Exception:
+                return None   # 429/网络/解析失败 → 降级，绝不阻塞主路径
+        direct, levels = await asyncio.gather(
+            self.run(self._nmobi_direct, song_id, br), _probe())
+        return direct, levels
+
+    '''lossless 第三方链兜底收尾（ZHENPIN 分支两处复用；note 追加到 404 便于归因）'''
+    async def _thirdparty_lossless(self, song_id: str, q: str, t0: float, note: str = ''):
+        info = await self.run(self._via_thirdparty, song_id)
+        if not (info.with_valid_download_url and info.ext in LOSSLESS_EXTS):
+            raise AdapterError(404, f'no {q} source found{note}')
+        return self.urldata_from_songinfo(song_id, q, info, round((time.perf_counter() - t0) * 1000),
+                                          platform_tag='第三方链无损')
 
     '''third-party parse chain by minimal search_result dict'''
     def _via_thirdparty(self, song_id: str):
@@ -147,8 +228,9 @@ class KuwoAdapter(SourceAdapter):
         return {'url': status.get('download_url') or url, 'ext': status.get('ext')}
 
     '''quality routing per plan §3.4 (revised by stage-0 spike + 2026-08-12 endpoint probe;
-       + zhenpin tiers 2026-09-07, docs/KUWO-ZHENPIN-PROBE.md):
-       - master/surround51: nmobi zhenpin br (anonymous, mflac+ekey) -> decrypt to flac
+       + zhenpin tiers 2026-09-07, docs/KUWO-ZHENPIN-PROBE.md; + musicpay probe 2026-11-10):
+       - master/surround51: musicpay N_MINFO probe (parallel with nmobi; cache-hit no-level
+         skips the doomed request entirely) -> nmobi zhenpin br (anonymous, mflac+ekey) -> decrypt to flac
        - flac/hires: nmobi 2000kflac first (ENABLE_LOSSLESS gate), then third-party chain
        - auto/320k/128k: nmobi plain API first (no silent downgrade), then mobi.s encrypted
          sibling, then third-party chain; keep whichever candidate has more bandwidth.'''
@@ -159,15 +241,21 @@ class KuwoAdapter(SourceAdapter):
             raise AdapterError(403, LOSSLESS_MSG)
         if q in self.ZHENPIN_BR:
             br = self.ZHENPIN_BR[q]
-            direct = await self.run(self._nmobi_direct, song_id, br)
+            need_level = self.ZHENPIN_PROBE_LEVEL.get(br)
+            # probe fast path (判据缓存命中): 无对应 level = master 必败，不发 nmobi 直接第三方链
+            if need_level:
+                cached = self._musicpay_cached(song_id)
+                if cached is not None and need_level not in cached:
+                    return await self._thirdparty_lossless(
+                        song_id, q, t0, note=f' (musicpay probe: no {need_level})')
+            direct, levels = await self._zhenpin_direct_with_probe(song_id, br, need_level)
             if direct and direct.get('ekey'):
                 return await self._finalize_direct(song_id, q, direct, t0, 'nmobi.zhenpin', platform_tag=br)
             if direct and direct['bitrate'] >= 900:  # plaintext fallback (no ekey = already unencrypted)
                 return await self._finalize_direct(song_id, q, direct, t0, 'nmobi.zhenpin.plain', platform_tag=br)
-            info = await self.run(self._via_thirdparty, song_id)
-            if not (info.with_valid_download_url and info.ext in LOSSLESS_EXTS): raise AdapterError(404, f'no {q} source found')
-            return self.urldata_from_songinfo(song_id, q, info, round((time.perf_counter() - t0) * 1000),
-                                              platform_tag='第三方链无损')
+            note = f' (musicpay probe: no {need_level})' if (
+                need_level and levels is not None and need_level not in levels) else ''
+            return await self._thirdparty_lossless(song_id, q, t0, note=note)
 
         if q in {'flac', 'hires'}:
             lossless_br = '20000kflac' if q == 'hires' else '2000kflac'

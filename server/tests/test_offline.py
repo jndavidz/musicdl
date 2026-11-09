@@ -312,6 +312,22 @@ else:
     check('webgui/server kuwo tag tables consistent', False,
           f'extract failed: webgui={bool(webgui_tier)} server={bool(server_tag)}')
 
+# ---- section 5b: musicpay zhenpin probe parser (2026-11-10, docs/KUWO-ZHENPIN-PROBE.md §2) ----
+from server.adapters.kuwo import KuwoAdapter
+
+_NMI = ('level:ff,bitrate:2000,format:flac,size:52.83Mb;'
+        'level:zply,bitrate:20900,format:mflac,size:178.32Mb;'
+        'level:zpga501,bitrate:20501,format:mflac;'
+        'level:zp,bitrate:20000,format:zp,size:zpMb')   # 末尾占位条目，解析必须剔除
+check('nminfo: real levels kept, zp placeholder excluded',
+      KuwoAdapter._parse_nminfo(_NMI) == frozenset({'ff', 'zply', 'zpga501'}),
+      str(sorted(KuwoAdapter._parse_nminfo(_NMI))))
+check('nminfo: empty/None -> empty set (probe degrade safe)',
+      KuwoAdapter._parse_nminfo('') == frozenset() and KuwoAdapter._parse_nminfo(None) == frozenset())
+check('nminfo: probe level table maps only ekey zhenpin tiers',
+      KuwoAdapter.ZHENPIN_PROBE_LEVEL == {'20900kmflac': 'zply', '20501kmflac': 'zpga501'},
+      str(KuwoAdapter.ZHENPIN_PROBE_LEVEL))
+
 # ---- section 6: /metrics exposition + untrusted-only rate limit (roadmap C1/C2) ----
 app3 = create_app(Settings(env={'API_KEY': '', 'RATE_LIMIT': '3/minute', 'TRUSTED_NETWORKS': ''}))
 base3, server3 = start_app(app3)
