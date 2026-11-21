@@ -2,13 +2,18 @@
 # deploy/deploy.sh — musicdl NAS 部署（镜像在 WSL 侧构建 → 传到 NAS → compose up）
 # 单镜像双容器：musicdl:latest 同时承载 api(:3003) 与 webgui(:3004)。
 # 前提：在 **WSL 内**运行（docker 只在 WSL；NAS 免密 ssh 从 WSL 可用）。
-#       NAS 的 docker 在 /usr/local/bin/docker；NAS compose 与仓库 compose 是两份文件，
-#       NAS 侧保留自己的 API_KEY / ENABLE_LOSSLESS=true（本脚本不覆盖 compose）。
+#       NAS 的 docker 在 /usr/local/bin/docker。
+# 规则（2026-11-21 用户定）：**代码库是唯一权威**——NAS compose 形态以仓库为准，
+#       NAS 出现仓库没有的配置行 = 漂移，先回写仓库再部署；凭据只以 .env 值存在于 NAS。
+#       本脚本第一步跑 deploy/preflight.sh，非零即中止。
 # 坑位记录：构建必须在 WSL（DS416play 上构建极慢）；镜像经 WSL 内直管管道传输，
 #       不要用 wsl.exe 把二进制导到 Windows 再转发（wsl.exe 会损坏二进制流）。
 # 用法（WSL）：cd /mnt/d/_work/repos/musicdl && bash deploy/deploy.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+echo "[0/6] preflight：漂移 + 必填 .env 键检查（仓库为唯一权威）"
+bash deploy/preflight.sh
 
 NAS="zxsadmin@10.10.10.2"
 NAS_DIR="/volume2/docker/musicdl-api"

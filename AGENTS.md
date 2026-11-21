@@ -88,3 +88,9 @@ Issues are local markdown files under `.scratch/<feature>/`. See `docs/agents/is
 ### Domain docs
 
 Single-context: `GLOSSARY.md` at repo root + `docs/adr/`. See `docs/agents/domain.md`.
+
+## 部署唯一权威（铁律，2026-11-21）
+
+- **代码库是唯一权威**：NAS 的 `docker-compose.yml` 形态以 `deploy/docker-compose.yml` 为准；NAS 出现仓库没有的配置行 = 漂移，先回写仓库再部署。
+- **部署脚本以仓库为唯一权威**：`deploy/deploy.sh` 先跑 `deploy/preflight.sh`（漂移 + 必填键检查），非零即中止。
+- ⚠️ **当前债务（2026-11-21 记录）**：NAS compose 仍内联 `API_KEY` / `SERVICE_TOKENS` 且 `ENABLE_LOSSLESS=true`（仓库默认 false）。按铁律须**外置为 `${VAR}` + NAS `.env` 值**并把 `ENABLE_LOSSLESS=true` 回写仓库——这是一次需要重启窗口的对账，未完成前 preflight 会报漂移并阻止部署。

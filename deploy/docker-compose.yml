@@ -11,13 +11,16 @@ services:
     restart: unless-stopped
     environment:
       - KWQQ_PORT=3003
-      - ENABLE_LOSSLESS=false        # plugin scenario caps at 320kbps; flip to true to expose flac/hires
+      - ENABLE_LOSSLESS=true         # 生产实况回写（2026-11-21 权威对账）：NAS 一直为 true；plugin 场景仍按 320k 封顶
       - HARD_TIMEOUT_S=35
       - TESTER_TIMEOUT=3,8
       - MAX_CONCURRENCY=4
       - PARSER_FAIL_THRESHOLD=3
       - PARSER_COOLDOWN_S=300
-      - API_KEY=__SET_ON_NAS__       # keep in sync with the apiKey configured in MusicFree plugins
+      # 凭据只以 .env 的值存在于 NAS（键名见 deploy/.env.example）
+      - API_KEY=${API_KEY:?API_KEY missing, set it in NAS .env}   # keep in sync with the apiKey configured in MusicFree plugins
+      - SERVICE_TOKENS=${SERVICE_TOKENS:?SERVICE_TOKENS missing, set it in NAS .env}
+      - CREDENTIAL_GENERATION=2
       - TRUSTED_NETWORKS=127.0.0.0/8,10.10.10.0/24,10.20.0.0/24,192.168.0.0/16   # 10.20.0.0/24 = office WireGuard LAN
       - UNTRUSTED_HOSTS=10.10.10.1   # Lucky router relays all external traffic
     healthcheck:
