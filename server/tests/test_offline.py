@@ -545,5 +545,33 @@ check('P9c unsupported source: 501 envelope', st == 501 and b['code'] == 501,
       f"status={st} code={b.get('code')}")
 server7.should_exit = True
 
+# ---- section 10: kuwo search cover (single-track search uses album art, not MV still) ----
+from server.adapters.kuwo import KuwoAdapter, _kw_cover_url
+
+item = KuwoAdapter.item_from_raw({
+    'MUSICRID': 'MUSIC_228908', 'SONGNAME': '晴天', 'ARTIST': '周杰伦', 'ALBUM': '叶惠美', 'DURATION': '269',
+    'hts_MVPIC': 'https://img2.kuwo.cn/wmvpic/324/s4s75/52/1458871193.jpg',
+    'web_albumpic_short': '120/s3s94/93/211513640.jpg',
+})
+check('kuwo search cover: web_albumpic_short wins over MV still',
+      item['cover'] == 'https://img4.kuwo.cn/star/albumcover/120/s3s94/93/211513640.jpg',
+      f"cover={item['cover']}")
+check('kuwo search cover: no wmvpic leaked', 'wmvpic' not in (item['cover'] or ''))
+
+item2 = KuwoAdapter.item_from_raw({
+    'MUSICRID': 'MUSIC_1', 'name': 'x', 'albumpic': 'https://img1.kuwo.cn/star/albumcover/240/a.jpg',
+})
+check('kuwo search cover: full albumpic URL kept', item2['cover'] == 'https://img1.kuwo.cn/star/albumcover/240/a.jpg')
+
+item3 = KuwoAdapter.item_from_raw({'MUSICRID': 'MUSIC_2', 'name': 'y', 'hts_MVPIC': 'https://img2.kuwo.cn/wmvpic/b.jpg'})
+check('kuwo search cover: MV-only item has no cover', item3['cover'] is None)
+
+check('kuwo r.s album cover: pic relative path reconstructed',
+      KuwoAdapter._kw_album_cover({'pic': '300/s4s20/50/2249884204.jpg'})
+      == 'https://img4.kuwo.cn/star/albumcover/300/s4s20/50/2249884204.jpg')
+check('kuwo cover helper: full URL passthrough',
+      _kw_cover_url('http://img4.sycdn.kuwo.cn/star/albumcover/240/x.jpg')
+      == 'http://img4.sycdn.kuwo.cn/star/albumcover/240/x.jpg')
+
 print(f'\nRESULT: {PASSED} passed, {len(FAILED)} failed' + (f' -> {FAILED}' if FAILED else ''))
 sys.exit(1 if FAILED else 0)

@@ -16,6 +16,25 @@ from musicdl.modules.utils.kuwoutils import KuwoMusicClientUtils
 MIN_KBPS = {'128k': 112, '320k': 256}
 
 
+def _kw_cover_url(value) -> str | None:
+    """酷我封面字段 → 完整 URL。
+
+    两个搜索端点给的字段不同：
+    - searchMusicBykeyWord（单曲搜索）：`web_albumpic_short`，形如 "120/s4s60/86/x.jpg"
+    - r.s（专辑/歌手/歌单）：`pic`（"300/s4s60/86/x.jpg"）或 `img`/`hts_img`（已是完整 URL）
+
+    `hts_MVPIC` 是 MV 截图（wmvpic），不能当专辑封面；旧拼法
+    `img4.kuwo.cn/star/albumcover/256` + 去掉尺寸段实测 404（256 档仅在 img2 可用），
+    因此保留上游尺寸段、直接拼到 albumcover/ 下（img4/img2 均 200）。
+    """
+    s = str(value or '').strip()
+    if not s:
+        return None
+    if s.startswith(('http://', 'https://')):
+        return s
+    return 'https://img4.kuwo.cn/star/albumcover/' + s.lstrip('/')
+
+
 class KuwoAdapter(SourceAdapter):
     source_key = 'kuwo'
     album_track_count = True
@@ -185,9 +204,11 @@ class KuwoAdapter(SourceAdapter):
         song_id = str(raw.get('MUSICRID') or raw.get('musicrid') or '').removeprefix('MUSIC_')
         try: duration = int(float(raw.get('DURATION') or raw.get('duration') or 0))
         except Exception: duration = None
+        # 单曲搜索的专辑封面在 web_albumpic_short；hts_MVPIC 是 MV 截图，不充当专辑图。
+        cover = _kw_cover_url(raw.get('web_albumpic_short') or raw.get('albumpic') or raw.get('pic'))
         return {'id': song_id, 'name': raw.get('SONGNAME') or raw.get('name'), 'singer': raw.get('ARTIST') or raw.get('artist'),
                 'album': raw.get('ALBUM') or raw.get('album'), 'ext': None, 'size_bytes': None,
-                'duration_s': duration or None, 'cover': raw.get('hts_MVPIC') or raw.get('albumpic') or raw.get('pic'), 'source': 'kuwo'}
+                'duration_s': duration or None, 'cover': cover, 'source': 'kuwo'}
 
     '''HEAD-probe a direct link and build the response dict.
        Zhenpin tiers carry `ekey`: the returned url serves ENCRYPTED audio; the consumer must
@@ -448,13 +469,7 @@ class KuwoAdapter(SourceAdapter):
                 aid = a.get('albumid')
                 if not aid:
                     continue
-                cover = a.get('img')
-                if not cover:
-                    # web_albumpic_short 形如 "120/s4s60/86/x.jpg"
-                    short = str(a.get('pic') or '')
-                    i = short.find('/')
-                    if i >= 0:
-                        cover = 'https://img4.kuwo.cn/star/albumcover/256' + short[i:]
+                cover = a.get('img') or _kw_cover_url(a.get('pic') or a.get('web_albumpic_short'))
                 items.append({'id': str(aid), 'name': _txt(a.get('name')), 'artist': _txt(a.get('artist')),
                               'cover': cover,
                               'track_count': int(a['musiccnt']) if str(a.get('musiccnt') or '').isdigit() else None,
@@ -517,12 +532,7 @@ class KuwoAdapter(SourceAdapter):
             for a in rows:
                 if not a.get('albumid'):
                     continue
-                cover = a.get('img')
-                if not cover:
-                    short = str(a.get('pic') or '')
-                    i = short.find('/')
-                    if i >= 0:
-                        cover = 'https://img4.kuwo.cn/star/albumcover/256' + short[i:]
+                cover = a.get('img') or _kw_cover_url(a.get('pic') or a.get('web_albumpic_short'))
                 albums.append({'id': str(a['albumid']), 'name': _html.unescape(str(a.get('name') or '')),
                                'artist': _html.unescape(str(a.get('artist') or '')), 'cover': cover,
                                'source': 'kuwo'})
@@ -535,9 +545,7 @@ class KuwoAdapter(SourceAdapter):
                 song_id = str(m.get('musicrid') or m.get('id') or '').removeprefix('MUSIC_')
                 if not song_id:
                     continue
-                short = str(m.get('web_albumpic_short') or '')
-                i = short.find('/')
-                cover = ('https://img4.kuwo.cn/star/albumcover/256' + short[i:]) if i >= 0 else None
+                cover = _kw_cover_url(m.get('web_albumpic_short') or m.get('pic'))
                 try:
                     duration = int(float(m.get('duration') or 0)) or None
                 except Exception:
@@ -569,12 +577,7 @@ class KuwoAdapter(SourceAdapter):
 
     @staticmethod
     def _kw_album_cover(a: dict):
-        cover = a.get('hts_img') or a.get('img')
-        if cover:
-            return cover
-        short = str(a.get('pic') or '')
-        i = short.find('/')
-        return ('https://img4.kuwo.cn/star/albumcover/256' + short[i:]) if i >= 0 else None
+        return a.get('hts_img') or a.get('img') or _kw_cover_url(a.get('pic') or a.get('web_albumpic_short'))
 
     async def artist_info(self, artist_id: str) -> dict:
         def _fetch():
@@ -612,9 +615,7 @@ class KuwoAdapter(SourceAdapter):
                     sid = str(m.get('musicrid') or m.get('id') or '').removeprefix('MUSIC_')
                     if not sid:
                         continue
-                    short = str(m.get('web_albumpic_short') or '')
-                    i = short.find('/')
-                    cover = ('https://img4.kuwo.cn/star/albumcover/256' + short[i:]) if i >= 0 else None
+                    cover = _kw_cover_url(m.get('web_albumpic_short') or m.get('pic'))
                     items.append({'id': sid, 'name': _txt(m.get('name') or m.get('NAME')),
                                   'singer': _txt(m.get('artist') or m.get('ARTIST')),
                                   'album': _txt(m.get('album') or m.get('ALBUM')),
