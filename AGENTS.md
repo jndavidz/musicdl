@@ -69,7 +69,7 @@ Makefile 的 `install`/`publish` 是上游 PyPI 发布遗留；本仓库的发�
 ## 文档指针
 
 - `D:\_work\dev\docs\projects\MUSICDL\music-ecosystem-roadmap.md` — **音乐生态路线图（本仓库责任区）**：多组件架构（bridge/Lyrion/手机端）中本仓库的四 Track 执行计划与跨区契约。**规划 API 消费方、手机端、服务强化前读它**。
-- `docs/plan/OPEN-ITEMS.md` — **本仓未完成事项清单**（P6 playlist/专辑扩源、live 对 netease 覆盖缺口、C4 门控、C7 POC 退役）。**认领任务或回答"还剩什么"时读它**。
+- `docs/plan/OPEN-ITEMS.md` — 🪦 墓碑（2026-11-27 迁出）。本仓未完成事项现并入三仓联合索引 `open-xiaoai/docs/plan/pending-followups.md` **MD 区**（MD-001…MD-008），详情一条一文件在 `open-xiaoai/docs/plan/pending-followups/`。**认领任务或回答"还剩什么"读联合索引 MD 区**。
 - `server/README.md` — 端点表、环境变量表、架构图、NAS 部署与验收命令。**改配置或部署前读它**（本文件的命令只覆盖最短开发环）。
 - `docs/API-REFERENCE.md` — 对外接口契约：认证双层模型、响应包裹语义（业务未命中 = HTTP 200 + code 403/404，上游故障 = 502/504）、各源能力。**改任何路由语义前读它**。
 - `docs/UPSTREAM-SYNC-SOP.md` — 上游月度同步 SOP（fetch upstream → merge → 台账 → 双轨冒烟 → NAS 验收与回退）。**上游发版或例行同步前读它**。
